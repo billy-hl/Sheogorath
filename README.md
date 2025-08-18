@@ -1,43 +1,58 @@
-# Discord Bot - Sheogorath
 
-Welcome to our innovative Discord bot project, leveraging the capabilities of OpenAI's ChatGPT to enhance the Discord user experience. This bot is designed to integrate seamlessly with Discord servers, providing users with a powerful AI companion for a variety of tasks and interactions.
+# Sheogorath Discord Bot
 
-## Description
+Sheogorath is a full-featured Discord bot that combines AI chat, music streaming, and livestream notifications for your community. Powered by OpenAI and modern Discord libraries, it brings together:
 
-In the ever-evolving world of online communication, our project introduces a cutting-edge way to engage and assist users on Discord. Utilizing the advanced natural language processing power of ChatGPT, this bot can converse, provide information, and perform commands all within the Discord environment.
+## What does it do?
 
-Key Features:
+- **AI Chat**: Talk to Sheogorath, an AI persona based on the Elder Scrolls character, using OpenAI's GPT models. The bot responds in-character, answers questions, and can be customized for your server.
+- **Music Streaming**: Play YouTube music directly in your Discord voice channels. Supports both direct YouTube URLs and search terms, with robust error handling and queue management.
+- **Livestream Alerts**: Automatically detects when specified YouTube or Kick channels go live and posts announcements in your chosen Discord channel. Also announces new YouTube uploads.
+- **Slash Commands**: Includes commands for AI chat, music control, live status checks, and more. All commands are registered as Discord slash commands for easy use.
+- **Customizable**: Configure which channels to monitor, which Discord channel to post alerts, and the bot's persona via environment variables.
 
-AI Conversation: Engage in natural, fluid conversations with users, powered by ChatGPT's language understanding.
-Automated Moderation: Help maintain server guidelines by monitoring and responding to chat activities.
-Customizable Interactions: Tailored responses and interactions based on server-specific needs or themes.
-Information Retrieval: Provide instant answers to queries, ranging from simple factual questions to complex topics.
-Integration with Discord Features: Seamlessly works with Discord's existing features like channels, roles, and permissions for a cohesive experience.
-This project is an excellent showcase of integrating cutting-edge AI technology with popular communication platforms like Discord. It's ideal for server administrators looking to enhance user engagement, provide AI-driven assistance, or simply add an innovative feature to their community.
+## Key Features
 
-We value contributions from the developer community and encourage suggestions, improvements, and innovative ideas to make this bot even more versatile and user-friendly.
+- AI-powered chat and persona
+- YouTube/Kick livestream and upload detection
+- Music playback from YouTube
+- Rich Discord notifications and embeds
+- Easy setup with environment variables
 
 ## Getting Started
 
 ### Dependencies
 
-NodeJS
+- Node.js (v18+ recommended)
 
-### Local Development
+### Setup
 
-`.env`
+1. Clone the repo and install dependencies:
+	```sh
+	npm install
+	```
+2. Create a `.env` file in the root directory with your secrets and config:
+	```
+	OPENAI_API_KEY=your_openai_key
+	ASSISTANT_ID=your_openai_assistant_id
+	THREAD_ID=your_openai_thread_id
+	CHANNEL_ID=discord_channel_id_for_announcements
+	POLLING_RETRIES=10
+	POLLING_TIMEOUT=3
+	CLIENT_NAME=Sheogorath
+	CLIENT_INSTRUCTIONS=Your custom AI instructions
+	CLIENT_MODEL=gpt-4o
+	DISCORD_TOKEN=your_discord_token
+	CLIENT_ID=your_discord_bot_id
+	GUILD_ID=your_discord_guild_id
+	KICK_CHANNEL_URL=https://kick.com/yourkickchannel
+	YT_CHANNEL_URL=https://www.youtube.com/channel/yourchannelid
+	```
+3. Start the bot:
+	```sh
+	npm run start
+	```
 
-```
-API=OPENAI API KEY
-ASSISTANT_ID=ASSISTANT KEY
-THREAD_ID=THREAD KEY
-CHANNEL_ID=DISCORD CHANNEL ID
-POLLING_RETRIES=10
-POLLING_TIMEOUT=3
-CLIENT_NAME=NAME OF AI
-CLIENT_INSTRUCTIONS=AI INSTRUCTIONS
-CLIENT_MODEL=OPENAI MODEL ie. gpt-3.5-turbo
-TOKEN=DISCORD TOKEN
-CLIENT_ID=DISCORD BOT ID
-GUILD_ID=DISCORD CHANNEL ID
-```
+## Contributing
+
+We welcome suggestions, improvements, and new features! Open a pull request or issue to get started.

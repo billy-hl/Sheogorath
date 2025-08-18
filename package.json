@@ -1,0 +1,40 @@
+{
+  "name": "discord-bot",
+  "version": "1.0.0",
+  "description": "Wabbajacks personal Daedric Price Chatbot",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "nodemon src/index.js --config nodemon.json",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": [],
+  "contributors": [
+    "Billy McAllister <bjmcallister333@gmail.com>",
+    "Luke Brown <luke@covalent.space>"
+  ],
+  "nodemonConfig": {
+    "ignore": [
+      "*.json"
+    ]
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/opus": "^0.10.0",
+    "@discordjs/voice": "^0.16.1",
+    "@distube/ytdl-core": "^4.15.8",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "libsodium-wrappers": "^0.7.13",
+    "node-fetch": "^2.7.0",
+    "node-schedule": "^2.1.1",
+    "openai": "^4.21.0",
+    "play-dl": "^1.9.7",
+    "rss-parser": "^3.13.0",
+    "youtube-dl-exec": "^3.0.13",
+    "ytdl-core": "^4.11.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

@@ -15,7 +15,9 @@ async function checkKickLive(channelUrl) {
   const live = !!json?.livestream;
   const title = json?.livestream?.session_title || json?.livestream?.recent_categories?.[0]?.name;
   const url = `https://kick.com/${username}`;
-  return { live, title, url };
+  const thumbnail = json?.livestream?.thumbnail?.url;
+  const banner = json?.banner_image?.url || json?.banner_image;
+  return { live, title, url, thumbnail, banner, json };
 }
 
 module.exports = { checkKickLive };

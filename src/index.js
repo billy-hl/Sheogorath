@@ -89,7 +89,19 @@ client.once('ready', async () => {
         const prev = !!state.kickLive;
         const info = await checkKickLive(process.env.KICK_CHANNEL_URL);
         if (info.live && !prev) {
-          await channel.send(`🚨 Live on Kick now: ${info.title || 'Streaming'} — ${info.url}`);
+          // Decorate message with extra info if available
+          const viewers = info.viewer_count || (info.json?.livestream?.viewer_count ?? null);
+          const category = info.json?.livestream?.categories?.[0]?.name || info.json?.recent_categories?.[0]?.name;
+          let imageUrl = info.thumbnail || info.banner || process.env.DEFAULT_IMAGE_URL;
+          console.log('Kick main channel image:', info.thumbnail);
+          const embed = {
+            color: 0x00ff00,
+            title: `🚨 Live on Kick now!`,
+            url: info.url,
+            description: `**${info.title || 'Streaming'}**\n${category ? `Game: ${category}\n` : ''}${viewers ? `Viewers: ${viewers}\n` : ''}`,
+            image: imageUrl ? { url: imageUrl } : undefined,
+          };
+          await channel.send({ embeds: [embed] });
         }
         setState({ kickLive: info.live });
       } catch (e) {
@@ -111,13 +123,14 @@ client.once('ready', async () => {
         // Decorate message with extra info if available
         const viewers = info.viewer_count || (info.json?.livestream?.viewer_count ?? null);
         const category = info.json?.livestream?.categories?.[0]?.name || info.json?.recent_categories?.[0]?.name;
-        const thumb = info.json?.livestream?.thumbnail?.url;
+        let imageUrl = info.json?.livestream?.thumbnail?.url || info.banner || process.env.DEFAULT_IMAGE_URL;
+        console.log('Eokafish Kick image:', imageUrl);
         const embed = {
           color: 0x00ff00,
           title: `🚨 Eokafish is LIVE on Kick!`,
           url: info.url,
           description: `**${info.title || 'Streaming'}**\n${category ? `Game: ${category}\n` : ''}${viewers ? `Viewers: ${viewers}\n` : ''}`,
-          image: thumb ? { url: thumb } : undefined,
+          image: imageUrl ? { url: imageUrl } : undefined,
         };
         await channel.send({ embeds: [embed] });
       }

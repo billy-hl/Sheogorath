@@ -1,0 +1,159 @@
+{
+  "players": {
+    "215938135450714113": {
+      "level": 1,
+      "experience": 0,
+      "coins": 516,
+      "inventory": {
+        "perch": 1,
+        "bass": 1
+      },
+      "equipment": {
+        "rod": "basic_rod",
+        "bait": "worms",
+        "hook": "basic_hook"
+      },
+      "stats": {
+        "totalCasts": 6,
+        "totalFish": 5,
+        "rareFish": 1,
+        "biggestCatch": 10.2,
+        "totalCoins": 516
+      },
+      "achievements": [],
+      "lastCast": 1756408981888
+    }
+  },
+  "shop": {
+    "rods": {
+      "basic_rod": {
+        "name": "Basic Rod",
+        "cost": 0,
+        "description": "A simple fishing rod for beginners"
+      },
+      "sturdy_rod": {
+        "name": "Sturdy Rod",
+        "cost": 500,
+        "description": "A more durable rod for deeper waters"
+      },
+      "enchanted_rod": {
+        "name": "Enchanted Rod",
+        "cost": 2000,
+        "description": "A magical rod that attracts rare fish"
+      },
+      "legendary_rod": {
+        "name": "Legendary Rod",
+        "cost": 5000,
+        "description": "The ultimate fishing rod of legends"
+      }
+    },
+    "bait": {
+      "worms": {
+        "name": "Worms",
+        "cost": 10,
+        "description": "Basic bait for common fish"
+      },
+      "minnows": {
+        "name": "Minnows",
+        "cost": 25,
+        "description": "Live bait for better catches"
+      },
+      "magical_lure": {
+        "name": "Magical Lure",
+        "cost": 100,
+        "description": "Enchanted bait that glows in the dark"
+      },
+      "dragon_scale": {
+        "name": "Dragon Scale",
+        "cost": 500,
+        "description": "Extremely rare bait from ancient dragons"
+      }
+    },
+    "hooks": {
+      "basic_hook": {
+        "name": "Basic Hook",
+        "cost": 0,
+        "description": "Standard fishing hook"
+      },
+      "barbed_hook": {
+        "name": "Barbed Hook",
+        "cost": 200,
+        "description": "Hook that catches more fish"
+      },
+      "golden_hook": {
+        "name": "Golden Hook",
+        "cost": 800,
+        "description": "Luxurious hook that attracts valuable fish"
+      },
+      "dimensional_hook": {
+        "name": "Dimensional Hook",
+        "cost": 3000,
+        "description": "Hook that can catch fish from other realms"
+      }
+    }
+  },
+  "market": {
+    "fish_prices": {
+      "minnow": {
+        "basePrice": 5,
+        "rarity": "common"
+      },
+      "perch": {
+        "basePrice": 8,
+        "rarity": "common"
+      },
+      "catfish": {
+        "basePrice": 12,
+        "rarity": "common"
+      },
+      "bass": {
+        "basePrice": 15,
+        "rarity": "common"
+      },
+      "trout": {
+        "basePrice": 25,
+        "rarity": "uncommon"
+      },
+      "salmon": {
+        "basePrice": 35,
+        "rarity": "uncommon"
+      },
+      "tuna": {
+        "basePrice": 45,
+        "rarity": "uncommon"
+      },
+      "golden_fish": {
+        "basePrice": 100,
+        "rarity": "rare"
+      },
+      "crystal_fish": {
+        "basePrice": 150,
+        "rarity": "rare"
+      },
+      "shadow_fish": {
+        "basePrice": 200,
+        "rarity": "rare"
+      },
+      "dragon_fish": {
+        "basePrice": 500,
+        "rarity": "legendary"
+      },
+      "phoenix_fish": {
+        "basePrice": 750,
+        "rarity": "legendary"
+      },
+      "void_fish": {
+        "basePrice": 1000,
+        "rarity": "legendary"
+      },
+      "festival_fish": {
+        "basePrice": 300,
+        "rarity": "event"
+      },
+      "lunar_fish": {
+        "basePrice": 400,
+        "rarity": "event"
+      }
+    }
+  }
+}

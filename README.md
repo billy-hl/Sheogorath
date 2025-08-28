@@ -1,7 +1,37 @@
 
 # Sheogorath Discord Bot
 
-Sheogorath is a full-featured Discord bot that combines AI chat, music streaming, and livestream notifications for your community. Powered by OpenAI and modern Discord libraries, it brings together:
+Sheogorath is a full-featured Discord bot that combines AI chat### 🎲 Games & Fun
+- `/dice [sides] [count]` - Roll dice with Sheogorath's chaotic luck (default: 1d6)
+- `/coinflip [choice]` - Flip a coin - let fate decide!
+- `/rps <choice>` - Play Rock Paper Scissors with Sheogorath
+- `/guess [max]` - Play a number guessing game (default: 1-100)
+
+### 🎣 Fishing Game
+- `/fish [location]` - Cast your line and try to catch fish! (5 locations with different rarities)
+- `/shop <action>` - Visit the fishing shop to buy equipment or sell fish
+- `/inventory [view]` - Check your fishing inventory, equipment, and stats
+- `/leaderboard [category]` - View fishing leaderboard rankings
+
+#### 🏪 Fishing Shop Features:
+- **Equipment:** 4 tiers of rods, bait, and hooks with increasing bonuses
+- **Market:** Dynamic fish prices based on rarity and size
+- **Trading:** Buy equipment upgrades and sell caught fish
+- **Progression:** Level up system with experience and achievements
+
+#### 🎯 Fishing Locations:
+- 🏞️ **River** - Balanced fishing with common fish
+- 🌊 **Ocean** - Better for uncommon fish
+- 🏔️ **Mountain Lake** - Excellent for rare catches
+- 🌌 **Mystic Pond** - High chance for legendary fish
+- 🔥 **Lava Lake** - Best for event and legendary fish (hardest)
+
+#### 🐟 Fish Types & Rarity:
+- 🐟 **Common** (60%) - Basic fish like minnows, perch
+- 🐠 **Uncommon** (25%) - Better fish like trout, salmon
+- 🦈 **Rare** (10%) - Valuable fish like golden fish
+- 🐋 **Legendary** (4%) - Epic catches like dragon fish
+- 🎏 **Event** (1%) - Special festival and lunar fishic streaming, and livestream notifications for your community. Powered by OpenAI and modern Discord libraries, it brings together:
 
 ## What does it do?
 
@@ -17,13 +47,16 @@ Sheogorath is a full-featured Discord bot that combines AI chat, music streaming
 
 ## Key Features
 
-- AI-powered chat and persona
-- YouTube/Kick livestream and upload detection
-- Multi-channel Kick monitoring (main, EokaFish, Allisteras)
-- Music playback from YouTube
-- Rich Discord notifications with thumbnails and interactive buttons
-- Easy setup with environment variables
-- Production-ready with proper error handling
+- **AI-powered chat and persona** with OpenAI GPT integration
+- **Multi-channel Kick monitoring** (main, EokaFish, Allisteras) with rich embeds
+- **YouTube livestream and upload detection** with notifications
+- **Advanced music system** with YouTube playback and queue management
+- **Interactive features**: Polls, giveaways, reminders, weather info
+- **Comprehensive moderation tools** for server administrators
+- **Rich Discord notifications** with thumbnails, viewer counts, and buttons
+- **Health monitoring** and performance optimization
+- **Fun commands**: Jokes, facts, and entertainment features
+- **Server management**: User info, server stats, announcements
 
 ## Getting Started
 
@@ -56,6 +89,7 @@ Sheogorath is a full-featured Discord bot that combines AI chat, music streaming
 	YT_CHANNEL_URL=https://www.youtube.com/channel/yourchannelid
 	DEFAULT_IMAGE_URL=https://example.com/default-image.jpg
 	GIPHY_API_KEY=your_giphy_key
+	WEATHER_API_KEY=your_openweather_api_key
 	```
 3. Start the bot:
 	```sh
@@ -64,16 +98,38 @@ Sheogorath is a full-featured Discord bot that combines AI chat, music streaming
 
 ## Available Commands
 
+### 🎵 Music Commands
 - `/play <url>` - Play music from YouTube URL or search term
 - `/pause` - Pause current music playback
 - `/resume` - Resume paused music
 - `/stop` - Stop music and disconnect from voice channel
-- `/livecheck` - Check current livestream status for configured channels
-- `/health` - Check bot health and service status
-- `/ai <message>` - Chat with the AI assistant
-- `/news` - Get latest news articles
 - `/lofi` - Play lofi music
 - `/synth` - Generate synthesizer sounds
+
+### 🤖 AI & Chat
+- `/ai <message>` - Chat with the AI assistant
+- `/news` - Get latest news articles
+
+### 📊 Information & Utility
+- `/livecheck` - Check current livestream status for configured channels
+- `/health` - Check bot health and service status
+- `/userinfo [user]` - Get information about a user
+- `/serverinfo` - Get detailed information about the server
+- `/weather <location>` - Get weather information for a location
+- `/remind <message> <minutes>` - Set a personal reminder
+
+### � Games & Fun
+- `/dice [sides] [count]` - Roll dice with Sheogorath's chaotic luck (default: 1d6)
+- `/coinflip [choice]` - Flip a coin - let fate decide!
+- `/rps <choice>` - Play Rock Paper Scissors with Sheogorath
+- `/guess [max]` - Play a number guessing game (default: 1-100)
+
+### 👑 Administration (Admin Only)
+- `/admin stats` - Show bot statistics
+- `/admin clear <amount>` - Clear messages from channel
+- `/admin announce <message>` - Make server announcements
+- `/giveaway <prize> <duration>` - Create giveaways
+- `/mod warn/kick/ban/timeout <user>` - Moderation commands
 
 ## Configuration Options
 

@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { play, connectToChannel, getConnection, players } = require('../music/player');
+const { getAIResponse } = require('../ai/openai');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -38,7 +39,18 @@ module.exports = {
     let connection = getConnection(interaction.guild);
     if (!connection) connection = connectToChannel(voiceChannel);
     try {
-      await interaction.editReply(`Playing: ${url}`);
+      await interaction.editReply(`🎵 Playing: ${url}`);
+      
+      // Add AI commentary about the music
+      try {
+        const aiPrompt = `Comment on someone playing "${url}" in your typical chaotic, sarcastic style. Make it entertaining and related to music or the song if possible.`;
+        const aiComment = await getAIResponse(aiPrompt);
+        
+        await interaction.followUp(`🎭 *${aiComment}*`);
+      } catch (aiError) {
+        console.error('AI music comment failed:', aiError);
+      }
+      
       const player = await play(connection, url, async () => {
         try {
           await interaction.followUp('Song finished!');

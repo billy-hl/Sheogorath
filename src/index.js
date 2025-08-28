@@ -1,7 +1,7 @@
 'use strict';
 require('dotenv').config();
 const fs = require('fs');
-const { Client, GatewayIntentBits, Collection, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { OpenAI } = require('openai');
 const { getVoiceConnection } = require('@discordjs/voice');
 const schedule = require('node-schedule');
@@ -13,6 +13,7 @@ const fetch = require('node-fetch');
 
 let greetServer = false; // Flag to track if the live stream has been announced
 let lastInteractionTime = Date.now(); // Track the last interaction time
+const conversationHistory = new Map(); // Store conversation history per user
 
 const requiredEnv = [
   'OPENAI_API_KEY',
@@ -365,6 +366,39 @@ client.once('ready', async () => {
       }
     });
   }
+
+  // Proactive AI engagement - random messages every 45 minutes
+  schedule.scheduleJob('*/45 * * * *', async () => {
+    try {
+      const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+      if (!channel || !channel.isTextBased()) return;
+      
+      // 15% chance to send a random engaging message
+      if (Math.random() < 0.15) {
+        const prompts = [
+          "Share a random thought or observation about the current state of the server.",
+          "Ask the users an interesting question to spark conversation.",
+          "Share a piece of 'wisdom' in your typical chaotic style.",
+          "Comment on something happening in the world of mortals."
+        ];
+        
+        const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
+        
+        const response = await openai.chat.completions.create({
+          model: process.env.CLIENT_MODEL,
+          messages: [
+            { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
+            { role: 'user', content: randomPrompt }
+          ],
+        });
+        
+        const message = response.choices[0].message.content;
+        await channel.send(message);
+      }
+    } catch (e) {
+      console.error('Proactive AI engagement failed:', e?.message || e);
+    }
+  });
 });
 
 
@@ -418,10 +452,49 @@ client.on('messageCreate', async (message) => {
   ) {
     askChatGPT(message);
   }
+  
+  // Enhanced conversational triggers
+  const content = message.content.toLowerCase();
+  const triggers = [
+    'sheogorath',
+    'mad king',
+    'hey bot',
+    'ai',
+    'tell me',
+    'what do you think',
+    'help me',
+    'i need advice'
+  ];
+  
+  const isTriggered = triggers.some(trigger => content.includes(trigger));
+  
+  if (isTriggered && !message.content.includes(`<@!${client.user.id}>`) && !message.content.includes(`<@${client.user.id}>`)) {
+    askChatGPT(message);
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   lastInteractionTime = Date.now();
+
+  if (interaction.isButton()) {
+    // Handle button interactions for games
+    if (interaction.customId.startsWith('guess_')) {
+      await handleGuessGame(interaction);
+      return;
+    }
+  }
+
+  if (interaction.isStringSelectMenu()) {
+    // Handle select menu interactions for fishing shop
+    if (interaction.customId.startsWith('shop_')) {
+      await handleShopPurchase(interaction);
+      return;
+    }
+    if (interaction.customId === 'sell_fish') {
+      await handleFishSell(interaction);
+      return;
+    }
+  }
 
   if (!interaction.isChatInputCommand()) return;
 
@@ -499,18 +572,60 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 });
 
-async function askChatGPT(userMessage) {
-  userMessage.channel.sendTyping();
+// AI welcome messages for new members
+client.on('guildMemberAdd', async (member) => {
   try {
-    const response = await openai.chat.completions.create({
+    const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+    if (!channel || !channel.isTextBased()) return;
+    
+    const prompt = `Welcome ${member.user.username} to the server in your typical chaotic, sarcastic, and threatening style. Make it memorable and fun.`;
+    const welcomeMessage = await openai.chat.completions.create({
       model: process.env.CLIENT_MODEL,
       messages: [
         { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-        { role: 'user', content: userMessage.content },
+        { role: 'user', content: prompt }
       ],
+    });
+    
+    const message = welcomeMessage.choices[0].message.content;
+    await channel.send(`🎉 ${message}`);
+  } catch (error) {
+    console.error('AI welcome message failed:', error);
+    // Fallback welcome
+    await channel.send(`🎉 Welcome ${member.user.username}! The Mad King awaits your entertainment...`);
+  }
+});
+
+async function askChatGPT(userMessage) {
+  userMessage.channel.sendTyping();
+  
+  const userId = userMessage.author.id;
+  const history = conversationHistory.get(userId) || [];
+  
+  try {
+    const messages = [
+      { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
+      ...history.slice(-8), // Keep last 8 messages for context
+      { role: 'user', content: userMessage.content }
+    ];
+    
+    const response = await openai.chat.completions.create({
+      model: process.env.CLIENT_MODEL,
+      messages: messages,
     });
 
     const assistantReply = response.choices[0].message.content;
+    
+    // Store conversation (keep last 10 exchanges)
+    history.push(
+      { role: 'user', content: userMessage.content },
+      { role: 'assistant', content: assistantReply }
+    );
+    if (history.length > 20) { // Keep max 20 messages (10 exchanges)
+      history.splice(0, history.length - 20);
+    }
+    conversationHistory.set(userId, history);
+    
     userMessage.reply(assistantReply);
   } catch (error) {
     console.error('Error in askChatGPT:', error);
@@ -536,7 +651,255 @@ async function greetChatGpt(channel, messageToSend) {
   }
 }
 
-process.on('SIGINT', () => {
+async function handleGuessGame(interaction) {
+  const [action, value, targetNumber, maxNumber] = interaction.customId.split('_');
+  const target = parseInt(targetNumber);
+  const max = parseInt(maxNumber);
+
+  if (action === 'giveup') {
+    const embed = new EmbedBuilder()
+      .setTitle('😔 Game Over')
+      .setColor(0xff0000)
+      .setDescription(`**The number was ${target}!**\n\n*"Giving up so soon? How utterly disappointing!"*`)
+      .setFooter({
+        text: `Game ended by ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    await interaction.update({
+      embeds: [embed],
+      components: []
+    });
+    return;
+  }
+
+  if (action === 'custom') {
+    // This would require a modal, but for simplicity, let's just give a hint
+    const hint = target > 50 ? 'high' : 'low';
+    const embed = new EmbedBuilder()
+      .setTitle('🎲 Custom Guess')
+      .setColor(0xffa500)
+      .setDescription(`**Think of a number and guess it!**\n\n*Hint: The number is ${hint}er than 50!*`)
+      .setFooter({
+        text: `Playing with ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    await interaction.update({
+      embeds: [embed],
+      components: []
+    });
+    return;
+  }
+
+  const guess = parseInt(value);
+  let result;
+  let color;
+  let title;
+
+  if (guess === target) {
+    result = 'correct';
+    color = 0x00ff00;
+    title = '🎉 Correct!';
+  } else if (guess < target) {
+    result = 'too_low';
+    color = 0xffa500;
+    title = '📈 Too Low!';
+  } else {
+    result = 'too_high';
+    color = 0xffa500;
+    title = '📉 Too High!';
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setColor(color);
+
+  if (result === 'correct') {
+    embed.setDescription(`**You guessed ${guess}!**\n\n*"Well done! You have bested the Mad King... this time!"*`);
+  } else {
+    const direction = result === 'too_low' ? 'higher' : 'lower';
+    embed.setDescription(`**You guessed ${guess}!**\n\n*"Try ${direction}! The number eludes you still!"*`);
+  }
+
+  embed.setFooter({
+    text: `Guessing game with ${interaction.user.username}`,
+    iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+  });
+
+  // Update buttons if not correct
+  let components = [];
+  if (result !== 'correct') {
+    const row1 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`guess_25_${target}_${max}`)
+          .setLabel('25')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`guess_50_${target}_${max}`)
+          .setLabel('50')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`guess_75_${target}_${max}`)
+          .setLabel('75')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`guess_100_${target}_${max}`)
+          .setLabel('100')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId(`guess_custom_${target}_${max}`)
+          .setLabel('🎲 Custom Guess')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`guess_giveup_${target}_${max}`)
+          .setLabel('😔 Give Up')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+    components = [row1, row2];
+  }
+
+  await interaction.update({
+    embeds: [embed],
+    components: components
+  });
+}
+
+async function handleShopPurchase(interaction) {
+  const fishingGame = require('./services/fishing');
+  const [category, itemType, itemKey] = interaction.values[0].split('_');
+  const userId = interaction.user.id;
+  const playerData = fishingGame.getPlayerData(userId);
+  const shopData = fishingGame.loadData().shop;
+
+  let itemCategory, itemName, cost;
+
+  if (itemType === 'rod') {
+    itemCategory = shopData.rods;
+    itemName = 'rod';
+  } else if (itemType === 'bait') {
+    itemCategory = shopData.bait;
+    itemName = 'bait';
+  } else if (itemType === 'hook') {
+    itemCategory = shopData.hooks;
+    itemName = 'hook';
+  }
+
+  if (!itemCategory || !itemCategory[itemKey]) {
+    return await interaction.reply({
+      content: '❌ Invalid item selection!',
+      ephemeral: true
+    });
+  }
+
+  const item = itemCategory[itemKey];
+  cost = item.cost;
+
+  // Check if player can afford it
+  if (playerData.coins < cost) {
+    return await interaction.reply({
+      content: `❌ You don't have enough coins! You need ${cost} coins, but only have ${playerData.coins}.`,
+      ephemeral: true
+    });
+  }
+
+  // Check if already equipped
+  if (playerData.equipment[itemName] === itemKey) {
+    return await interaction.reply({
+      content: `❌ You already have the ${item.name} equipped!`,
+      ephemeral: true
+    });
+  }
+
+  // Purchase the item
+  playerData.coins -= cost;
+  playerData.equipment[itemName] = itemKey;
+
+  fishingGame.updatePlayerData(userId, {
+    coins: playerData.coins,
+    equipment: playerData.equipment
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Purchase Successful!')
+    .setDescription(`**${item.name}** equipped!\n\n*${item.description}*`)
+    .setColor(0x00ff00)
+    .addFields({
+      name: '💰 Remaining Coins',
+      value: `${playerData.coins} coins`,
+      inline: true
+    })
+    .setFooter({
+      text: `Purchased by ${interaction.user.username}`,
+      iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+    });
+
+  await interaction.reply({ embeds: [embed], ephemeral: false });
+}
+
+async function handleFishSell(interaction) {
+  const fishingGame = require('./services/fishing');
+  const parts = interaction.values[0].split('_');
+  const action = parts[0];
+  const quantityStr = parts[parts.length - 1];
+  const quantity = parseInt(quantityStr);
+  // Reconstruct fish name (handles names with underscores like lunar_fish)
+  const fishName = parts.slice(1, -1).join('_');
+  const userId = interaction.user.id;
+  const playerData = fishingGame.getPlayerData(userId);
+  const marketData = fishingGame.loadData().market;
+
+  const fishInfo = marketData.fish_prices[fishName];
+  if (!fishInfo) {
+    return await interaction.reply({
+      content: `❌ Invalid fish selection! Fish: ${fishName}`,
+      ephemeral: true
+    });
+  }
+
+  // Check if player has enough fish
+  if (!playerData.inventory[fishName] || playerData.inventory[fishName] < quantity) {
+    return await interaction.reply({
+      content: `❌ You don't have enough ${fishName.replace('_', ' ')} to sell!`,
+      ephemeral: true
+    });
+  }
+
+  // Calculate sale value
+  const totalValue = fishInfo.basePrice * quantity;
+
+  // Remove fish from inventory and add coins
+  fishingGame.removeFromInventory(userId, fishName, quantity);
+  playerData.coins += totalValue;
+  playerData.stats.totalCoins += totalValue;
+
+  fishingGame.updatePlayerData(userId, {
+    coins: playerData.coins,
+    stats: playerData.stats
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('💰 Fish Sold!')
+    .setDescription(`Sold **${quantity}x ${fishName.replace('_', ' ')}** for **${totalValue} coins**!`)
+    .setColor(0x00ff00)
+    .addFields({
+      name: '💵 New Balance',
+      value: `${playerData.coins} coins`,
+      inline: true
+    })
+    .setFooter({
+      text: `Sold by ${interaction.user.username}`,
+      iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+    });
+
+  await interaction.reply({ embeds: [embed], ephemeral: false });
+}process.on('SIGINT', () => {
   console.log('Bot is shutting down...');
   client.destroy();
   process.exit(0);

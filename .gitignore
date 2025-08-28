@@ -1,2 +1,7 @@
 .env
 node_modules
+*.log
+.DS_Store
+.vscode/settings.json
+data/cache.json
+cache.json

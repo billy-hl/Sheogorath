@@ -89,23 +89,74 @@ client.once('ready', async () => {
         const prev = !!state.kickLive;
         const info = await checkKickLive(process.env.KICK_CHANNEL_URL);
         if (info.live && !prev) {
-          // Decorate message with extra info if available
-          const viewers = info.viewer_count || (info.json?.livestream?.viewer_count ?? null);
-          const category = info.json?.livestream?.categories?.[0]?.name || info.json?.recent_categories?.[0]?.name;
-          let imageUrl = info.thumbnail || info.banner || process.env.DEFAULT_IMAGE_URL;
-          console.log('Kick main channel image:', info.thumbnail);
           const embed = {
-            color: 0x00ff00,
-            title: `🚨 Live on Kick now!`,
+            color: 0x53FC18, // Kick green
+            title: '🔴 Live on Kick!',
+            description: `**${info.title || 'Untitled Stream'}**`,
             url: info.url,
-            description: `**${info.title || 'Streaming'}**\n${category ? `Game: ${category}\n` : ''}${viewers ? `Viewers: ${viewers}\n` : ''}`,
-            image: imageUrl ? { url: imageUrl } : undefined,
+            fields: [],
+            timestamp: new Date().toISOString(),
+            footer: { text: 'Kick.com', icon_url: 'https://kick.com/favicon.ico' }
           };
-          await channel.send({ embeds: [embed] });
+
+          // Add viewer count if available
+          const viewers = info.viewer_count || (info.json?.livestream?.viewer_count ?? null);
+          if (viewers !== null) {
+            embed.fields.push({
+              name: '👥 Viewers',
+              value: viewers.toString(),
+              inline: true
+            });
+          }
+
+          // Add category/game if available
+          const category = info.json?.livestream?.categories?.[0]?.name || info.json?.recent_categories?.[0]?.name;
+          if (category) {
+            embed.fields.push({
+              name: '🎮 Category',
+              value: category,
+              inline: true
+            });
+          }
+
+          // Add stream duration if available
+          if (info.json?.livestream?.created_at) {
+            const startTime = new Date(info.json.livestream.created_at);
+            const duration = Math.floor((Date.now() - startTime.getTime()) / 1000 / 60);
+            embed.fields.push({
+              name: '⏱️ Duration',
+              value: `${duration} minutes`,
+              inline: true
+            });
+          }
+
+          // Set image (thumbnail or banner fallback)
+          const imageUrl = info.thumbnail || info.banner || process.env.DEFAULT_IMAGE_URL;
+          if (imageUrl) {
+            embed.image = { url: imageUrl.replace(/\\\//g, '/') };
+          }
+
+          // Create Watch Live button
+          const row = {
+            type: 1, // ACTION_ROW
+            components: [{
+              type: 2, // BUTTON
+              style: 5, // LINK
+              label: '🎬 Watch Live',
+              url: info.url
+            }]
+          };
+
+          await channel.send({ 
+            content: '@everyone 🚨 Someone is now live on Kick!',
+            embeds: [embed],
+            components: [row]
+          });
         }
         setState({ kickLive: info.live });
       } catch (e) {
-        console.error('Kick live check failed:', e?.message || e);
+        console.error(`Kick live check failed for main channel:`, e?.message || e);
+        // Don't update state on error to avoid false negatives
       }
     });
   }
@@ -120,25 +171,162 @@ client.once('ready', async () => {
       const prev = !!state.eokafishKickLive;
       const info = await checkKickLive(EOKAFISH_KICK_URL);
       if (info.live && !prev) {
-        // Decorate message with extra info if available
-        const viewers = info.viewer_count || (info.json?.livestream?.viewer_count ?? null);
-        const category = info.json?.livestream?.categories?.[0]?.name || info.json?.recent_categories?.[0]?.name;
-        let imageUrl = info.json?.livestream?.thumbnail?.url || info.banner || process.env.DEFAULT_IMAGE_URL;
-        console.log('Eokafish Kick image:', imageUrl);
         const embed = {
-          color: 0x00ff00,
-          title: `🚨 Eokafish is LIVE on Kick!`,
+          color: 0x53FC18, // Kick green
+          title: '🔴 EokaFish is Live on Kick!',
+          description: `**${info.title || 'Untitled Stream'}**`,
           url: info.url,
-          description: `**${info.title || 'Streaming'}**\n${category ? `Game: ${category}\n` : ''}${viewers ? `Viewers: ${viewers}\n` : ''}`,
-          image: imageUrl ? { url: imageUrl } : undefined,
+          fields: [],
+          timestamp: new Date().toISOString(),
+          footer: { text: 'Kick.com • EokaFish', icon_url: 'https://kick.com/favicon.ico' }
         };
-        await channel.send({ embeds: [embed] });
+
+        // Add viewer count
+        const viewers = info.viewer_count || (info.json?.livestream?.viewer_count ?? null);
+        if (viewers !== null) {
+          embed.fields.push({
+            name: '👥 Viewers',
+            value: viewers.toString(),
+            inline: true
+          });
+        }
+
+        // Add category/game
+        const category = info.json?.livestream?.categories?.[0]?.name || info.json?.recent_categories?.[0]?.name;
+        if (category) {
+          embed.fields.push({
+            name: '🎮 Playing',
+            value: category,
+            inline: true
+          });
+        }
+
+        // Add tags if available
+        const tags = info.json?.livestream?.tags;
+        if (tags && tags.length > 0) {
+          embed.fields.push({
+            name: '🏷️ Tags',
+            value: tags.slice(0, 5).join(', '), // Limit to 5 tags
+            inline: false
+          });
+        }
+
+          // Set thumbnail/banner
+          const imageUrl = info.json?.livestream?.thumbnail?.url || 
+                          info.json?.banner_image?.url || 
+                          process.env.DEFAULT_IMAGE_URL;
+          if (imageUrl) {
+            embed.image = { url: imageUrl.replace(/\\\//g, '/') };
+          }        // Create buttons row
+        const row = {
+          type: 1, // ACTION_ROW
+          components: [
+            {
+              type: 2, // BUTTON
+              style: 5, // LINK
+              label: '🎬 Watch Live',
+              url: info.url,
+              emoji: { name: '🔴' }
+            }
+          ]
+        };
+
+        await channel.send({ 
+          content: '@everyone 🚨 EokaFish is now live on Kick!',
+          embeds: [embed],
+          components: [row]
+        });
       }
       setState({ eokafishKickLive: info.live });
     } catch (e) {
       console.error('Eokafish Kick live check failed:', e?.message || e);
     }
   });
+
+  // Schedule Kick live check for allisteras every 2 minutes
+  if (process.env.ALLISTERAS_KICK_URL && process.env.CHANNEL_ID) {
+    schedule.scheduleJob('*/2 * * * *', async () => {
+      try {
+        const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+        if (!channel || !channel.isTextBased()) return;
+        const state = getState();
+        const prev = !!state.allisterasKickLive;
+        const info = await checkKickLive(process.env.ALLISTERAS_KICK_URL);
+        if (info.live && !prev) {
+          const embed = {
+            color: 0x53FC18, // Kick green
+            title: '🔴 Allisteras is Live on Kick!',
+            description: `**${info.title || 'Untitled Stream'}**`,
+            url: info.url,
+            fields: [],
+            timestamp: new Date().toISOString(),
+            footer: { text: 'Kick.com • Allisteras', icon_url: 'https://kick.com/favicon.ico' }
+          };
+
+          // Add viewer count
+          const viewers = info.viewer_count || (info.json?.livestream?.viewer_count ?? null);
+          if (viewers !== null) {
+            embed.fields.push({
+              name: '👥 Viewers',
+              value: viewers.toString(),
+              inline: true
+            });
+          }
+
+          // Add category/game
+          const category = info.json?.livestream?.categories?.[0]?.name || info.json?.recent_categories?.[0]?.name;
+          if (category) {
+            embed.fields.push({
+              name: '🎮 Playing',
+              value: category,
+              inline: true
+            });
+          }
+
+          // Add tags if available
+          const tags = info.json?.livestream?.tags;
+          if (tags && tags.length > 0) {
+            embed.fields.push({
+              name: '🏷️ Tags',
+              value: tags.slice(0, 5).join(', '), // Limit to 5 tags
+              inline: false
+            });
+          }
+
+          // Set thumbnail/banner
+          const imageUrl = info.json?.livestream?.thumbnail?.url || 
+                          info.json?.banner_image?.url || 
+                          process.env.DEFAULT_IMAGE_URL;
+          if (imageUrl) {
+            embed.image = { url: imageUrl.replace(/\\\//g, '/') };
+          }
+
+          // Create buttons row
+          const row = {
+            type: 1, // ACTION_ROW
+            components: [
+              {
+                type: 2, // BUTTON
+                style: 5, // LINK
+                label: '🎬 Watch Live',
+                url: info.url,
+                emoji: { name: '🔴' }
+              }
+            ]
+          };
+
+          await channel.send({ 
+            content: '@everyone 🚨 Allisteras is now live on Kick!',
+            embeds: [embed],
+            components: [row]
+          });
+        }
+        setState({ allisterasKickLive: info.live });
+      } catch (e) {
+        console.error('Allisteras Kick live check failed:', e?.message || e);
+      }
+    });
+  }
 
   // Schedule YouTube latest video check every 5 minutes, if YT_CHANNEL_URL and CHANNEL_ID are set
   if (process.env.YT_CHANNEL_URL && process.env.CHANNEL_ID) {
@@ -150,7 +338,7 @@ client.once('ready', async () => {
         const last = state.lastYouTubeVideoId;
         const latest = await fetchLatestVideo(process.env.YT_CHANNEL_URL);
         if (latest && latest.id && latest.id !== last) {
-          await channel.send(`📺 New YouTube upload: ${latest.title}\n${latest.url}`);
+          await channel.send(`@everyone 📺 New YouTube upload: ${latest.title}\n${latest.url}`);
           setState({ lastYouTubeVideoId: latest.id });
         }
       } catch (e) {
@@ -169,7 +357,7 @@ client.once('ready', async () => {
         const prev = !!state.youtubeLive;
         const info = await checkYouTubeLive(process.env.YT_CHANNEL_URL);
         if (info.live && !prev) {
-          await channel.send(`🔴 Live on YouTube now: ${info.title} — ${info.url}`);
+          await channel.send(`@everyone 🔴 Live on YouTube now: ${info.title} — ${info.url}`);
         }
         setState({ youtubeLive: !!info.live });
       } catch (e) {

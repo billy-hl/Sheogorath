@@ -372,7 +372,7 @@ client.once('ready', async () => {
   // Proactive AI engagement - random messages every 45 minutes
   schedule.scheduleJob('*/45 * * * *', async () => {
     try {
-      const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+      const channel = await client.channels.fetch('380486887309180929');
       if (!channel || !channel.isTextBased()) return;
       
       // 15% chance to send a random engaging message
@@ -748,7 +748,14 @@ async function askChatGPT(userMessage) {
     }
     conversationHistory.set(userId, history);
     
-    userMessage.reply(assistantReply);
+    // Send response to the designated AI channel instead of replying
+    const aiChannel = await client.channels.fetch('380486887309180929');
+    if (aiChannel && aiChannel.isTextBased()) {
+      await aiChannel.send(`**${userMessage.author.username}:** ${userMessage.content}\n\n${assistantReply}`);
+    } else {
+      // Fallback to reply if channel not found
+      userMessage.reply(assistantReply);
+    }
   } catch (error) {
     console.error('Error in askChatGPT:', error);
     userMessage.reply('An error occurred while trying to fetch the response.');

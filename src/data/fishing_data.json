@@ -5,11 +5,11 @@
       "experience": 425,
       "coins": 1192,
       "inventory": {
-        "perch": 3,
+        "perch": 4,
         "trout": 1,
         "minnow": 2,
         "salmon": 2,
-        "lunar_fish": 1,
+        "lunar_fish": 2,
         "bass": 2,
         "catfish": 1,
         "festival_fish": 1
@@ -20,9 +20,9 @@
         "hook": "barbed_hook"
       },
       "stats": {
-        "totalCasts": 16,
-        "totalFish": 16,
-        "rareFish": 3,
+        "totalCasts": 18,
+        "totalFish": 18,
+        "rareFish": 4,
         "legendaryFish": 0,
         "biggestCatch": 26.400000000000002,
         "totalCoins": 417,
@@ -31,17 +31,17 @@
         ],
         "dailyStats": {
           "date": "Thu Aug 28 2025",
-          "casts": 16,
-          "fishCaught": 16,
-          "rareFish": 3,
+          "casts": 18,
+          "fishCaught": 18,
+          "rareFish": 4,
           "experience": 0,
           "locations": []
         },
         "weeklyStats": {
           "week": 34,
-          "casts": 16,
-          "fishCaught": 16,
-          "rareFish": 3,
+          "casts": 18,
+          "fishCaught": 18,
+          "rareFish": 4,
           "experience": 0
         }
       },
@@ -77,7 +77,7 @@
         }
       },
       "lastMiniGame": 0,
-      "lastCast": 1756412202759
+      "lastCast": 1756415337803
     }
   },
   "shop": {

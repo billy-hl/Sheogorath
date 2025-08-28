@@ -1,43 +1,54 @@
 {
   "players": {
     "215938135450714113": {
-      "level": 1,
-      "experience": 25,
-      "coins": 467,
-      "inventory": {},
+      "level": 3,
+      "experience": 425,
+      "coins": 1192,
+      "inventory": {
+        "perch": 3,
+        "trout": 1,
+        "minnow": 2,
+        "salmon": 2,
+        "lunar_fish": 1,
+        "bass": 2,
+        "catfish": 1,
+        "festival_fish": 1
+      },
       "equipment": {
         "rod": "basic_rod",
-        "bait": "worms",
-        "hook": "basic_hook"
+        "bait": "minnows",
+        "hook": "barbed_hook"
       },
       "stats": {
-        "totalCasts": 3,
-        "totalFish": 3,
-        "rareFish": 1,
+        "totalCasts": 16,
+        "totalFish": 16,
+        "rareFish": 3,
         "legendaryFish": 0,
-        "biggestCatch": 14.7,
+        "biggestCatch": 26.400000000000002,
         "totalCoins": 417,
         "locationsVisited": [
           "river"
         ],
         "dailyStats": {
           "date": "Thu Aug 28 2025",
-          "casts": 3,
-          "fishCaught": 3,
-          "rareFish": 1,
+          "casts": 16,
+          "fishCaught": 16,
+          "rareFish": 3,
           "experience": 0,
           "locations": []
         },
         "weeklyStats": {
           "week": 34,
-          "casts": 3,
-          "fishCaught": 3,
-          "rareFish": 1,
+          "casts": 16,
+          "fishCaught": 16,
+          "rareFish": 3,
           "experience": 0
         }
       },
       "achievements": [
-        "first_cast"
+        "first_cast",
+        "rare_fisher",
+        "big_game_hunter"
       ],
       "challenges": {
         "daily": {
@@ -66,7 +77,7 @@
         }
       },
       "lastMiniGame": 0,
-      "lastCast": 1756411710437
+      "lastCast": 1756412202759
     }
   },
   "shop": {

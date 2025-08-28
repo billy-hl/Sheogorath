@@ -23,10 +23,13 @@ module.exports = {
 
   async execute(interaction) {
     // Check if user has admin permissions
-    if (!interaction.member.permissions.has('Administrator')) {
+    const isAdmin = interaction.member.permissions.has('Administrator') || 
+                   interaction.user.id === process.env.ADMIN_USER_ID;
+    
+    if (!isAdmin) {
       return await interaction.reply({
         content: '❌ You need Administrator permissions to create giveaways!',
-        ephemeral: true
+        flags: 64
       });
     }
 

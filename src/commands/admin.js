@@ -34,10 +34,13 @@ module.exports = {
     const subcommand = interaction.options.getSubcommand();
 
     // Check permissions
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
+                   interaction.user.id === process.env.ADMIN_USER_ID;
+    
+    if (!isAdmin) {
       return await interaction.reply({
         content: '❌ You need Administrator permissions to use admin commands!',
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -70,7 +73,7 @@ module.exports = {
         if (amount < 1 || amount > 100) {
           return await interaction.reply({
             content: '❌ Please specify a number between 1 and 100.',
-            ephemeral: true
+            flags: 64
           });
         }
 
@@ -82,12 +85,12 @@ module.exports = {
             .setColor(0x00ff00)
             .setTimestamp();
 
-          await interaction.reply({ embeds: [embed], ephemeral: true });
+          await interaction.reply({ embeds: [embed], flags: 64 });
         } catch (error) {
           console.error('Error clearing messages:', error);
           await interaction.reply({
             content: '❌ Failed to clear messages. They may be too old or I lack permissions.',
-            ephemeral: true
+            flags: 64
           });
         }
         break;

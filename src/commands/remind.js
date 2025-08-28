@@ -21,7 +21,7 @@ module.exports = {
     if (minutes < 1 || minutes > 1440) { // Max 24 hours
       return await interaction.reply({
         content: '❌ Please specify a time between 1 and 1440 minutes (24 hours).',
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -52,7 +52,7 @@ module.exports = {
         try {
           await interaction.followUp({
             content: `${interaction.user}, here's your reminder: **${message}**`,
-            ephemeral: true
+            flags: 64
           });
         } catch (error) {
           // Ignore if followUp fails (might be expired)

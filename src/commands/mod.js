@@ -68,10 +68,13 @@ module.exports = {
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
     // Check permissions
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
+                   interaction.user.id === process.env.ADMIN_USER_ID;
+    
+    if (!isAdmin) {
       return await interaction.reply({
         content: '❌ You need Administrator permissions to use moderation commands!',
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -79,7 +82,7 @@ module.exports = {
     if (targetUser.id === interaction.user.id) {
       return await interaction.reply({
         content: '❌ You cannot moderate yourself!',
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -87,7 +90,7 @@ module.exports = {
     if (targetUser.id === interaction.guild.members.me.id) {
       return await interaction.reply({
         content: '❌ You cannot moderate the bot!',
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -114,7 +117,7 @@ module.exports = {
           } catch (error) {
             await interaction.followUp({
               content: '⚠️ Could not DM the user about their warning.',
-              ephemeral: true
+              flags: 64
             });
           }
           break;
@@ -170,7 +173,7 @@ module.exports = {
       console.error('Moderation command error:', error);
       await interaction.reply({
         content: `❌ Failed to ${subcommand} the user. They may have higher permissions or the bot may lack permissions.`,
-        ephemeral: true
+        flags: 64
       });
     }
   },

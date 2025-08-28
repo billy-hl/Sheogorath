@@ -2,26 +2,71 @@
   "players": {
     "215938135450714113": {
       "level": 1,
-      "experience": 0,
-      "coins": 516,
-      "inventory": {
-        "perch": 1,
-        "bass": 1
-      },
+      "experience": 25,
+      "coins": 467,
+      "inventory": {},
       "equipment": {
         "rod": "basic_rod",
         "bait": "worms",
         "hook": "basic_hook"
       },
       "stats": {
-        "totalCasts": 6,
-        "totalFish": 5,
+        "totalCasts": 3,
+        "totalFish": 3,
         "rareFish": 1,
-        "biggestCatch": 10.2,
-        "totalCoins": 516
+        "legendaryFish": 0,
+        "biggestCatch": 14.7,
+        "totalCoins": 417,
+        "locationsVisited": [
+          "river"
+        ],
+        "dailyStats": {
+          "date": "Thu Aug 28 2025",
+          "casts": 3,
+          "fishCaught": 3,
+          "rareFish": 1,
+          "experience": 0,
+          "locations": []
+        },
+        "weeklyStats": {
+          "week": 34,
+          "casts": 3,
+          "fishCaught": 3,
+          "rareFish": 1,
+          "experience": 0
+        }
       },
-      "achievements": [],
-      "lastCast": 1756408981888
+      "achievements": [
+        "first_cast"
+      ],
+      "challenges": {
+        "daily": {
+          "daily_explorer": {
+            "progress": 1,
+            "completed": false
+          },
+          "daily_caster": {
+            "progress": 1,
+            "completed": false
+          },
+          "daily_fisher": {
+            "progress": 1,
+            "completed": false
+          }
+        },
+        "weekly": {
+          "weekly_master": {
+            "progress": 1,
+            "completed": false
+          },
+          "weekly_rare_hunter": {
+            "progress": 1,
+            "completed": false
+          }
+        }
+      },
+      "lastMiniGame": 0,
+      "lastCast": 1756411710437
     }
   },
   "shop": {
@@ -153,6 +198,242 @@
       "lunar_fish": {
         "basePrice": 400,
         "rarity": "event"
+      }
+    }
+  },
+  "challenges": {
+    "daily": [
+      {
+        "id": "daily_caster",
+        "name": "Daily Caster",
+        "description": "Cast your line 10 times today",
+        "type": "casts",
+        "target": 10,
+        "reward": {
+          "coins": 100,
+          "exp": 50
+        },
+        "emoji": "🎣"
+      },
+      {
+        "id": "daily_fisher",
+        "name": "Daily Fisher",
+        "description": "Catch 5 fish today",
+        "type": "fish_caught",
+        "target": 5,
+        "reward": {
+          "coins": 150,
+          "exp": 75
+        },
+        "emoji": "🐟"
+      },
+      {
+        "id": "daily_explorer",
+        "name": "Daily Explorer",
+        "description": "Fish in 3 different locations today",
+        "type": "locations",
+        "target": 3,
+        "reward": {
+          "coins": 200,
+          "exp": 100
+        },
+        "emoji": "🗺️"
+      }
+    ],
+    "weekly": [
+      {
+        "id": "weekly_master",
+        "name": "Weekly Master",
+        "description": "Catch 25 fish this week",
+        "type": "fish_caught",
+        "target": 25,
+        "reward": {
+          "coins": 500,
+          "exp": 250
+        },
+        "emoji": "👑"
+      },
+      {
+        "id": "weekly_rare_hunter",
+        "name": "Rare Hunter",
+        "description": "Catch 3 rare or legendary fish this week",
+        "type": "rare_fish",
+        "target": 3,
+        "reward": {
+          "coins": 750,
+          "exp": 300
+        },
+        "emoji": "💎"
+      },
+      {
+        "id": "weekly_leveler",
+        "name": "Weekly Leveler",
+        "description": "Gain 500 experience this week",
+        "type": "experience",
+        "target": 500,
+        "reward": {
+          "coins": 300,
+          "exp": 150
+        },
+        "emoji": "⬆️"
+      }
+    ]
+  },
+  "achievements": [
+    {
+      "id": "first_cast",
+      "name": "First Cast",
+      "description": "Cast your line for the first time",
+      "type": "casts",
+      "target": 1,
+      "reward": {
+        "coins": 50,
+        "exp": 25
+      },
+      "emoji": "🎣",
+      "unlocked": false
+    },
+    {
+      "id": "century_club",
+      "name": "Century Club",
+      "description": "Cast your line 100 times",
+      "type": "casts",
+      "target": 100,
+      "reward": {
+        "coins": 500,
+        "exp": 200
+      },
+      "emoji": "💯",
+      "unlocked": false
+    },
+    {
+      "id": "fish_master",
+      "name": "Fish Master",
+      "description": "Catch 50 fish",
+      "type": "fish_caught",
+      "target": 50,
+      "reward": {
+        "coins": 300,
+        "exp": 150
+      },
+      "emoji": "🐟",
+      "unlocked": false
+    },
+    {
+      "id": "rare_fisher",
+      "name": "Rare Fisher",
+      "description": "Catch your first rare fish",
+      "type": "rare_fish",
+      "target": 1,
+      "reward": {
+        "coins": 200,
+        "exp": 100
+      },
+      "emoji": "💎",
+      "unlocked": false
+    },
+    {
+      "id": "legendary_catcher",
+      "name": "Legendary Catcher",
+      "description": "Catch your first legendary fish",
+      "type": "legendary_fish",
+      "target": 1,
+      "reward": {
+        "coins": 1000,
+        "exp": 500
+      },
+      "emoji": "👑",
+      "unlocked": false
+    },
+    {
+      "id": "big_game_hunter",
+      "name": "Big Game Hunter",
+      "description": "Catch a fish weighing 15+ lbs",
+      "type": "big_catch",
+      "target": 15,
+      "reward": {
+        "coins": 750,
+        "exp": 300
+      },
+      "emoji": "🏆",
+      "unlocked": false
+    },
+    {
+      "id": "millionaire",
+      "name": "Millionaire",
+      "description": "Accumulate 10,000 coins",
+      "type": "coins",
+      "target": 10000,
+      "reward": {
+        "coins": 1000,
+        "exp": 500
+      },
+      "emoji": "💰",
+      "unlocked": false
+    },
+    {
+      "id": "level_10",
+      "name": "Apprentice Fisher",
+      "description": "Reach fishing level 10",
+      "type": "level",
+      "target": 10,
+      "reward": {
+        "coins": 500,
+        "exp": 250
+      },
+      "emoji": "🎓",
+      "unlocked": false
+    },
+    {
+      "id": "level_25",
+      "name": "Expert Fisher",
+      "description": "Reach fishing level 25",
+      "type": "level",
+      "target": 25,
+      "reward": {
+        "coins": 1000,
+        "exp": 500
+      },
+      "emoji": "🎯",
+      "unlocked": false
+    },
+    {
+      "id": "level_50",
+      "name": "Master Fisher",
+      "description": "Reach fishing level 50",
+      "type": "level",
+      "target": 50,
+      "reward": {
+        "coins": 2000,
+        "exp": 1000
+      },
+      "emoji": "👑",
+      "unlocked": false
+    }
+  ],
+  "tournaments": {},
+  "weather": {
+    "current": "sunny",
+    "effects": {
+      "sunny": {
+        "catchMultiplier": 1,
+        "message": "Perfect fishing weather!"
+      },
+      "cloudy": {
+        "catchMultiplier": 0.9,
+        "message": "Overcast skies, fish are a bit shy."
+      },
+      "rainy": {
+        "catchMultiplier": 1.2,
+        "message": "Rain brings the fish out!"
+      },
+      "stormy": {
+        "catchMultiplier": 0.7,
+        "message": "Stormy weather makes fishing difficult."
+      },
+      "foggy": {
+        "catchMultiplier": 0.8,
+        "message": "Foggy conditions reduce visibility."
       }
     }
   }

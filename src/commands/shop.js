@@ -24,7 +24,7 @@ module.exports = {
     if (interaction.channelId !== allowedChannelId) {
       return await interaction.reply({
         content: `❌ Fishing shop is only available in the designated fishing channel! Please use the fishing commands there.`,
-        ephemeral: true
+        flags: 64
       });
     }
 

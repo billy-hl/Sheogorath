@@ -375,21 +375,34 @@ client.once('ready', async () => {
       const channel = await client.channels.fetch('380486887309180929');
       if (!channel || !channel.isTextBased()) return;
       
-      // 15% chance to send a random engaging message
-      if (Math.random() < 0.15) {
-        const prompts = [
-          "Share a random thought or observation about the current state of the server.",
-          "Ask the users an interesting question to spark conversation.",
-          "Share a piece of 'wisdom' in your typical chaotic style.",
-          "Comment on something happening in the world of mortals."
+      // 5% chance to send a random engaging message
+      if (Math.random() < 0.05) {
+        // Fetch recent messages from the AI channel for context
+        const recentMessages = await channel.messages.fetch({ limit: 20 });
+        const conversationContext = recentMessages
+          .filter(msg => !msg.author.bot || msg.author.id === client.user.id)
+          .reverse()
+          .slice(-10) // Get last 10 relevant messages
+          .map(msg => ({
+            role: msg.author.id === client.user.id ? 'assistant' : 'user',
+            content: msg.author.id === client.user.id ? msg.content : `${msg.author.username}: ${msg.content}`
+          }));
+
+        const conversationalPrompts = [
+          "Based on the recent conversation, share a relevant thought or continue the discussion in your chaotic style.",
+          "Comment on something that was just discussed or ask a follow-up question about recent topics.",
+          "Share your 'wisdom' about a topic that was mentioned recently, in your typical Mad King manner.",
+          "React to the ongoing conversation with a sarcastic or threatening observation.",
+          "Pick up on a theme from recent messages and elaborate on it chaotically."
         ];
         
-        const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
+        const randomPrompt = conversationalPrompts[Math.floor(Math.random() * conversationalPrompts.length)];
         
         const response = await openai.chat.completions.create({
           model: process.env.CLIENT_MODEL,
           messages: [
             { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
+            ...conversationContext,
             { role: 'user', content: randomPrompt }
           ],
         });
@@ -727,7 +740,7 @@ async function askChatGPT(userMessage) {
   try {
     const messages = [
       { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-      ...history.slice(-8), // Keep last 8 messages for context
+      ...history.slice(-15), // Keep last 15 messages for context
       { role: 'user', content: userMessage.content }
     ];
     
@@ -738,13 +751,13 @@ async function askChatGPT(userMessage) {
 
     const assistantReply = response.choices[0].message.content;
     
-    // Store conversation (keep last 10 exchanges)
+    // Store conversation (keep last 15 exchanges)
     history.push(
       { role: 'user', content: userMessage.content },
       { role: 'assistant', content: assistantReply }
     );
-    if (history.length > 20) { // Keep max 20 messages (10 exchanges)
-      history.splice(0, history.length - 20);
+    if (history.length > 30) { // Keep max 30 messages (15 exchanges)
+      history.splice(0, history.length - 30);
     }
     conversationHistory.set(userId, history);
     

@@ -78,6 +78,76 @@
       },
       "lastMiniGame": 0,
       "lastCast": 1756415337803
+    },
+    "355959472834871298": {
+      "level": 2,
+      "experience": 125,
+      "coins": 1435,
+      "inventory": {},
+      "equipment": {
+        "rod": "basic_rod",
+        "bait": "minnows",
+        "hook": "basic_hook"
+      },
+      "stats": {
+        "totalCasts": 22,
+        "totalFish": 19,
+        "rareFish": 3,
+        "legendaryFish": 0,
+        "biggestCatch": 14.559999999999999,
+        "totalCoins": 1210,
+        "locationsVisited": [
+          "mountain",
+          "river"
+        ],
+        "dailyStats": {
+          "date": "Fri Aug 29 2025",
+          "casts": 22,
+          "fishCaught": 19,
+          "rareFish": 3,
+          "experience": 0,
+          "locations": []
+        },
+        "weeklyStats": {
+          "week": 34,
+          "casts": 22,
+          "fishCaught": 19,
+          "rareFish": 3,
+          "experience": 0
+        }
+      },
+      "achievements": [
+        "first_cast",
+        "rare_fisher"
+      ],
+      "challenges": {
+        "daily": {
+          "daily_explorer": {
+            "progress": 1,
+            "completed": false
+          },
+          "daily_caster": {
+            "progress": 1,
+            "completed": false
+          },
+          "daily_fisher": {
+            "progress": 1,
+            "completed": false
+          }
+        },
+        "weekly": {
+          "weekly_master": {
+            "progress": 1,
+            "completed": false
+          },
+          "weekly_rare_hunter": {
+            "progress": 1,
+            "completed": false
+          }
+        }
+      },
+      "lastMiniGame": 0,
+      "lastCast": 1756468698142
     }
   },
   "shop": {

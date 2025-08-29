@@ -87,6 +87,18 @@ class FishingGame {
           bait: 'worms',
           hook: 'basic_hook'
         },
+        boat: 'rowboat', // Default boat
+        workers: [], // Array of hired workers
+        fleet: { // Boat management
+          active_boat: 'rowboat',
+          owned_boats: ['rowboat'],
+          maintenance_due: 0
+        },
+        workforce: { // Worker management
+          active_workers: [],
+          max_workers: 3,
+          salary_due: 0
+        },
         stats: {
           totalCasts: 0,
           totalFish: 0,
@@ -195,6 +207,28 @@ class FishingGame {
         player.lastMiniGame = 0;
       }
       
+      // Add boat and worker fields if missing
+      if (!player.boat) {
+        player.boat = 'rowboat';
+      }
+      if (!player.fleet) {
+        player.fleet = {
+          active_boat: 'rowboat',
+          owned_boats: ['rowboat'],
+          maintenance_due: 0
+        };
+      }
+      if (!player.workers) {
+        player.workers = [];
+      }
+      if (!player.workforce) {
+        player.workforce = {
+          active_workers: [],
+          max_workers: 3,
+          salary_due: 0
+        };
+      }
+      
       // Save migrated data
       this.saveData(data);
     }
@@ -229,6 +263,18 @@ class FishingGame {
         barbed_hook: { name: 'Barbed Hook', cost: 200, description: 'Hook that catches more fish' },
         golden_hook: { name: 'Golden Hook', cost: 800, description: 'Luxurious hook that attracts valuable fish' },
         dimensional_hook: { name: 'Dimensional Hook', cost: 3000, description: 'Hook that can catch fish from other realms' }
+      },
+      boats: {
+        rowboat: { name: 'Rowboat', cost: 0, description: 'Basic wooden rowboat for coastal fishing', capacity: 10, speed: 1.0, bonus: 1.0, locations: ['river', 'ocean'], maintenance_cost: 5 },
+        fishing_boat: { name: 'Fishing Boat', cost: 2500, description: 'Sturdy fishing boat for deeper waters', capacity: 25, speed: 1.2, bonus: 1.3, locations: ['river', 'ocean', 'mountain'], maintenance_cost: 15 },
+        yacht: { name: 'Luxury Yacht', cost: 10000, description: 'Elegant yacht for exclusive fishing', capacity: 50, speed: 1.5, bonus: 1.8, locations: ['river', 'ocean', 'mountain', 'mystic'], maintenance_cost: 50 },
+        submarine: { name: 'Submarine', cost: 50000, description: 'Advanced submarine for deep-sea fishing', capacity: 100, speed: 2.0, bonus: 2.5, locations: ['ocean', 'mountain', 'mystic', 'lava'], maintenance_cost: 200 }
+      },
+      workers: {
+        deckhand: { name: 'Deckhand', cost: 500, salary: 25, description: 'Basic worker who helps with fishing', skill: 1.1, efficiency: 1.0, specialty: 'general' },
+        fisherman: { name: 'Fisherman', cost: 1500, salary: 75, description: 'Experienced fisherman with good catch rates', skill: 1.3, efficiency: 1.2, specialty: 'catch_rate' },
+        navigator: { name: 'Navigator', cost: 3000, salary: 150, description: 'Expert navigator who finds better fishing spots', skill: 1.2, efficiency: 1.5, specialty: 'location_bonus' },
+        captain: { name: 'Captain', cost: 8000, salary: 400, description: 'Master captain with exceptional fishing skills', skill: 1.6, efficiency: 2.0, specialty: 'rare_fish' }
       }
     };
   }
@@ -809,6 +855,27 @@ class FishingGame {
     const playerData = this.checkDailyChallenges(userId);
     this.checkWeeklyChallenges(userId);
     
+    // Check if player can access this location with their boat
+    if (!this.canAccessLocation(userId, location)) {
+      return { 
+        success: false, 
+        message: `Your current boat cannot access ${location}! Upgrade to a better boat to fish there.`,
+        weather: this.getWeatherMessage()
+      };
+    }
+    
+    // Check boat capacity
+    const boatCapacity = this.getBoatCapacity(userId);
+    const currentFishCount = Object.values(playerData.inventory).reduce((sum, count) => sum + count, 0);
+    
+    if (currentFishCount >= boatCapacity) {
+      return { 
+        success: false, 
+        message: `Your boat is full! (${currentFishCount}/${boatCapacity} fish). Sell some fish or upgrade your boat.`,
+        weather: this.getWeatherMessage()
+      };
+    }
+    
     // Update location tracking
     if (!playerData.stats.locationsVisited) {
       playerData.stats.locationsVisited = new Set();
@@ -830,6 +897,14 @@ class FishingGame {
     // Equipment modifiers
     let catchChance = this.getBaseCatchChance(location) * weatherMultiplier;
     catchChance *= this.getEquipmentModifier(playerData.equipment);
+    
+    // Boat bonus
+    const boatBonus = this.getBoatBonus(userId);
+    catchChance *= boatBonus;
+    
+    // Worker bonus
+    const workerBonus = this.getWorkerBonus(userId);
+    catchChance *= workerBonus;
     
     // Mini-game bonus
     const miniGameResult = this.playMiniGame(userId, 'common'); // Default rarity for chance calculation
@@ -1037,25 +1112,214 @@ class FishingGame {
     }
   }
 
-  // Tournament management methods
-  endExpiredTournaments() {
+  // Boat management methods
+  purchaseBoat(userId, boatKey) {
+    const playerData = this.getPlayerData(userId);
     const data = this.loadData();
-    const now = Date.now();
-    const endedTournaments = [];
-
-    for (const [tournamentId, tournament] of Object.entries(data.tournaments)) {
-      if (tournament.active && tournament.endTime && now >= tournament.endTime) {
-        tournament.active = false;
-        tournament.ended = true;
-        endedTournaments.push(tournament);
+    const boat = data.shop.boats[boatKey];
+    
+    if (!boat) {
+      return { success: false, message: 'Boat not found!' };
+    }
+    
+    if (playerData.fleet.owned_boats.includes(boatKey)) {
+      return { success: false, message: 'You already own this boat!' };
+    }
+    
+    if (playerData.coins < boat.cost) {
+      return { success: false, message: `You need ${boat.cost} coins, but only have ${playerData.coins}.` };
+    }
+    
+    playerData.coins -= boat.cost;
+    playerData.fleet.owned_boats.push(boatKey);
+    
+    this.updatePlayerData(userId, { 
+      coins: playerData.coins,
+      fleet: playerData.fleet
+    });
+    
+    return { success: true, message: `Successfully purchased ${boat.name}!` };
+  }
+  
+  switchBoat(userId, boatKey) {
+    const playerData = this.getPlayerData(userId);
+    
+    if (!playerData.fleet.owned_boats.includes(boatKey)) {
+      return { success: false, message: 'You don\'t own this boat!' };
+    }
+    
+    playerData.fleet.active_boat = boatKey;
+    playerData.boat = boatKey; // Update legacy field
+    
+    this.updatePlayerData(userId, { 
+      boat: boatKey,
+      fleet: playerData.fleet
+    });
+    
+    return { success: true, message: 'Boat switched successfully!' };
+  }
+  
+  getBoatBonus(userId) {
+    const playerData = this.getPlayerData(userId);
+    const data = this.loadData();
+    const boat = data.shop.boats[playerData.fleet.active_boat];
+    
+    return boat ? boat.bonus : 1.0;
+  }
+  
+  getBoatCapacity(userId) {
+    const playerData = this.getPlayerData(userId);
+    const data = this.loadData();
+    const boat = data.shop.boats[playerData.fleet.active_boat];
+    
+    return boat ? boat.capacity : 10;
+  }
+  
+  canAccessLocation(userId, location) {
+    const playerData = this.getPlayerData(userId);
+    const data = this.loadData();
+    const boat = data.shop.boats[playerData.fleet.active_boat];
+    
+    return boat && boat.locations.includes(location);
+  }
+  
+  // Worker management methods
+  hireWorker(userId, workerKey) {
+    const playerData = this.getPlayerData(userId);
+    const data = this.loadData();
+    const worker = data.shop.workers[workerKey];
+    
+    if (!worker) {
+      return { success: false, message: 'Worker not found!' };
+    }
+    
+    if (playerData.workforce.active_workers.length >= playerData.workforce.max_workers) {
+      return { success: false, message: `You can only have ${playerData.workforce.max_workers} workers at a time!` };
+    }
+    
+    if (playerData.workers.includes(workerKey)) {
+      return { success: false, message: 'You already have this worker!' };
+    }
+    
+    if (playerData.coins < worker.cost) {
+      return { success: false, message: `You need ${worker.cost} coins to hire this worker, but only have ${playerData.coins}.` };
+    }
+    
+    playerData.coins -= worker.cost;
+    playerData.workers.push(workerKey);
+    playerData.workforce.active_workers.push({
+      type: workerKey,
+      hired_date: Date.now(),
+      efficiency: worker.efficiency
+    });
+    
+    this.updatePlayerData(userId, { 
+      coins: playerData.coins,
+      workers: playerData.workers,
+      workforce: playerData.workforce
+    });
+    
+    return { success: true, message: `Successfully hired ${worker.name}!` };
+  }
+  
+  fireWorker(userId, workerIndex) {
+    const playerData = this.getPlayerData(userId);
+    
+    if (workerIndex < 0 || workerIndex >= playerData.workforce.active_workers.length) {
+      return { success: false, message: 'Invalid worker index!' };
+    }
+    
+    const worker = playerData.workforce.active_workers[workerIndex];
+    const data = this.loadData();
+    const workerData = data.shop.workers[worker.type];
+    
+    // Remove from active workers
+    playerData.workforce.active_workers.splice(workerIndex, 1);
+    
+    // Remove from owned workers list
+    const workerTypeIndex = playerData.workers.indexOf(worker.type);
+    if (workerTypeIndex > -1) {
+      playerData.workers.splice(workerTypeIndex, 1);
+    }
+    
+    // Give back 50% of hiring cost as severance
+    const severance = Math.floor(workerData.cost * 0.5);
+    playerData.coins += severance;
+    
+    this.updatePlayerData(userId, { 
+      coins: playerData.coins,
+      workers: playerData.workers,
+      workforce: playerData.workforce
+    });
+    
+    return { success: true, message: `Fired worker and received ${severance} coins in severance pay.` };
+  }
+  
+  getWorkerBonus(userId) {
+    const playerData = this.getPlayerData(userId);
+    const data = this.loadData();
+    let totalBonus = 1.0;
+    
+    playerData.workforce.active_workers.forEach(worker => {
+      const workerData = data.shop.workers[worker.type];
+      if (workerData) {
+        totalBonus *= workerData.skill;
       }
+    });
+    
+    return totalBonus;
+  }
+  
+  calculateDailyCosts(userId) {
+    const playerData = this.getPlayerData(userId);
+    const data = this.loadData();
+    let totalCost = 0;
+    
+    // Boat maintenance
+    const boat = data.shop.boats[playerData.fleet.active_boat];
+    if (boat) {
+      totalCost += boat.maintenance_cost;
     }
-
-    if (endedTournaments.length > 0) {
-      this.saveData(data);
+    
+    // Worker salaries
+    playerData.workforce.active_workers.forEach(worker => {
+      const workerData = data.shop.workers[worker.type];
+      if (workerData) {
+        totalCost += workerData.salary;
+      }
+    });
+    
+    return totalCost;
+  }
+  
+  processDailyCosts(userId) {
+    const dailyCost = this.calculateDailyCosts(userId);
+    const playerData = this.getPlayerData(userId);
+    
+    if (playerData.coins >= dailyCost) {
+      playerData.coins -= dailyCost;
+      playerData.fleet.maintenance_due = 0;
+      playerData.workforce.salary_due = 0;
+      
+      this.updatePlayerData(userId, { 
+        coins: playerData.coins,
+        fleet: playerData.fleet,
+        workforce: playerData.workforce
+      });
+      
+      return { success: true, message: `Paid ${dailyCost} coins for daily costs.` };
+    } else {
+      // Accumulate debt
+      playerData.fleet.maintenance_due += data.shop.boats[playerData.fleet.active_boat]?.maintenance_cost || 0;
+      playerData.workforce.salary_due += dailyCost - (data.shop.boats[playerData.fleet.active_boat]?.maintenance_cost || 0);
+      
+      this.updatePlayerData(userId, { 
+        fleet: playerData.fleet,
+        workforce: playerData.workforce
+      });
+      
+      return { success: false, message: `Cannot afford daily costs of ${dailyCost} coins! You have ${playerData.coins} coins.` };
     }
-
-    return endedTournaments;
   }
 }
 

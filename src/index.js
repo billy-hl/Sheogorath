@@ -555,6 +555,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await handleFishQuickActions(interaction);
         return;
       }
+      if (interaction.customId.startsWith('cast_')) {
+        await handleCastLocation(interaction);
+        return;
+      }
+      if (interaction.customId.startsWith('switch_boat_')) {
+        await handleBoatSwitch(interaction);
+        return;
+      }
+      if (interaction.customId.startsWith('fire_worker_')) {
+        await handleWorkerFire(interaction);
+        return;
+      }
 
       // If we reach here, the button wasn't handled
       console.error(`Unhandled button interaction: ${interaction.customId}`);
@@ -1488,6 +1500,12 @@ async function handleShopActions(interaction) {
     } else if (itemType === 'hook') {
       itemCategory = shopData.hooks;
       itemName = 'hook';
+    } else if (itemType === 'boat') {
+      itemCategory = shopData.boats;
+      itemName = 'boat';
+    } else if (itemType === 'worker') {
+      itemCategory = shopData.workers;
+      itemName = 'worker';
     }
 
     if (!itemCategory || !itemCategory[itemKey]) {
@@ -1508,22 +1526,66 @@ async function handleShopActions(interaction) {
       });
     }
 
-    // Check if already equipped
-    if (playerData.equipment[itemName] === itemKey) {
-      return await interaction.reply({
-        content: `❌ You already have the ${item.name} equipped!`,
-        flags: 64
-      });
+    // Check if already equipped (for equipment items)
+    if (itemName === 'rod' || itemName === 'bait' || itemName === 'hook') {
+      if (playerData.equipment[itemName] === itemKey) {
+        return await interaction.reply({
+          content: `❌ You already have the ${item.name} equipped!`,
+          flags: 64
+        });
+      }
     }
 
     // Purchase the item
     playerData.coins -= cost;
-    playerData.equipment[itemName] = itemKey;
 
-    fishingGame.updatePlayerData(userId, {
-      coins: playerData.coins,
-      equipment: playerData.equipment
-    });
+    if (itemName === 'boat') {
+      // Add boat to fleet
+      if (!playerData.fleet) playerData.fleet = [];
+      playerData.fleet.push({
+        id: itemKey,
+        name: item.name,
+        capacity: item.capacity,
+        speed: item.speed,
+        durability: item.durability,
+        currentDurability: item.durability,
+        unlocked: true
+      });
+      
+      // Auto-equip if no boat equipped
+      if (!playerData.equipment.boat) {
+        playerData.equipment.boat = itemKey;
+      }
+      
+      fishingGame.updatePlayerData(userId, {
+        coins: playerData.coins,
+        fleet: playerData.fleet,
+        equipment: playerData.equipment
+      });
+    } else if (itemName === 'worker') {
+      // Hire worker
+      if (!playerData.workforce) playerData.workforce = [];
+      playerData.workforce.push({
+        id: itemKey,
+        name: item.name,
+        skill: item.skill,
+        wage: item.wage,
+        efficiency: item.efficiency,
+        hired: true
+      });
+      
+      fishingGame.updatePlayerData(userId, {
+        coins: playerData.coins,
+        workforce: playerData.workforce
+      });
+    } else {
+      // Equipment purchase
+      playerData.equipment[itemName] = itemKey;
+      fishingGame.updatePlayerData(userId, {
+        coins: playerData.coins,
+        equipment: playerData.equipment
+      });
+    }
 
     const embed = new EmbedBuilder()
       .setTitle('✅ Purchase Successful!')
@@ -1934,9 +1996,21 @@ async function handleShopActions(interaction) {
     const row2 = new ActionRowBuilder()
       .addComponents(
         new ButtonBuilder()
+          .setCustomId('shop_boats')
+          .setLabel('🚢 Boats')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('shop_workers')
+          .setLabel('� Workers')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
           .setCustomId('shop_sell')
-          .setLabel('💰 Sell Fish')
-          .setStyle(ButtonStyle.Success),
+          .setLabel('�💰 Sell Fish')
+          .setStyle(ButtonStyle.Success)
+      );
+
+    const row3 = new ActionRowBuilder()
+      .addComponents(
         new ButtonBuilder()
           .setCustomId('shop_inventory')
           .setLabel('📦 Inventory')
@@ -1947,7 +2021,156 @@ async function handleShopActions(interaction) {
           .setStyle(ButtonStyle.Secondary)
       );
 
-    await interaction.update({ embeds: [embed], components: [row1, row2] });
+    await interaction.update({ embeds: [embed], components: [row1, row2, row3] });
+
+  } else if (action === 'boats') {
+    // Show boats shop
+    const shopData = fishingGame.loadData().shop;
+    const userId = interaction.user.id;
+    const playerData = fishingGame.getPlayerData(userId);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🚢 Fishing Boats')
+      .setDescription(`**Your Coins:** ${playerData.coins} 🪙\n**Current Boat:** ${playerData.equipment.boat ? shopData.boats[playerData.equipment.boat].name : 'None'}`)
+      .setColor(0x1e90ff)
+      .setFooter({
+        text: `Shop - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    // List boats
+    let boatList = '';
+    Object.entries(shopData.boats).forEach(([key, boat]) => {
+      const owned = playerData.fleet && playerData.fleet.owned_boats && playerData.fleet.owned_boats.includes(key);
+      const equipped = playerData.equipment.boat === key;
+      const status = owned ? (equipped ? ' ✅' : ' 🔄') : '';
+      const canAfford = playerData.coins >= boat.cost;
+      const priceText = canAfford ? `${boat.cost}🪙` : `~~${boat.cost}🪙~~ ❌`;
+      
+      boatList += `**${boat.name}** - ${priceText}${status}\n${boat.description}\n\n`;
+    });
+
+    embed.addFields({
+      name: 'Available Boats',
+      value: boatList,
+      inline: false
+    });
+
+    // Create components array
+    const components = [];
+
+    // Create boat buttons row
+    const boatRow = new ActionRowBuilder();
+    Object.entries(shopData.boats).forEach(([key, boat]) => {
+      const owned = playerData.fleet && playerData.fleet.owned_boats && playerData.fleet.owned_boats.includes(key);
+      const canAfford = playerData.coins >= boat.cost;
+      
+      let buttonLabel = boat.name;
+      if (buttonLabel.length > 25) {
+        buttonLabel = buttonLabel.substring(0, 22) + '...';
+      }
+      
+      const button = new ButtonBuilder()
+        .setCustomId(owned ? `switch_boat_${key}` : `shop_purchase_boat_${key}`)
+        .setLabel(buttonLabel)
+        .setStyle(owned ? ButtonStyle.Secondary : (canAfford ? ButtonStyle.Success : ButtonStyle.Secondary))
+        .setDisabled(!canAfford && !owned);
+      
+      boatRow.addComponents(button);
+    });
+    
+    components.push(boatRow);
+
+    // Add navigation row
+    const navRow = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('shop_main')
+          .setLabel('⬅️ Back to Shop')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('🏠 Home')
+          .setStyle(ButtonStyle.Primary)
+      );
+
+    components.push(navRow);
+
+    await interaction.update({ embeds: [embed], components: components });
+
+  } else if (action === 'workers') {
+    // Show workers shop
+    const shopData = fishingGame.loadData().shop;
+    const userId = interaction.user.id;
+    const playerData = fishingGame.getPlayerData(userId);
+
+    const embed = new EmbedBuilder()
+      .setTitle('👥 Fishing Workers')
+      .setDescription(`**Your Coins:** ${playerData.coins} 🪙\n**Workforce:** ${playerData.workforce && playerData.workforce.active_workers ? playerData.workforce.active_workers.length : 0} workers`)
+      .setColor(0x32cd32)
+      .setFooter({
+        text: `Shop - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    // List workers
+    let workerList = '';
+    Object.entries(shopData.workers).forEach(([key, worker]) => {
+      const hired = playerData.workforce && playerData.workforce.active_workers && playerData.workforce.active_workers.some(w => w.type === key);
+      const status = hired ? ' ✅' : '';
+      const canAfford = playerData.coins >= worker.cost;
+      const priceText = canAfford ? `${worker.cost}🪙` : `~~${worker.cost}🪙~~ ❌`;
+      
+      workerList += `**${worker.name}** - ${priceText}${status}\n${worker.description}\n\n`;
+    });
+
+    embed.addFields({
+      name: 'Available Workers',
+      value: workerList,
+      inline: false
+    });
+
+    // Create components array
+    const components = [];
+
+    // Create worker buttons row
+    const workerRow = new ActionRowBuilder();
+    Object.entries(shopData.workers).forEach(([key, worker]) => {
+      const hired = playerData.workforce && playerData.workforce.active_workers && playerData.workforce.active_workers.some(w => w.type === key);
+      const canAfford = playerData.coins >= worker.cost;
+      
+      let buttonLabel = worker.name;
+      if (buttonLabel.length > 25) {
+        buttonLabel = buttonLabel.substring(0, 22) + '...';
+      }
+      
+      const button = new ButtonBuilder()
+        .setCustomId(hired ? `fire_worker_${key}` : `shop_purchase_worker_${key}`)
+        .setLabel(buttonLabel)
+        .setStyle(hired ? ButtonStyle.Danger : (canAfford ? ButtonStyle.Success : ButtonStyle.Secondary))
+        .setDisabled(!canAfford && !hired);
+      
+      workerRow.addComponents(button);
+    });
+    
+    components.push(workerRow);
+
+    // Add navigation row
+    const navRow = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('shop_main')
+          .setLabel('⬅️ Back to Shop')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('🏠 Home')
+          .setStyle(ButtonStyle.Primary)
+      );
+
+    components.push(navRow);
+
+    await interaction.update({ embeds: [embed], components: components });
   }
 }
 
@@ -2504,7 +2727,774 @@ async function announceTournamentWinner(channel, tournament) {
     console.error('Tournament winner announcement failed:', error);
     await channel.send(`🏆 **${tournament.name}** has ended! Check the leaderboard for results.`);
   }
-}process.on('SIGINT', () => {
+}async function handleBoatSwitch(interaction) {
+  const fishingGame = require('./services/fishing');
+  const boatKey = interaction.customId.split('_').slice(2).join('_'); // Handle keys with underscores
+  const userId = interaction.user.id;
+  const playerData = fishingGame.getPlayerData(userId);
+  const shopData = fishingGame.loadData().shop;
+
+  // Check if player owns this boat
+  if (!playerData.fleet || !playerData.fleet.owned_boats || !playerData.fleet.owned_boats.includes(boatKey)) {
+    return await interaction.reply({
+      content: '❌ You don\'t own this boat!',
+      flags: 64
+    });
+  }
+
+  // Switch to this boat
+  playerData.equipment.boat = boatKey;
+  fishingGame.updatePlayerData(userId, { equipment: playerData.equipment });
+
+  const boat = shopData.boats[boatKey];
+  const embed = new EmbedBuilder()
+    .setTitle('🚢 Boat Switched!')
+    .setDescription(`**${boat.name}** is now your active boat!\n\n*${boat.description}*`)
+    .setColor(0x1e90ff)
+    .addFields({
+      name: '📊 Boat Stats',
+      value: `**Capacity:** ${boat.capacity} fish\n**Speed:** ${boat.speed}\n**Durability:** ${boat.durability}`,
+      inline: true
+    })
+    .setFooter({
+      text: `Switched by ${interaction.user.username}`,
+      iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+    });
+
+  await interaction.reply({ embeds: [embed], flags: 0 });
+}
+
+async function handleFishQuickActions(interaction) {
+  const fishingGame = require('./services/fishing');
+  const action = interaction.customId.split('_')[1];
+  const userId = interaction.user.id;
+  const playerData = fishingGame.getPlayerData(userId);
+
+  if (action === 'cast') {
+    // Handle casting line - show location selection
+    const embed = new EmbedBuilder()
+      .setTitle('🎣 Choose Your Fishing Location')
+      .setDescription('Where would you like to cast your line? Each location has different fish and challenges!')
+      .setColor(0x4a90e2)
+      .setFooter({
+        text: `Fishing - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    // Location options
+    embed.addFields({
+      name: '🏞️ Tranquil River',
+      value: 'Common fish, easy catches, perfect for beginners',
+      inline: true
+    }, {
+      name: '🌊 Vast Ocean',
+      value: 'Varied fish, medium difficulty, good rewards',
+      inline: true
+    }, {
+      name: '🏔️ Mountain Lake',
+      value: 'Rare fish, challenging, high rewards',
+      inline: true
+    }, {
+      name: '🌌 Mystic Pond',
+      value: 'Legendary fish, very hard, epic rewards',
+      inline: true
+    }, {
+      name: '🔥 Lava Lake',
+      value: 'Ultimate challenge, extreme rewards',
+      inline: true
+    });
+
+    const row1 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('cast_river')
+          .setLabel('🏞️ River')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('cast_ocean')
+          .setLabel('🌊 Ocean')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('cast_mountain')
+          .setLabel('🏔️ Mountain')
+          .setStyle(ButtonStyle.Success)
+      );
+
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('cast_mystic')
+          .setLabel('🌌 Mystic')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('cast_lava')
+          .setLabel('🔥 Lava')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row1, row2] });
+
+  } else if (action === 'shop') {
+    // Handle shop access
+    const shopData = fishingGame.loadData().shop;
+
+    const embed = new EmbedBuilder()
+      .setTitle('🛒 Fishing Shop')
+      .setDescription(`**Welcome to the shop!**\n\n**Your Coins:** ${playerData.coins} 🪙\n\nChoose what you'd like to browse:`)
+      .setColor(0x00ff00)
+      .setFooter({
+        text: `Shop - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    const row1 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('shop_rods')
+          .setLabel('🎣 Rods')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('shop_bait')
+          .setLabel('🪱 Bait')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('shop_hooks')
+          .setLabel('🪝 Hooks')
+          .setStyle(ButtonStyle.Primary)
+      );
+
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('shop_boats')
+          .setLabel('🚢 Boats')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('shop_workers')
+          .setLabel('👥 Workers')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('shop_sell')
+          .setLabel('💰 Sell Fish')
+          .setStyle(ButtonStyle.Success)
+      );
+
+    const row3 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('shop_inventory')
+          .setLabel('📦 Inventory')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row1, row2, row3] });
+
+  } else if (action === 'inventory') {
+    // Handle inventory view
+    const embed = new EmbedBuilder()
+      .setTitle('📦 Your Fishing Inventory')
+      .setColor(0x9370db)
+      .setFooter({
+        text: `Inventory - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    if (Object.keys(playerData.inventory).length === 0) {
+      embed.setDescription('Your inventory is empty! Go catch some fish first! 🎣');
+    } else {
+      let inventoryText = '';
+      Object.entries(playerData.inventory).forEach(([fishName, quantity]) => {
+        inventoryText += `**${fishName.replace('_', ' ')}** x${quantity}\n`;
+      });
+
+      embed.setDescription('Here\'s what you have caught:');
+      embed.addFields({
+        name: '🐟 Your Fish',
+        value: inventoryText,
+        inline: false
+      });
+    }
+
+    // Equipment info
+    const shopData = fishingGame.loadData().shop;
+    const equipment = playerData.equipment;
+    embed.addFields({
+      name: '🎯 Your Equipment',
+      value: `**Rod:** ${shopData.rods[equipment.rod].name}\n**Bait:** ${shopData.bait[equipment.bait].name}\n**Hook:** ${shopData.hooks[equipment.hook].name}`,
+      inline: true
+    });
+
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+
+  } else if (action === 'stats') {
+    // Handle stats view
+    const embed = new EmbedBuilder()
+      .setTitle('📊 Your Fishing Statistics')
+      .setColor(0x4a90e2)
+      .setFooter({
+        text: `Stats - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    embed.addFields({
+      name: '🎣 Fishing Stats',
+      value: 
+        `**Level:** ${playerData.level}\n` +
+        `**Experience:** ${playerData.experience}\n` +
+        `**Coins:** ${playerData.coins}\n` +
+        `**Total Casts:** ${playerData.stats.totalCasts || 0}\n` +
+        `**Fish Caught:** ${playerData.stats.totalFish || 0}\n` +
+        `**Rare Fish:** ${playerData.stats.rareFish || 0}\n` +
+        `**Legendary Fish:** ${playerData.stats.legendaryFish || 0}\n` +
+        `**Biggest Catch:** ${playerData.stats.biggestCatch || 0} lbs`,
+      inline: true
+    });
+
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+
+  } else if (action === 'challenges') {
+    // Handle challenges view
+    fishingGame.checkDailyChallenges(userId);
+    fishingGame.checkWeeklyChallenges(userId);
+
+    const data = fishingGame.loadData();
+    const challenges = data.challenges;
+    const updatedPlayerData = fishingGame.getPlayerData(userId);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎯 Fishing Challenges')
+      .setColor(0x4a90e2)
+      .setFooter({
+        text: `Challenges - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    if (challenges.daily && challenges.daily.length > 0) {
+      embed.addFields({
+        name: '📅 Daily Challenges',
+        value: challenges.daily.map(challenge => {
+          const playerChallenge = updatedPlayerData.challenges.daily[challenge.id];
+          const completed = playerChallenge && playerChallenge.completed;
+          const progress = playerChallenge ? playerChallenge.progress : 0;
+          const target = challenge.target;
+
+          const status = completed ? '✅' : '⏳';
+          const progressText = `${progress}/${target}`;
+
+          return `${status} **${challenge.name}**\n${challenge.description}\n*Progress: ${progressText} • Reward: ${challenge.reward.coins} coins, ${challenge.reward.exp} XP*`;
+        }).join('\n\n'),
+        inline: false
+      });
+    }
+
+    if (challenges.weekly && challenges.weekly.length > 0) {
+      embed.addFields({
+        name: '📊 Weekly Challenges',
+        value: challenges.weekly.map(challenge => {
+          const playerChallenge = updatedPlayerData.challenges.weekly[challenge.id];
+          const completed = playerChallenge && playerChallenge.completed;
+          const progress = playerChallenge ? playerChallenge.progress : 0;
+          const target = challenge.target;
+
+          const status = completed ? '✅' : '⏳';
+          const progressText = `${progress}/${target}`;
+
+          return `${status} **${challenge.name}**\n${challenge.description}\n*Progress: ${progressText} • Reward: ${challenge.reward.coins} coins, ${challenge.reward.exp} XP*`;
+        }).join('\n\n'),
+        inline: false
+      });
+    }
+
+    const dailyProgress = challenges.daily ? challenges.daily.filter(challenge => {
+      const playerChallenge = updatedPlayerData.challenges.daily[challenge.id];
+      return playerChallenge && playerChallenge.completed;
+    }).length : 0;
+
+    const weeklyProgress = challenges.weekly ? challenges.weekly.filter(challenge => {
+      const playerChallenge = updatedPlayerData.challenges.weekly[challenge.id];
+      return playerChallenge && playerChallenge.completed;
+    }).length : 0;
+
+    embed.addFields({
+      name: '📈 Progress Summary',
+      value: `**Daily:** ${dailyProgress}/${challenges.daily ? challenges.daily.length : 0} completed\n**Weekly:** ${weeklyProgress}/${challenges.weekly ? challenges.weekly.length : 0} completed`,
+      inline: true
+    });
+
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('refresh_challenges')
+          .setLabel('🔄 Refresh')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+
+  } else if (action === 'achievements') {
+    // Handle achievements view
+    const data = fishingGame.loadData();
+    const allAchievements = data.achievements;
+    const newAchievements = fishingGame.checkAchievements(userId);
+    const updatedPlayerData = fishingGame.getPlayerData(userId);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🏆 Fishing Achievements')
+      .setColor(0xffd700)
+      .setFooter({
+        text: `${updatedPlayerData.achievements.length}/${allAchievements.length} unlocked • ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    const completedCount = updatedPlayerData.achievements.length;
+    const totalCount = allAchievements.length;
+    const completionRate = Math.round((completedCount / totalCount) * 100);
+
+    embed.setDescription(`**Achievement Progress:** ${completedCount}/${totalCount} (${completionRate}%)\n\n`);
+
+    let achievementText = '';
+    allAchievements.forEach(achievement => {
+      const unlocked = updatedPlayerData.achievements.includes(achievement.id);
+      const status = unlocked ? '✅' : '⏳';
+
+      achievementText += `${status} ${achievement.emoji} **${achievement.name}**\n${achievement.description}\n*Reward: ${achievement.reward.coins} coins, ${achievement.reward.exp} XP*\n\n`;
+    });
+
+    embed.addFields({
+      name: '🏆 All Achievements',
+      value: achievementText || 'No achievements available.',
+      inline: false
+    });
+
+    if (newAchievements.length > 0) {
+      const newAchText = newAchievements.map(ach => 
+        `${ach.emoji} **${ach.name}**`
+      ).join(', ');
+
+      embed.addFields({
+        name: '🎉 New Achievements Unlocked!',
+        value: newAchText,
+        inline: false
+      });
+    }
+
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+
+  } else if (action === 'minigame') {
+    // Handle minigame access
+    const embed = new EmbedBuilder()
+      .setTitle('🎮 Fishing Mini-Games')
+      .setDescription('Practice your fishing skills with mini-games! Choose a difficulty level:')
+      .setColor(0x4a90e2)
+      .setFooter({
+        text: `Mini-games - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    const row1 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('minigame_retry_common')
+          .setLabel('🐟 Easy (Common)')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('minigame_retry_uncommon')
+          .setLabel('🐠 Medium (Uncommon)')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('minigame_retry_rare')
+          .setLabel('🦈 Hard (Rare)')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('minigame_retry_legendary')
+          .setLabel('🐋 Expert (Legendary)')
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row1, row2] });
+
+  } else if (action === 'weather') {
+    // Handle weather view
+    const currentWeather = fishingGame.getCurrentWeather();
+    const weatherMessage = fishingGame.getWeatherMessage();
+    const data = fishingGame.loadData();
+    const weatherEffects = data.weather.effects;
+
+    const embed = new EmbedBuilder()
+      .setTitle('🌤️ Current Fishing Weather')
+      .setDescription(`**${currentWeather.charAt(0).toUpperCase() + currentWeather.slice(1)}**`)
+      .setColor(currentWeather === 'sunny' ? 0xffd700 : currentWeather === 'rainy' ? 0x4682b4 : 0x808080)
+      .addFields(
+        {
+          name: '📊 Catch Rate Multiplier',
+          value: `${weatherEffects[currentWeather].catchMultiplier}x`,
+          inline: true
+        },
+        {
+          name: '💬 Conditions',
+          value: weatherEffects[currentWeather].message,
+          inline: true
+        }
+      )
+      .setFooter({
+        text: 'Weather affects fishing success rates',
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('⬅️ Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+
+  } else if (action === 'help') {
+    // Handle help menu
+    const embed = new EmbedBuilder()
+      .setTitle('🎣 Fishing Game Help')
+      .setDescription('Welcome to the ultimate fishing experience! Here\'s how to play:')
+      .setColor(0x4a90e2)
+      .setFooter({
+        text: `Help - ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    embed.addFields({
+      name: '🎣 **How to Play**',
+      value: 
+        `• **Cast Your Line** - Choose a location and try to catch fish!\n` +
+        `• **Shop** - Buy better equipment to improve your chances\n` +
+        `• **Mini-Games** - Practice your fishing skills\n` +
+        `• **Challenges** - Complete daily and weekly goals\n` +
+        `• **Weather** - Different conditions affect your success`,
+      inline: false
+    });
+
+    embed.addFields({
+      name: '💡 **Tips**',
+      value: 
+        `• Better equipment = higher catch rates\n` +
+        `• Complete challenges for bonus rewards\n` +
+        `• Weather affects fishing success\n` +
+        `• Mini-games give experience bonuses\n` +
+        `• Legendary fish trigger special events!`,
+      inline: false
+    });
+
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('fish_cast')
+          .setLabel('🎣 Start Fishing!')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('fish_shop')
+          .setLabel('🛒 Visit Shop')
+          .setStyle(ButtonStyle.Primary)
+      );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+  }
+}
+
+async function handleCastLocation(interaction) {
+  const fishingGame = require('./services/fishing');
+  const location = interaction.customId.split('_')[1];
+  const userId = interaction.user.id;
+  const allowedChannelId = '1410703437502353428';
+
+  // Check if command is used in the correct channel
+  if (interaction.channelId !== allowedChannelId) {
+    return await interaction.reply({
+      content: `❌ Fishing is only allowed in the designated fishing channel! Please use the fishing commands there.`,
+      flags: 64
+    });
+  }
+
+  const playerData = fishingGame.getPlayerData(userId);
+
+  await interaction.deferUpdate();
+
+  try {
+    // Check if player has enough stamina (simple cooldown system)
+    const now = Date.now();
+    const lastCast = playerData.lastCast || 0;
+    const cooldown = 1000; // 1 second between casts
+
+    if (now - lastCast < cooldown) {
+      const remaining = Math.ceil((cooldown - (now - lastCast)) / 1000);
+      return await interaction.editReply(`⏰ **Cooldown Active!** You must wait ${remaining} seconds before casting again.`);
+    }
+
+    // Update last cast time
+    fishingGame.updatePlayerData(userId, { lastCast: now });
+
+    // Attempt to catch a fish using the enhanced system
+    const catchResult = fishingGame.attemptCatch(userId, location);
+    
+    // Create response embed
+    const embed = new EmbedBuilder()
+      .setTitle('🎣 Fishing Adventure')
+      .setColor(catchResult.success ? fishingGame.getRarityColor(catchResult.fish.rarity) : 0x666666)
+      .setFooter({
+        text: `Level ${playerData.level} Fisher • ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+      });
+
+    if (catchResult.success) {
+      const fish = catchResult.fish;
+      const emoji = fishingGame.getRarityEmoji(fish.rarity);
+      
+      embed.setDescription(`**${getLocationName(location)}**
+
+${emoji} **You caught a ${fish.name.replace('_', ' ')}!**
+
+**Weight:** ${fish.weight} lbs
+**Value:** ${fish.value} coins
+**Rarity:** ${fish.rarity.charAt(0).toUpperCase() + fish.rarity.slice(1)}`);
+
+      // Weather information
+      embed.addFields({
+        name: '🌤️ Weather',
+        value: catchResult.weather,
+        inline: true
+      });
+
+      // Mini-game results
+      if (catchResult.miniGame && catchResult.miniGame.success) {
+        embed.addFields({
+          name: '🎮 Mini-Game Bonus!',
+          value: catchResult.miniGame.message,
+          inline: true
+        });
+      }
+
+      // Achievement notifications
+      if (catchResult.newAchievements && catchResult.newAchievements.length > 0) {
+        const achievementText = catchResult.newAchievements.map(ach => 
+          `${ach.emoji} **${ach.name}** - ${ach.description}`
+        ).join('\n');
+        
+        embed.addFields({
+          name: '🏆 New Achievements!',
+          value: achievementText,
+          inline: false
+        });
+      }
+
+      // AI comments for rare catches
+      if (fish.rarity === 'legendary' || fish.rarity === 'event') {
+        try {
+          const aiPrompt = fish.rarity === 'legendary' 
+            ? `Comment on ${interaction.user.username} catching a legendary ${fish.name.replace('_', ' ')} weighing ${fish.weight} lbs in your typical chaotic, excited style. Make it epic and memorable!`
+            : `Comment on ${interaction.user.username} catching a special event ${fish.name.replace('_', ' ')} weighing ${fish.weight} lbs. Make it mysterious and otherworldly in your style!`;
+          
+          const aiComment = await getAIResponse(aiPrompt);
+          
+          embed.addFields({
+            name: fish.rarity === 'legendary' ? '🎭 Sheogorath\'s Praise' : '🌟 Sheogorath\'s Wonder',
+            value: `*${aiComment}*`,
+            inline: false
+          });
+        } catch (aiError) {
+          console.error('AI comment generation failed:', aiError);
+          // Fallback to static messages
+          const fallbackMessage = fish.rarity === 'legendary'
+            ? `*The Mad King is impressed! This fish shall be remembered in the annals of fishing history!*`
+            : `*A fish touched by the cosmos itself! The stars align for you, mortal!*`;
+          
+          embed.addFields({
+            name: fish.rarity === 'legendary' ? '🎉 Legendary Catch!' : '🌟 Special Event Fish!',
+            value: fallbackMessage,
+            inline: false
+          });
+        }
+      }
+
+      // Level up notification
+      const newPlayerData = fishingGame.getPlayerData(userId);
+      if (newPlayerData.level > playerData.level) {
+        embed.addFields({
+          name: '⬆️ Level Up!',
+          value: `**Congratulations!** You reached level ${newPlayerData.level}!\n*You received ${newPlayerData.level * 50} bonus coins!*`,
+          inline: false
+        });
+      }
+    } else {
+      embed.setDescription(`**${getLocationName(location)}**
+
+🎣 **No fish this time!**
+
+*The waters remain mysterious... try again!*`);
+
+      // Weather information for failed catches too
+      embed.addFields({
+        name: '🌤️ Weather',
+        value: catchResult.weather,
+        inline: true
+      });
+
+      // Mini-game results for failed catches
+      if (catchResult.miniGame && !catchResult.miniGame.success) {
+        embed.addFields({
+          name: '🎮 Mini-Game Result',
+          value: catchResult.miniGame.message,
+          inline: true
+        });
+      }
+    }
+
+    // Add equipment info
+    const equipment = playerData.equipment;
+    const shopData = fishingGame.loadData().shop;
+    embed.addFields({
+      name: '🎯 Equipment',
+      value: `**Rod:** ${shopData.rods[equipment.rod].name}\n**Bait:** ${shopData.bait[equipment.bait].name}\n**Hook:** ${shopData.hooks[equipment.hook].name}`,
+      inline: true
+    });
+
+    // Add navigation back to fishing
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('fish_cast')
+          .setLabel('🎣 Cast Again')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('fish_help')
+          .setLabel('🏠 Home')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    await interaction.editReply({ embeds: [embed], components: [row] });
+
+  } catch (error) {
+    console.error('Fishing command error:', error);
+    await interaction.editReply('❌ Something went wrong with your fishing trip! Please try again.');
+  }
+}
+
+function getLocationName(location) {
+  const names = {
+    river: '🏞️ Tranquil River',
+    ocean: '🌊 Vast Ocean',
+    mountain: '🏔️ Mountain Lake',
+    mystic: '🌌 Mystic Pond',
+    lava: '🔥 Lava Lake'
+  };
+  return names[location] || 'Unknown Location';
+}
+
+async function getAIResponse(prompt) {
+  try {
+    const response = await openai.chat.completions.create({
+      model: process.env.CLIENT_MODEL,
+      messages: [
+        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
+        { role: 'user', content: prompt }
+      ],
+    });
+    return response.choices[0].message.content;
+  } catch (error) {
+    console.error('AI response error:', error);
+    return 'The Mad King is... contemplating your catch.';
+  }
+}
+
+async function handleWorkerFire(interaction) {
+  const fishingGame = require('./services/fishing');
+  const workerKey = interaction.customId.split('_').slice(2).join('_'); // Handle keys with underscores
+  const userId = interaction.user.id;
+  const playerData = fishingGame.getPlayerData(userId);
+  const shopData = fishingGame.loadData().shop;
+
+  // Check if player has this worker
+  if (!playerData.workforce || !playerData.workforce.active_workers || !playerData.workforce.active_workers.some(w => w.type === workerKey)) {
+    return await interaction.reply({
+      content: '❌ You don\'t have this worker!',
+      flags: 64
+    });
+  }
+
+  // Remove worker from workforce
+  playerData.workforce.active_workers = playerData.workforce.active_workers.filter(w => w.type !== workerKey);
+  fishingGame.updatePlayerData(userId, { workforce: playerData.workforce });
+
+  const worker = shopData.workers[workerKey];
+  const embed = new EmbedBuilder()
+    .setTitle('👥 Worker Fired!')
+    .setDescription(`**${worker.name}** has been fired from your workforce.\n\n*They will be missed... or not.*`)
+    .setColor(0xff6b35)
+    .addFields({
+      name: '📊 Worker Stats',
+      value: `**Skill:** ${worker.skill}\n**Efficiency:** ${worker.efficiency}\n**Daily Wage:** ${worker.wage} coins`,
+      inline: true
+    })
+    .setFooter({
+      text: `Fired by ${interaction.user.username}`,
+      iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+    });
+
+  await interaction.reply({ embeds: [embed], flags: 0 });
+}
+
+process.on('SIGINT', () => {
+  console.log('Bot is shutting down...');
+  client.destroy();
+  process.exit(0);
+});
+
+client.login(process.env.DISCORD_TOKEN);
+// index.js
+
+process.on('SIGINT', () => {
   console.log('Bot is shutting down...');
   client.destroy();
   process.exit(0);

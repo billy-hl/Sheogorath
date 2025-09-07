@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { play, connectToChannel, getConnection, players } = require('../music/player');
-const { getAIResponse } = require('../ai/openai');
+const { getAIResponse } = require('../ai/grok');
 
 module.exports = {
   data: new SlashCommandBuilder()

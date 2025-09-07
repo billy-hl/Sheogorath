@@ -32,7 +32,8 @@
     "play-dl": "^1.9.7",
     "rss-parser": "^3.13.0",
     "youtube-dl-exec": "^3.0.13",
-    "ytdl-core": "^4.11.5"
+    "ytdl-core": "^4.11.5",
+    "axios": "^1.6.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

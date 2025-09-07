@@ -31,11 +31,11 @@ Sheogorath is a full-featured Discord bot that combines AI chat### 🎲 Games & 
 - 🐠 **Uncommon** (25%) - Better fish like trout, salmon
 - 🦈 **Rare** (10%) - Valuable fish like golden fish
 - 🐋 **Legendary** (4%) - Epic catches like dragon fish
-- 🎏 **Event** (1%) - Special festival and lunar fishic streaming, and livestream notifications for your community. Powered by OpenAI and modern Discord libraries, it brings together:
+- 🎏 **Event** (1%) - Special festival and lunar fishic streaming, and livestream notifications for your community. Powered by Grok (xAI) and modern Discord libraries, it brings together:
 
 ## What does it do?
 
-- **AI Chat**: Talk to Sheogorath, an AI persona based on the Elder Scrolls character, using OpenAI's GPT models. The bot responds in-character, answers questions, and can be customized for your server.
+- **AI Chat**: Talk to Sheogorath, an AI persona based on the Elder Scrolls character, using Grok (xAI). The bot responds in-character, answers questions, and can be customized for your server.
 - **Music Streaming**: Play YouTube music directly in your Discord voice channels. Supports both direct YouTube URLs and search terms, with robust error handling and queue management.
 - **Livestream Alerts**: Automatically detects when specified YouTube or Kick channels go live and posts announcements in your chosen Discord channel. Also announces new YouTube uploads.
 - **Multi-Channel Monitoring**: Monitors multiple Kick channels (main channel, EokaFish, Allisteras) with rich embeds and interactive buttons
@@ -47,7 +47,7 @@ Sheogorath is a full-featured Discord bot that combines AI chat### 🎲 Games & 
 
 ## Key Features
 
-- **AI-powered chat and persona** with OpenAI GPT integration
+- **AI-powered chat and persona** with Grok (xAI) integration
 - **Multi-channel Kick monitoring** (main, EokaFish, Allisteras) with rich embeds
 - **YouTube livestream and upload detection** with notifications
 - **Advanced music system** with YouTube playback and queue management
@@ -72,15 +72,13 @@ Sheogorath is a full-featured Discord bot that combines AI chat### 🎲 Games & 
 	```
 2. Create a `.env` file in the root directory with your secrets and config:
 	```
-	OPENAI_API_KEY=your_openai_key
-	ASSISTANT_ID=your_openai_assistant_id
-	THREAD_ID=your_openai_thread_id
+	GROK_API_KEY=your_grok_api_key
 	CHANNEL_ID=discord_channel_id_for_announcements
 	POLLING_RETRIES=10
 	POLLING_TIMEOUT=3
 	CLIENT_NAME=Sheogorath
 	CLIENT_INSTRUCTIONS=Your custom AI instructions
-	CLIENT_MODEL=gpt-4o
+	CLIENT_MODEL=grok-code-fast-1
 	DISCORD_TOKEN=your_discord_token
 	CLIENT_ID=your_discord_bot_id
 	GUILD_ID=your_discord_guild_id

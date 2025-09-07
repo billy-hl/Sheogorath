@@ -2,7 +2,6 @@
 require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, Collection, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { OpenAI } = require('openai');
 const { getVoiceConnection } = require('@discordjs/voice');
 const schedule = require('node-schedule');
 const { getState, setState } = require('./storage/state');
@@ -18,7 +17,7 @@ const FISHING_CHANNEL_ID = '1410703437502353428'; // The fishing channel ID
 const conversationHistory = new Map(); // Store conversation history per user
 
 const requiredEnv = [
-  'OPENAI_API_KEY',
+  'GROK_API_KEY',
   'CLIENT_NAME',
   'CLIENT_INSTRUCTIONS',
   'CLIENT_MODEL',
@@ -41,8 +40,6 @@ if (missingEnv.length > 0) {
 }
 
 
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const client = new Client({
   intents: [
@@ -398,16 +395,24 @@ client.once('ready', async () => {
         
         const randomPrompt = conversationalPrompts[Math.floor(Math.random() * conversationalPrompts.length)];
         
-        const response = await openai.chat.completions.create({
-          model: process.env.CLIENT_MODEL,
+        const axios = require('axios');
+        const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+          model: 'grok-code-fast-1',
           messages: [
             { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
             ...conversationContext,
             { role: 'user', content: randomPrompt }
           ],
+          max_tokens: 200,
+          temperature: 0.7,
+        }, {
+          headers: {
+            'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
         });
         
-        const message = response.choices[0].message.content;
+        const message = response.data.choices[0].message.content;
         await channel.send(message);
       }
     } catch (e) {
@@ -487,8 +492,11 @@ client.on('messageCreate', async (message) => {
   }
   if (
     message.content.includes(`<@!${client.user.id}>`) ||
-    message.content.includes(`<@${client.user.id}>`)
+    message.content.includes(`<@${client.user.id}>`) ||
+    message.content.toLowerCase().includes('@sheogorath') ||
+    message.content.toLowerCase().includes('@sherogorath')
   ) {
+    console.log(`Mention detected in channel ${message.channelId} by ${message.author.username}: ${message.content}`);
     askChatGPT(message);
   }
   
@@ -726,15 +734,23 @@ client.on('guildMemberAdd', async (member) => {
     if (!channel || !channel.isTextBased()) return;
     
     const prompt = `Welcome ${member.user.username} to the server in your typical chaotic, sarcastic, and threatening style. Make it memorable and fun.`;
-    const welcomeMessage = await openai.chat.completions.create({
-      model: process.env.CLIENT_MODEL,
+    const axios = require('axios');
+    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+      model: 'grok-code-fast-1',
       messages: [
         { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
         { role: 'user', content: prompt }
       ],
+      max_tokens: 200,
+      temperature: 0.7,
+    }, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
     });
     
-    const message = welcomeMessage.choices[0].message.content;
+    const message = response.data.choices[0].message.content;
     await channel.send(`🎉 ${message}`);
   } catch (error) {
     console.error('AI welcome message failed:', error);
@@ -749,24 +765,45 @@ async function askChatGPT(userMessage) {
   const userId = userMessage.author.id;
   const history = conversationHistory.get(userId) || [];
   
+  console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);
+  
   try {
     const messages = [
       { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-      ...history.slice(-15), // Keep last 15 messages for context
+      // Reduce conversation history to last 5 messages to save tokens
+      ...history.slice(-5), // Keep last 5 messages for context
       { role: 'user', content: userMessage.content }
     ];
     
-    const response = await openai.chat.completions.create({
-      model: process.env.CLIENT_MODEL,
+    const axios = require('axios');
+    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+      model: 'grok-code-fast-1',
       messages: messages,
+      max_tokens: 500, // Increased significantly to give more room
+      temperature: 0.7,
+    }, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 20000, // Increased timeout
     });
 
-    const assistantReply = response.choices[0].message.content;
+    console.log(`Full API response:`, JSON.stringify(response.data, null, 2));
+    console.log(`Response choices:`, response.data.choices);
+    console.log(`Response choices length:`, response.data.choices ? response.data.choices.length : 'undefined');
+
+    const assistantReply = response.data.choices[0].message.content;
+    console.log(`AI response generated: ${assistantReply ? assistantReply.substring(0, 200) : 'EMPTY RESPONSE'}...`);
+    console.log(`Response length: ${assistantReply ? assistantReply.length : 0} characters`);
+    
+    // Check if response is empty and provide fallback
+    const finalReply = assistantReply && assistantReply.trim() ? assistantReply : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";
     
     // Store conversation (keep last 15 exchanges)
     history.push(
       { role: 'user', content: userMessage.content },
-      { role: 'assistant', content: assistantReply }
+      { role: 'assistant', content: finalReply }
     );
     if (history.length > 30) { // Keep max 30 messages (15 exchanges)
       history.splice(0, history.length - 30);
@@ -774,30 +811,55 @@ async function askChatGPT(userMessage) {
     conversationHistory.set(userId, history);
     
     // Send response to the designated AI channel instead of replying
-    const aiChannel = await client.channels.fetch('380486887309180929');
-    if (aiChannel && aiChannel.isTextBased()) {
-      await aiChannel.send(`**${userMessage.author.username}:** ${userMessage.content}\n\n${assistantReply}`);
+    const aiChannelId = '380486887309180929';
+    
+    // If the mention is in the AI channel, reply directly
+    if (userMessage.channelId === aiChannelId) {
+      console.log(`Mention in AI channel, replying directly`);
+      await userMessage.reply(finalReply);
     } else {
-      // Fallback to reply if channel not found
-      userMessage.reply(assistantReply);
+      // Try to send to AI channel, fallback to original channel
+      try {
+        const aiChannel = await client.channels.fetch(aiChannelId);
+        if (aiChannel && aiChannel.isTextBased()) {
+          await aiChannel.send(finalReply);
+          console.log(`Response sent to AI channel ${aiChannel.id}`);
+        } else {
+          console.log(`AI channel not found, replying in original channel ${userMessage.channelId}`);
+          await userMessage.reply(finalReply);
+        }
+      } catch (channelError) {
+        console.log(`Error accessing AI channel, replying in original channel ${userMessage.channelId}:`, channelError.message);
+        await userMessage.reply(finalReply);
+      }
     }
   } catch (error) {
     console.error('Error in askChatGPT:', error);
-    userMessage.reply('An error occurred while trying to fetch the response.');
+    console.log(`Error details: ${error.message}`);
+    console.log(`Sending error response to channel ${userMessage.channelId}`);
+    await userMessage.reply('❌ An error occurred while trying to fetch the AI response. The Mad King is... temporarily indisposed.');
   }
 }
 
 async function greetChatGpt(channel, messageToSend) {
   try {
-    const response = await openai.chat.completions.create({
-      model: process.env.CLIENT_MODEL,
+    const axios = require('axios');
+    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+      model: 'grok-code-fast-1',
       messages: [
-        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-        { role: 'user', content: messageToSend },
+        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS || 'You are Grok, a helpful AI assistant.' },
+        { role: 'user', content: messageToSend }
       ],
+      max_tokens: 200,
+      temperature: 0.7,
+    }, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
     });
 
-    const assistantReply = response.choices[0].message.content;
+    const assistantReply = response.data.choices[0].message.content;
     channel.send(assistantReply);
   } catch (error) {
     console.error('Error in greetChatGpt:', error);
@@ -3434,16 +3496,24 @@ function getLocationName(location) {
 
 async function getAIResponse(prompt) {
   try {
-    const response = await openai.chat.completions.create({
-      model: process.env.CLIENT_MODEL,
+    const axios = require('axios');
+    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+      model: 'grok-code-fast-1',
       messages: [
-        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
+        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS || 'You are Grok, a helpful AI assistant.' },
         { role: 'user', content: prompt }
       ],
+      max_tokens: 200,
+      temperature: 0.7,
+    }, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
     });
-    return response.choices[0].message.content;
+    return response.data.choices[0].message.content;
   } catch (error) {
-    console.error('AI response error:', error);
+    console.error('Grok API error:', error);
     return 'The Mad King is... contemplating your catch.';
   }
 }

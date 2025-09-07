@@ -56,16 +56,16 @@ module.exports = {
         };
       }
 
-      // Check OpenAI API
+      // Check Grok API
       try {
-        if (process.env.OPENAI_API_KEY) {
-          status.services.openai_api = {
+        if (process.env.GROK_API_KEY) {
+          status.services.grok_api = {
             status: 'configured',
-            model: process.env.CLIENT_MODEL || 'gpt-4o'
+            model: 'grok-code-fast-1'
           };
         }
       } catch (e) {
-        status.services.openai_api = {
+        status.services.grok_api = {
           status: 'error',
           error: e.message
         };

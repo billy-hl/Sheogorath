@@ -1,6 +1,7 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, getVoiceConnection, demuxProbe } = require('@discordjs/voice');
 const ytdl = require('@distube/ytdl-core');
 const ytdlexec = require('youtube-dl-exec');
+const { parseYouTubeUrl } = require('../services/youtube');
 
 // Optional: Use cookies if provided to improve access to restricted videos
 let requestOptions = undefined;
@@ -42,18 +43,42 @@ async function play(connection, url, onFinish) {
     }
   }
   console.log('DEBUG: play() using videoUrl:', videoUrl);
+  
+  // Clean the URL to remove playlist and radio parameters that might cause issues
+  const parsed = parseYouTubeUrl(videoUrl);
+  if (parsed && parsed.videoId) {
+    videoUrl = `https://www.youtube.com/watch?v=${parsed.videoId}`;
+    console.log('DEBUG: cleaned videoUrl to:', videoUrl);
+  }
+  
   let audioStream;
   try {
-    // Use @distube/ytdl-core for more reliable streaming
-    audioStream = ytdl(videoUrl, {
-      filter: 'audioonly',
-      quality: 'highestaudio',
-      highWaterMark: 1 << 25,
-      dlChunkSize: 0,
-      requestOptions,
+    // Use yt-dlp to pipe audio directly via spawn
+    const { spawn } = require('child_process');
+    const ytDlpPath = require.resolve('youtube-dl-exec/bin/yt-dlp');
+    
+    const ytDlpProcess = spawn(ytDlpPath, [
+      videoUrl,
+      '--format', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
+      '--output', '-',
+      '--quiet',
+      '--no-warnings',
+      '--add-header', 'referer:youtube.com',
+      '--add-header', 'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ]);
+    
+    audioStream = ytDlpProcess.stdout;
+    
+    ytDlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+    
+    ytDlpProcess.on('error', (error) => {
+      console.error('yt-dlp process error:', error);
+      throw error;
     });
   } catch (err) {
-    console.error('Error creating ytdl stream for videoUrl:', videoUrl, err);
+    console.error('Error creating audio stream for videoUrl:', videoUrl, err);
     throw new Error('Failed to create audio stream from YouTube.');
   }
   let probed;
@@ -61,7 +86,15 @@ async function play(connection, url, onFinish) {
     probed = await demuxProbe(audioStream);
   } catch (err) {
     console.error('Error probing stream type:', err);
-    throw new Error('Failed to prepare audio stream.');
+    // Create resource directly without probing
+    const resource = createAudioResource(audioStream);
+    let player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+    player.play(resource);
+    connection.subscribe(player);
+    player.on(AudioPlayerStatus.Idle, () => {
+      if (onFinish) onFinish();
+    });
+    return player;
   }
   const resource = createAudioResource(probed.stream, { inputType: probed.type });
   let player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });

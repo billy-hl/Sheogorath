@@ -1,6 +1,25 @@
 'use strict';
 require('dotenv').config();
+
+// Suppress ytdl-core warnings globally and prevent debug file creation
+const originalConsoleWarn = console.warn;
+console.warn = (...args) => {
+  if (args.some(arg => typeof arg === 'string' && 
+      (arg.includes('decipher function') || arg.includes('n transform function')))) {
+    return; // Suppress ytdl-core warnings
+  }
+  originalConsoleWarn(...args);
+};
+
+// Override fs.writeFileSync to prevent ytdl-core from creating debug files
 const fs = require('fs');
+const originalWriteFileSync = fs.writeFileSync;
+fs.writeFileSync = function(filename, ...args) {
+  if (typeof filename === 'string' && filename.includes('player-script.js')) {
+    return; // Prevent creating player-script.js files
+  }
+  return originalWriteFileSync.call(this, filename, ...args);
+};
 const { Client, GatewayIntentBits, Collection, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const schedule = require('node-schedule');
@@ -372,18 +391,38 @@ client.once('ready', async () => {
       const channel = await client.channels.fetch('380486887309180929');
       if (!channel || !channel.isTextBased()) return;
       
-      // 5% chance to send a random engaging message
-      if (Math.random() < 0.05) {
+      // 3% chance to send a random engaging message
+      if (Math.random() < 0.03) {
         // Fetch recent messages from the AI channel for context
         const recentMessages = await channel.messages.fetch({ limit: 20 });
         const conversationContext = recentMessages
           .filter(msg => !msg.author.bot || msg.author.id === client.user.id)
           .reverse()
           .slice(-10) // Get last 10 relevant messages
-          .map(msg => ({
-            role: msg.author.id === client.user.id ? 'assistant' : 'user',
-            content: msg.author.id === client.user.id ? msg.content : `${msg.author.username}: ${msg.content}`
-          }));
+          .map(async msg => {
+            let content = msg.author.id === client.user.id ? msg.content : `${msg.author.username}: ${msg.content}`;
+            
+            // Clean up user mentions in conversation context
+            if (msg.author.id !== client.user.id) {
+              const mentionRegex = /<@!?(\d+)>/g;
+              let match;
+              while ((match = mentionRegex.exec(msg.content)) !== null) {
+                const userId = match[1];
+                try {
+                  const user = await client.users.fetch(userId);
+                  const username = user.username;
+                  content = content.replace(match[0], `@${username}`);
+                } catch (error) {
+                  console.log(`Could not fetch user ${userId} in conversation context, keeping original mention`);
+                }
+              }
+            }
+            
+            return {
+              role: msg.author.id === client.user.id ? 'assistant' : 'user',
+              content: content
+            };
+          });
 
         const conversationalPrompts = [
           "Based on the recent conversation, share a relevant thought or continue the discussion in your chaotic style.",
@@ -505,8 +544,6 @@ client.on('messageCreate', async (message) => {
   const triggers = [
     'sheogorath',
     'mad king',
-    'hey bot',
-    'ai',
     'tell me',
     'what do you think',
     'help me',
@@ -768,11 +805,27 @@ async function askChatGPT(userMessage) {
   console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);
   
   try {
+    // Clean up user mentions to use actual usernames instead of raw IDs
+    let cleanedContent = userMessage.content;
+    const mentionRegex = /<@!?(\d+)>/g;
+    let match;
+    while ((match = mentionRegex.exec(userMessage.content)) !== null) {
+      const userId = match[1];
+      try {
+        const user = await client.users.fetch(userId);
+        const username = user.username;
+        cleanedContent = cleanedContent.replace(match[0], `@${username}`);
+      } catch (error) {
+        console.log(`Could not fetch user ${userId}, keeping original mention`);
+        // Keep the original mention if we can't fetch the user
+      }
+    }
+    
     const messages = [
       { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
       // Reduce conversation history to last 5 messages to save tokens
       ...history.slice(-5), // Keep last 5 messages for context
-      { role: 'user', content: userMessage.content }
+      { role: 'user', content: cleanedContent }
     ];
     
     const axios = require('axios');
@@ -802,7 +855,7 @@ async function askChatGPT(userMessage) {
     
     // Store conversation (keep last 15 exchanges)
     history.push(
-      { role: 'user', content: userMessage.content },
+      { role: 'user', content: cleanedContent },
       { role: 'assistant', content: finalReply }
     );
     if (history.length > 30) { // Keep max 30 messages (15 exchanges)

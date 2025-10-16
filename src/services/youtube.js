@@ -107,10 +107,16 @@ module.exports.checkYouTubeLive = checkYouTubeLive;
 
 // Check live status directly from a watch URL
 async function checkYouTubeWatchUrl(watchUrl) {
-  if (!/^https?:\/\/www\.youtube\.com\/watch\?v=/.test(watchUrl)) {
+  // Clean URL by removing playlist and radio parameters
+  const url = new URL(watchUrl);
+  const extractedVideoId = url.searchParams.get('v');
+  if (!extractedVideoId) {
     return { live: false, url: watchUrl };
   }
-  const res = await fetch(watchUrl, {
+  // Reconstruct clean URL with just the video ID
+  const cleanUrl = `https://www.youtube.com/watch?v=${extractedVideoId}`;
+
+  const res = await fetch(cleanUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0',
       'Accept-Language': 'en-US,en;q=0.9',
@@ -138,10 +144,59 @@ async function checkYouTubeWatchUrl(watchUrl) {
     || player?.videoDetails?.isLiveContent === true
     || !!player?.playabilityStatus?.liveStreamability;
 
-  const videoId = player?.videoDetails?.videoId || (watchUrl.match(/[?&]v=([A-Za-z0-9_-]{6,})/)?.[1] ?? null);
+  const videoId = player?.videoDetails?.videoId || extractedVideoId;
   const title = player?.videoDetails?.title || 'Live Stream';
 
-  return { live: !!liveFlag, url: watchUrl, title, videoId };
+  return { live: !!liveFlag, url: cleanUrl, title, videoId };
 }
 
 module.exports.checkYouTubeWatchUrl = checkYouTubeWatchUrl;
+
+// Parse YouTube URL to extract video ID, list ID, and radio flag
+function parseYouTubeUrl(url) {
+  try {
+    const parsedUrl = new URL(url);
+    let videoId = null;
+    let listId = null;
+    let isRadio = false;
+    let isPlaylist = false;
+
+    if (parsedUrl.hostname === 'youtu.be') {
+      // Shortened URL: https://youtu.be/VIDEO_ID?list=LIST_ID&start_radio=1
+      videoId = parsedUrl.pathname.slice(1); // Remove leading /
+      listId = parsedUrl.searchParams.get('list');
+      isRadio = parsedUrl.searchParams.get('start_radio') === '1';
+    } else if (parsedUrl.hostname === 'www.youtube.com' || parsedUrl.hostname === 'youtube.com') {
+      if (parsedUrl.pathname === '/watch') {
+        // Watch URL: https://www.youtube.com/watch?v=VIDEO_ID&list=LIST_ID&start_radio=1
+        videoId = parsedUrl.searchParams.get('v');
+        listId = parsedUrl.searchParams.get('list');
+        isRadio = parsedUrl.searchParams.get('start_radio') === '1';
+      } else if (parsedUrl.pathname === '/playlist') {
+        // Playlist URL: https://www.youtube.com/playlist?list=LIST_ID
+        listId = parsedUrl.searchParams.get('list');
+        isPlaylist = true;
+      } else if (parsedUrl.pathname.startsWith('/channel/')) {
+        // Channel URL, no video or list
+      } else {
+        // Other formats, try to extract from searchParams
+        videoId = parsedUrl.searchParams.get('v');
+        listId = parsedUrl.searchParams.get('list');
+        isRadio = parsedUrl.searchParams.get('start_radio') === '1';
+      }
+    }
+
+    return {
+      videoId,
+      listId,
+      isRadio,
+      isPlaylist,
+      originalUrl: url
+    };
+  } catch (error) {
+    console.error('Error parsing YouTube URL:', error);
+    return null;
+  }
+}
+
+module.exports.parseYouTubeUrl = parseYouTubeUrl;

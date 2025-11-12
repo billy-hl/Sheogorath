@@ -11,14 +11,55 @@ if (process.env.YOUTUBE_COOKIE) {
 }
 
 const players = new Map();
+const queues = new Map(); // Store queue for each guild
 
-async function play(connection, url, onFinish) {
+// Queue management functions
+function getQueue(guildId) {
+  if (!queues.has(guildId)) {
+    queues.set(guildId, {
+      songs: [],
+      nowPlaying: null,
+      isPlaying: false
+    });
+  }
+  return queues.get(guildId);
+}
+
+function addToQueue(guildId, song) {
+  const queue = getQueue(guildId);
+  queue.songs.push(song);
+  return queue.songs.length;
+}
+
+function clearQueue(guildId) {
+  const queue = getQueue(guildId);
+  queue.songs = [];
+  queue.nowPlaying = null;
+  queue.isPlaying = false;
+}
+
+function removeFromQueue(guildId, index) {
+  const queue = getQueue(guildId);
+  if (index >= 0 && index < queue.songs.length) {
+    return queue.songs.splice(index, 1)[0];
+  }
+  return null;
+}
+
+function getNextSong(guildId) {
+  const queue = getQueue(guildId);
+  return queue.songs.shift();
+}
+
+async function resolveVideoUrl(url) {
   if (!url || typeof url !== 'string' || url.trim() === '') {
-    console.error('play() called with invalid url:', url);
     throw new Error('No URL or search term provided.');
   }
-  // Resolve URL: if valid video URL, use directly; else search via yt-dlp
+  
+  // If valid video URL, use directly; else search via yt-dlp
   let videoUrl = url;
+  let title = url;
+  
   if (!ytdl.validateURL(url)) {
     try {
       const raw = await ytdlexec(`ytsearch1:${url}`, {
@@ -34,6 +75,7 @@ async function play(connection, url, onFinish) {
       const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
       const entry = data?.entries?.[0] || data;
       const id = entry?.id;
+      title = entry?.title || url;
       const webpageUrl = entry?.webpage_url || (id ? `https://www.youtube.com/watch?v=${id}` : null);
       if (!webpageUrl) throw new Error('No results found for your search.');
       videoUrl = webpageUrl;
@@ -41,14 +83,39 @@ async function play(connection, url, onFinish) {
       console.error('Error searching YouTube via yt-dlp:', err?.stderr || err?.message || err);
       throw new Error('Failed to search YouTube for your query.');
     }
+  } else {
+    // Try to get title for URL
+    try {
+      const raw = await ytdlexec(url, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCheckCertificates: true,
+      });
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      title = data?.title || url;
+    } catch (err) {
+      console.log('Could not fetch title for URL:', err.message);
+    }
   }
+  
+  console.log('DEBUG: resolveVideoUrl() using videoUrl:', videoUrl);
+  return { url: videoUrl, title };
+}
+
+async function play(connection, url, guildId, onFinish) {
+  const { url: videoUrl, title } = await resolveVideoUrl(url);
+  const queue = getQueue(guildId);
+  queue.nowPlaying = { url: videoUrl, title };
+  queue.isPlaying = true;
+  
   console.log('DEBUG: play() using videoUrl:', videoUrl);
   
   // Clean the URL to remove playlist and radio parameters that might cause issues
+  let cleanedUrl = videoUrl;
   const parsed = parseYouTubeUrl(videoUrl);
   if (parsed && parsed.videoId) {
-    videoUrl = `https://www.youtube.com/watch?v=${parsed.videoId}`;
-    console.log('DEBUG: cleaned videoUrl to:', videoUrl);
+    cleanedUrl = `https://www.youtube.com/watch?v=${parsed.videoId}`;
+    console.log('DEBUG: cleaned videoUrl to:', cleanedUrl);
   }
   
   let audioStream;
@@ -58,7 +125,7 @@ async function play(connection, url, onFinish) {
     const ytDlpPath = require.resolve('youtube-dl-exec/bin/yt-dlp');
     
     const ytDlpProcess = spawn(ytDlpPath, [
-      videoUrl,
+      cleanedUrl,
       '--format', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
       '--output', '-',
       '--quiet',
@@ -101,9 +168,54 @@ async function play(connection, url, onFinish) {
   player.play(resource);
   connection.subscribe(player);
   player.on(AudioPlayerStatus.Idle, () => {
+    const queue = getQueue(guildId);
+    queue.isPlaying = false;
+    queue.nowPlaying = null;
+    
     if (onFinish) onFinish();
   });
   return player;
+}
+
+function stopPlaying(guildId) {
+  const player = players.get(guildId);
+  if (player) {
+    player.stop();
+    players.delete(guildId);
+  }
+  clearQueue(guildId);
+  
+  const connection = getVoiceConnection(guildId);
+  if (connection) {
+    connection.destroy();
+  }
+}
+
+function pausePlaying(guildId) {
+  const player = players.get(guildId);
+  if (player) {
+    player.pause();
+    return true;
+  }
+  return false;
+}
+
+function resumePlaying(guildId) {
+  const player = players.get(guildId);
+  if (player) {
+    player.unpause();
+    return true;
+  }
+  return false;
+}
+
+function skipSong(guildId) {
+  const player = players.get(guildId);
+  if (player) {
+    player.stop(); // This will trigger the Idle event and play next song
+    return true;
+  }
+  return false;
 }
 
 function connectToChannel(voiceChannel) {
@@ -118,4 +230,19 @@ function getConnection(guild) {
   return getVoiceConnection(guild.id);
 }
 
-module.exports = { play, connectToChannel, getConnection, players };
+module.exports = { 
+  play, 
+  connectToChannel, 
+  getConnection, 
+  players,
+  resolveVideoUrl,
+  getQueue,
+  addToQueue,
+  clearQueue,
+  removeFromQueue,
+  getNextSong,
+  stopPlaying,
+  pausePlaying,
+  resumePlaying,
+  skipSong
+};

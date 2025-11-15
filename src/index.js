@@ -23,9 +23,10 @@ fs.writeFileSync = function(filename, ...args) {
 const { Client, GatewayIntentBits, Collection, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const schedule = require('node-schedule');
-const { getState, setState } = require('./storage/state');
+const { getState, setState, getOSRSStats, setOSRSStats, getOSRSConfig, setOSRSConfig } = require('./storage/state');
 const { checkKickLive } = require('./services/kick');
 const { fetchLatestVideo, checkYouTubeLive } = require('./services/youtube');
+const { fetchPlayerStats, compareStats, getTotalLevel } = require('./services/osrs');
 
 const fetch = require('node-fetch');
 
@@ -489,37 +490,132 @@ client.on('ready', async (c) => {
     greetChatGpt(channel, 'Greet your servants');
   }
 
-  // Only schedule news if the command exists
-  if (client.commands.has('news')) {
-    schedule.scheduleJob('0 * * * *', async () => {
-      console.log('Scheduled task: Fetching and posting the latest news.');
-      const newsCommand = client.commands.get('news');
-      if (!newsCommand) {
-        console.error('News command not found!');
-        return;
-      }
-      const result = await newsCommand.fetchLatestNews();
-      if (!result) {
-        console.log('No new articles to post.');
-        return;
-      }
-      const { embed, guid } = result;
-      const channelId = process.env.CHANNEL_ID;
-      try {
-        const channel = await client.channels.fetch(channelId);
-        if (!channel || !channel.isTextBased()) {
-          console.error('Channel not found or is not text-based!');
-          return;
-        }
-        console.log(`Attempting to send embed for article: ${embed.data.title}`);
-        await channel.send({ embeds: [embed] });
-        console.log(`Scheduled task: Posted new article: ${embed.data.title}`);
-        newsCommand.writeCache({ lastArticleGuid: guid });
-      } catch (error) {
-        console.error('Error fetching the channel or sending the message:', error);
-      }
-    });
+  // OSRS Stat Tracking - Check every 30 minutes for level updates
+  const OSRS_USERNAME = 'Alchmore';
+  const OSRS_CHANNEL_ID = '1438313880374870117';
+  
+  // Initialize OSRS config
+  let osrsConfig = getOSRSConfig();
+  if (!osrsConfig.notificationChannelId) {
+    osrsConfig.notificationChannelId = OSRS_CHANNEL_ID;
+    osrsConfig.trackedPlayers = [OSRS_USERNAME];
+    setOSRSConfig(osrsConfig);
   }
+  
+  // Function to check OSRS stats and post updates
+  async function checkOSRSStats() {
+    const now = new Date();
+    const checkTime = now.toLocaleTimeString('en-US', { hour12: false });
+    const currentHour = now.getHours();
+    
+    // Skip checks between 10 PM (22:00) and 8 AM (08:00)
+    if (currentHour >= 22 || currentHour < 8) {
+      console.log(`[${checkTime}] Skipping OSRS check during quiet hours (10 PM - 8 AM)`);
+      return;
+    }
+    
+    console.log(`[${checkTime}] Running scheduled OSRS stats check...`);
+    
+    try {
+      const config = getOSRSConfig();
+      if (!config.notificationChannelId || !config.trackedPlayers.length) {
+        console.log(`[${checkTime}] No tracked players or notification channel configured`);
+        return;
+      }
+      
+      for (const username of config.trackedPlayers) {
+        console.log(`[${checkTime}] Checking OSRS stats for ${username}...`);
+        
+        try {
+          // Fetch current stats
+          const currentStats = await fetchPlayerStats(username);
+          const oldData = getOSRSStats(username);
+          
+          if (!oldData || !oldData.stats) {
+            // First time checking, just save the stats
+            setOSRSStats(username, currentStats);
+            console.log(`[${checkTime}] Initial OSRS stats saved for ${username}`);
+            continue;
+          }
+          
+          // Compare stats and find changes
+          const changes = compareStats(oldData.stats, currentStats);
+          
+          console.log(`[${checkTime}] Comparison - Old Overall XP: ${oldData.stats.Overall.xp}, New Overall XP: ${currentStats.Overall.xp}`);
+          
+          if (changes.length > 0) {
+            console.log(`[${checkTime}] Found ${changes.length} stat changes for ${username}:`, changes.map(c => `${c.skill}: ${c.oldLevel}→${c.newLevel}`).join(', '));
+            
+            // Create embed for the update
+            const embed = new EmbedBuilder()
+              .setColor('#FFD700')
+              .setTitle(`🎮 OSRS Level Update - ${username}`)
+              .setThumbnail('https://oldschool.runescape.wiki/images/thumb/Old_School_RuneScape_logo.png/150px-Old_School_RuneScape_logo.png')
+              .setTimestamp();
+            
+            let description = '';
+            let totalLevelsGained = 0;
+            
+            for (const change of changes) {
+              if (change.levelsGained > 0) {
+                description += `**${change.skill}**: ${change.oldLevel} → **${change.newLevel}** (+${change.levelsGained} ${change.levelsGained === 1 ? 'level' : 'levels'})\n`;
+                totalLevelsGained += change.levelsGained;
+              } else if (change.xpGained > 0) {
+                description += `**${change.skill}**: +${change.xpGained.toLocaleString()} XP\n`;
+              }
+            }
+            
+            const newTotalLevel = getTotalLevel(currentStats);
+            description += `\n**Total Level**: ${newTotalLevel}`;
+            
+            if (totalLevelsGained > 0) {
+              embed.setDescription(`🎉 Gained ${totalLevelsGained} ${totalLevelsGained === 1 ? 'level' : 'levels'}!\n\n${description}`);
+            } else {
+              embed.setDescription(description);
+            }
+            
+            // Send to notification channel
+            try {
+              const channel = await client.channels.fetch(config.notificationChannelId);
+              if (channel && channel.isTextBased()) {
+                await channel.send({ embeds: [embed] });
+                console.log(`Posted OSRS update for ${username}`);
+              }
+            } catch (err) {
+              console.error('Error posting OSRS update:', err.message);
+            }
+            
+            // Save the new stats
+            setOSRSStats(username, currentStats);
+          } else {
+            console.log(`[${checkTime}] No stat changes for ${username}`);
+          }
+        } catch (err) {
+          // Only log meaningful errors, not temporary API issues
+          if (err.message.includes('not found')) {
+            console.error(`OSRS: Player ${username} not found in hiscores`);
+          } else if (!err.message.includes('timeout') && !err.message.includes('ECONNRESET')) {
+            console.error(`Error checking OSRS stats for ${username}:`, err.message);
+          }
+          // Skip to next player on error
+          continue;
+        }
+      }
+    } catch (err) {
+      console.error('Error in OSRS stat checking:', err.message);
+    }
+  }
+  
+  // Schedule OSRS stat checking every hour
+  const osrsJob = schedule.scheduleJob('0 * * * *', checkOSRSStats);
+  
+  // Initial check on startup (delayed by 10 seconds to let bot fully initialize)
+  setTimeout(checkOSRSStats, 10000);
+  
+  const nextRun = osrsJob.nextInvocation();
+  console.log(`OSRS stat tracking initialized for ${OSRS_USERNAME}`);
+  console.log(`Next scheduled check: ${nextRun.toLocaleString('en-US', { hour12: false, timeZone: 'America/Los_Angeles' })}`);
+  console.log(`Checking every hour (at the top of each hour), skipping 10 PM - 8 AM`);
 });
 
 client.on('messageCreate', async (message) => {

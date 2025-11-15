@@ -3,5 +3,139 @@
   "youtubeLive": false,
   "kickLive": false,
   "eokafishKickLive": false,
-  "allisterasKickLive": false
+  "allisterasKickLive": false,
+  "osrsConfig": {
+    "trackedPlayers": [
+      "Alchmore"
+    ],
+    "notificationChannelId": "1438313880374870117",
+    "checkInterval": 3600000
+  },
+  "osrs": {
+    "Alchmore": {
+      "stats": {
+        "Overall": {
+          "rank": null,
+          "level": 659,
+          "xp": 858527
+        },
+        "Attack": {
+          "rank": null,
+          "level": 35,
+          "xp": 24092
+        },
+        "Defence": {
+          "rank": null,
+          "level": 5,
+          "xp": 465
+        },
+        "Strength": {
+          "rank": null,
+          "level": 32,
+          "xp": 17510
+        },
+        "Hitpoints": {
+          "rank": null,
+          "level": 39,
+          "xp": 36655
+        },
+        "Ranged": {
+          "rank": null,
+          "level": 37,
+          "xp": 28516
+        },
+        "Prayer": {
+          "rank": null,
+          "level": 15,
+          "xp": 2553
+        },
+        "Magic": {
+          "rank": null,
+          "level": 48,
+          "xp": 86040
+        },
+        "Cooking": {
+          "rank": null,
+          "level": 30,
+          "xp": 13648
+        },
+        "Woodcutting": {
+          "rank": null,
+          "level": 49,
+          "xp": 91985
+        },
+        "Fletching": {
+          "rank": null,
+          "level": 32,
+          "xp": 17554
+        },
+        "Fishing": {
+          "rank": null,
+          "level": 46,
+          "xp": 74500
+        },
+        "Firemaking": {
+          "rank": null,
+          "level": 5,
+          "xp": 400
+        },
+        "Crafting": {
+          "rank": null,
+          "level": 21,
+          "xp": 5346
+        },
+        "Smithing": {
+          "rank": null,
+          "level": 29,
+          "xp": 12743
+        },
+        "Mining": {
+          "rank": null,
+          "level": 43,
+          "xp": 52602
+        },
+        "Herblore": {
+          "rank": null,
+          "level": 40,
+          "xp": 37782
+        },
+        "Agility": {
+          "rank": 1818523,
+          "level": 61,
+          "xp": 318646
+        },
+        "Thieving": {
+          "rank": null,
+          "level": 36,
+          "xp": 25514
+        },
+        "Slayer": {
+          "rank": null,
+          "level": 13,
+          "xp": 1868
+        },
+        "Farming": {
+          "rank": null,
+          "level": 25,
+          "xp": 8164
+        },
+        "Runecraft": {
+          "rank": null,
+          "level": 1,
+          "xp": 0
+        },
+        "Hunter": {
+          "rank": null,
+          "level": 9,
+          "xp": 1000
+        },
+        "Construction": {
+          "rank": null,
+          "level": 8,
+          "xp": 944
+        }
+      },
+      "lastChecked": 1763175796711
+    }
+  }
 }

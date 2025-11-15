@@ -118,52 +118,58 @@ async function play(connection, url, guildId, onFinish) {
     console.log('DEBUG: cleaned videoUrl to:', cleanedUrl);
   }
   
-  let audioStream;
+  // Get the direct audio stream URL using yt-dlp
+  let streamUrl;
   try {
-    // Use yt-dlp to pipe audio directly via spawn
-    const { spawn } = require('child_process');
-    const ytDlpPath = require.resolve('youtube-dl-exec/bin/yt-dlp');
-    
-    const ytDlpProcess = spawn(ytDlpPath, [
-      cleanedUrl,
-      '--format', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
-      '--output', '-',
-      '--quiet',
-      '--no-warnings',
-      '--add-header', 'referer:youtube.com',
-      '--add-header', 'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    ]);
-    
-    audioStream = ytDlpProcess.stdout;
-    
-    ytDlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
+    const youtubedl = require('youtube-dl-exec');
+    const info = await youtubedl(cleanedUrl, {
+      dumpSingleJson: true,
+      noCheckCertificates: true,
+      noWarnings: true,
+      preferFreeFormats: true,
+      addHeader: ['referer:youtube.com', 'user-agent:Mozilla/5.0']
     });
     
-    ytDlpProcess.on('error', (error) => {
-      console.error('yt-dlp process error:', error);
-      throw error;
+    if (!info.formats || info.formats.length === 0) {
+      throw new Error('No formats available');
+    }
+    
+    // Try to find audio-only formats first
+    let audioFormats = info.formats.filter(f => 
+      f.acodec && f.acodec !== 'none' && (!f.vcodec || f.vcodec === 'none')
+    );
+    
+    // If no audio-only formats, use formats with audio (even if they have video)
+    if (audioFormats.length === 0) {
+      console.log('No audio-only formats, using formats with audio');
+      audioFormats = info.formats.filter(f => f.acodec && f.acodec !== 'none');
+    }
+    
+    if (audioFormats.length === 0) {
+      throw new Error('No formats with audio found');
+    }
+    
+    // Sort by audio bitrate (prefer higher quality)
+    audioFormats.sort((a, b) => {
+      const aQuality = a.abr || a.tbr || 0;
+      const bQuality = b.abr || b.tbr || 0;
+      return bQuality - aQuality;
     });
+    
+    streamUrl = audioFormats[0].url;
+    
+    console.log('Got direct stream URL, format:', audioFormats[0].ext, 
+                'codec:', audioFormats[0].acodec, 
+                'quality:', audioFormats[0].abr || audioFormats[0].tbr);
   } catch (err) {
-    console.error('Error creating audio stream for videoUrl:', videoUrl, err);
-    throw new Error('Failed to create audio stream from YouTube.');
+    console.error('Error getting stream URL:', err);
+    throw new Error('Failed to get audio stream from YouTube.');
   }
-  let probed;
-  try {
-    probed = await demuxProbe(audioStream);
-  } catch (err) {
-    console.error('Error probing stream type:', err);
-    // Create resource directly without probing
-    const resource = createAudioResource(audioStream);
-    let player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-    player.play(resource);
-    connection.subscribe(player);
-    player.on(AudioPlayerStatus.Idle, () => {
-      if (onFinish) onFinish();
-    });
-    return player;
-  }
-  const resource = createAudioResource(probed.stream, { inputType: probed.type });
+  
+  // Create audio resource from the stream URL
+  const resource = createAudioResource(streamUrl, {
+    inlineVolume: true
+  });
   let player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
   player.play(resource);
   connection.subscribe(player);

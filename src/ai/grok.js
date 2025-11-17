@@ -36,4 +36,33 @@ async function getAIResponse(prompt) {
   }
 }
 
-module.exports = { getAIResponse };
+/**
+ * Direct AI response without system instructions (for voice commands)
+ * @param {string} prompt - User's question/command
+ * @returns {Promise<string>} AI response
+ */
+async function askChatGPTDirect(prompt) {
+  try {
+    const response = await axios.post(GROK_API_URL, {
+      model: 'grok-code-fast-1',
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 300,
+      temperature: 0.8,
+    }, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 10000,
+    });
+
+    return response.data.choices[0].message.content.trim();
+  } catch (error) {
+    console.error('Grok API Error (direct):', error.message);
+    throw new Error('Failed to get AI response');
+  }
+}
+
+module.exports = { getAIResponse, askChatGPTDirect };

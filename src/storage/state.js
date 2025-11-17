@@ -33,41 +33,7 @@ function setState(patch) {
   }
 }
 
-// OSRS tracking functions
-function getOSRSStats(username) {
-  const state = getState();
-  if (!state.osrs) return null;
-  return state.osrs[username] || null;
-}
-
-function setOSRSStats(username, stats) {
-  const state = getState();
-  if (!state.osrs) state.osrs = {};
-  state.osrs[username] = {
-    stats,
-    lastChecked: Date.now()
-  };
-  setState({ osrs: state.osrs });
-}
-
-function getOSRSConfig() {
-  const state = getState();
-  return state.osrsConfig || {
-    trackedPlayers: [],
-    notificationChannelId: null,
-    checkInterval: 3600000 // 1 hour in ms
-  };
-}
-
-function setOSRSConfig(config) {
-  setState({ osrsConfig: config });
-}
-
 module.exports = { 
   getState, 
-  setState,
-  getOSRSStats,
-  setOSRSStats,
-  getOSRSConfig,
-  setOSRSConfig
+  setState
 };

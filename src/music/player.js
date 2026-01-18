@@ -1,7 +1,20 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, getVoiceConnection, demuxProbe } = require('@discordjs/voice');
 const ytdl = require('@distube/ytdl-core');
 const ytdlexec = require('youtube-dl-exec');
-const { parseYouTubeUrl } = require('../services/youtube');
+
+// Helper function to parse YouTube URLs
+function parseYouTubeUrl(url) {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
 
 // Optional: Use cookies if provided to improve access to restricted videos
 let requestOptions = undefined;

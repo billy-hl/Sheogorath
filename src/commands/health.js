@@ -1,6 +1,4 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { checkKickLive } = require('../services/kick');
-const { fetchLatestVideo } = require('../services/youtube');
 const { getState } = require('../storage/state');
 
 module.exports = {
@@ -22,40 +20,6 @@ module.exports = {
         latency: interaction.guild.shard.ping
       };
 
-      // Check Kick API
-      try {
-        if (process.env.KICK_CHANNEL_URL) {
-          const kickStart = Date.now();
-          await checkKickLive(process.env.KICK_CHANNEL_URL);
-          status.services.kick_api = {
-            status: 'healthy',
-            response_time: Date.now() - kickStart
-          };
-        }
-      } catch (e) {
-        status.services.kick_api = {
-          status: 'error',
-          error: e.message
-        };
-      }
-
-      // Check YouTube API
-      try {
-        if (process.env.YT_CHANNEL_URL) {
-          const ytStart = Date.now();
-          await fetchLatestVideo(process.env.YT_CHANNEL_URL);
-          status.services.youtube_api = {
-            status: 'healthy',
-            response_time: Date.now() - ytStart
-          };
-        }
-      } catch (e) {
-        status.services.youtube_api = {
-          status: 'error',
-          error: e.message
-        };
-      }
-
       // Check Grok API
       try {
         if (process.env.GROK_API_KEY) {
@@ -73,15 +37,6 @@ module.exports = {
 
       // Get current state
       const state = getState();
-      status.monitoring = {
-        kick_channels: {
-          main: state.kickLive || false,
-          eokafish: state.eokafishKickLive || false,
-          allisteras: state.allisterasKickLive || false
-        },
-        youtube_live: state.youtubeLive || false,
-        last_youtube_video: state.lastYouTubeVideoId || 'none'
-      };
 
       // Create response embed
       const embed = {
@@ -103,10 +58,13 @@ module.exports = {
         });
       }
 
-      // Add monitoring status
+      // Add uptime
+      const uptime = process.uptime();
+      const hours = Math.floor(uptime / 3600);
+      const minutes = Math.floor((uptime % 3600) / 60);
       embed.fields.push({
-        name: '📊 Monitoring Status',
-        value: `Kick: ${Object.values(status.monitoring.kick_channels).filter(Boolean).length}/3 online\nYouTube: ${status.monitoring.youtube_live ? 'Live' : 'Offline'}`,
+        name: '⏱️ Uptime',
+        value: `${hours}h ${minutes}m`,
         inline: false
       });
 

@@ -97,13 +97,13 @@ client.once('ready', async () => {
     console.error('Error registering commands:', error);
   }
 
-  // MMA Junkie RSS Feed Monitoring - Check every 15 minutes
-  const MMA_JUNKIE_RSS = 'https://mmajunkie.usatoday.com/feed';
+  // Sherdog MMA RSS Feed Monitoring - Check every 15 minutes
+  const SHERDOG_RSS = 'https://www.sherdog.com/rss/news.xml';
   let lastMMAArticleGuid = null;
   
   schedule.scheduleJob('*/15 * * * *', async () => {
     try {
-      const newArticles = await getNewArticles(MMA_JUNKIE_RSS, lastMMAArticleGuid);
+      const newArticles = await getNewArticles(SHERDOG_RSS, lastMMAArticleGuid);
       
       if (newArticles.length > 0) {
         const channel = await client.channels.fetch(UFC_NEWS_CHANNEL_ID);
@@ -112,25 +112,33 @@ client.once('ready', async () => {
         // Post new articles (newest first, limit to 3 per check to avoid spam)
         for (const article of newArticles.slice(0, 3).reverse()) {
           const embed = {
-            color: 0xff0000, // Red for UFC/MMA
-            title: article.title,
+            color: 0xE31C23, // Sherdog red
+            author: {
+              name: 'Sherdog MMA News',
+              icon_url: 'https://www.sherdog.com/favicon.ico',
+              url: 'https://www.sherdog.com/news'
+            },
+            title: `🥊 ${article.title}`,
             url: article.link,
-            description: article.content ? article.content.substring(0, 200) + '...' : '',
+            description: article.content || 'Click to read the full article',
+            image: {
+              url: 'https://dmxg5wxfqgb4u.cloudfront.net/styles/card/s3/2024-08/081724-UFC-306-Sean-OMalley-Merab-Dvalishvili-Press-Conference-THUMB-GettyImages-2165279081.jpg?itok=_XdXLNh7'
+            },
+            fields: article.categories && article.categories.length > 0 ? [
+              {
+                name: '📁 Category',
+                value: article.categories[0],
+                inline: true
+              }
+            ] : [],
             timestamp: new Date(article.pubDate).toISOString(),
             footer: { 
-              text: 'MMA Junkie',
-              icon_url: 'https://mmajunkie.usatoday.com/wp-content/themes/vip/usatoday-mmajunkie/img/favicon.ico'
+              text: 'Sherdog',
+              icon_url: 'https://www.sherdog.com/favicon.ico'
             }
           };
           
-          // Add UFC emoji for UFC-related articles
-          const isUFC = article.title.toLowerCase().includes('ufc') || 
-                       article.categories.some(cat => cat.toLowerCase().includes('ufc'));
-          
-          await channel.send({ 
-            content: isUFC ? '🥊 **New UFC News!**' : '🥋 **MMA News**',
-            embeds: [embed] 
-          });
+          await channel.send({ embeds: [embed] });
           
           // Small delay between posts
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -150,6 +158,68 @@ client.once('ready', async () => {
   if (state.lastMMAArticleGuid) {
     lastMMAArticleGuid = state.lastMMAArticleGuid;
   }
+
+  // Run RSS check immediately on startup (after 5 seconds delay)
+  setTimeout(async () => {
+    console.log('Running initial MMA RSS feed check...');
+    try {
+      const newArticles = await getNewArticles(SHERDOG_RSS, lastMMAArticleGuid);
+      console.log(`Found ${newArticles.length} new articles`);
+      
+      if (newArticles.length > 0) {
+        const channel = await client.channels.fetch(UFC_NEWS_CHANNEL_ID);
+        if (!channel || !channel.isTextBased()) {
+          console.error('UFC news channel not found or not text-based');
+          return;
+        }
+        
+        console.log(`Posting to channel ${UFC_NEWS_CHANNEL_ID}`);
+        
+        // Post new articles (newest first, limit to 3 per check to avoid spam)
+        for (const article of newArticles.slice(0, 3).reverse()) {
+          const embed = {
+            color: 0xE31C23, // Sherdog red
+            author: {
+              name: 'Sherdog MMA News',
+              icon_url: 'https://www.sherdog.com/favicon.ico',
+              url: 'https://www.sherdog.com/news'
+            },
+            title: `🥊 ${article.title}`,
+            url: article.link,
+            description: article.content || 'Click to read the full article',
+            image: {
+              url: 'https://dmxg5wxfqgb4u.cloudfront.net/styles/card/s3/2024-08/081724-UFC-306-Sean-OMalley-Merab-Dvalishvili-Press-Conference-THUMB-GettyImages-2165279081.jpg?itok=_XdXLNh7'
+            },
+            fields: article.categories && article.categories.length > 0 ? [
+              {
+                name: '📁 Category',
+                value: article.categories[0],
+                inline: true
+              }
+            ] : [],
+            timestamp: new Date(article.pubDate).toISOString(),
+            footer: { 
+              text: 'Sherdog',
+              icon_url: 'https://www.sherdog.com/favicon.ico'
+            }
+          };
+          
+          await channel.send({ embeds: [embed] });
+          
+          console.log(`Posted article: ${article.title}`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        lastMMAArticleGuid = newArticles[0].guid;
+        setState({ lastMMAArticleGuid });
+        console.log('Initial RSS feed check complete');
+      } else {
+        console.log('No new articles found');
+      }
+    } catch (e) {
+      console.error('Initial MMA RSS feed check failed:', e.message);
+    }
+  }, 5000);
 
   // 
 
@@ -243,6 +313,88 @@ client.on('ready', async (c) => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+  
+  // Instagram video downloader
+  const instagramRegex = /https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/gi;
+  const instagramMatch = message.content.match(instagramRegex);
+  
+  if (instagramMatch) {
+    const fs = require('fs');
+    const path = require('path');
+    const { promisify } = require('util');
+    const exec = promisify(require('child_process').exec);
+    
+    for (const url of instagramMatch) {
+      try {
+        await message.channel.sendTyping();
+        
+        const outputPath = path.join(__dirname, '..', 'temp', `instagram_${Date.now()}.mp4`);
+        const tempDir = path.join(__dirname, '..', 'temp');
+        
+        // Create temp directory if it doesn't exist
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+        
+        console.log(`Downloading Instagram video from: ${url}`);
+        
+        // Download with yt-dlp (no format specification - let yt-dlp choose best)
+        const { stdout, stderr } = await exec(`yt-dlp --no-check-certificate -o "${outputPath}" "${url}"`);
+        
+        console.log('yt-dlp stdout:', stdout);
+        if (stderr) console.log('yt-dlp stderr:', stderr);
+        
+        if (fs.existsSync(outputPath)) {
+          const stats = fs.statSync(outputPath);
+          const fileSizeMB = stats.size / (1024 * 1024);
+          
+          // Discord file size limit is 25MB for regular servers
+          if (fileSizeMB > 24) {
+            try {
+              await message.reply('❌ Video is too large to upload (>24MB). Try a shorter clip!');
+            } catch (permError) {
+              console.log('Could not send message (missing permissions)');
+            }
+            fs.unlinkSync(outputPath);
+            continue;
+          }
+          
+          try {
+            await message.reply({
+              content: `🎬 Here's the Instagram video from ${message.author}:`,
+              files: [outputPath]
+            });
+            console.log('✅ Instagram video sent successfully');
+          } catch (sendError) {
+            console.log('❌ Failed to send video. Error:', sendError.message);
+            const permissions = message.channel.permissionsFor(message.guild.members.me);
+            const hasAttachFiles = permissions.has('AttachFiles');
+            console.log('Has AttachFiles permission:', hasAttachFiles);
+            
+            if (!hasAttachFiles) {
+              try {
+                await message.reply('❌ I downloaded the video but need the **Attach Files** permission to send it here!');
+              } catch (e) {
+                console.log('Could not send error message');
+              }
+            }
+          }
+          
+          // Clean up
+          if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath);
+          }
+        } else {
+          console.error('Video file not found after download');
+        }
+        
+      } catch (error) {
+        console.error('Instagram download error:', error.message || error);
+        // Silently fail - don't try to react if we don't have permissions
+      }
+    }
+  }
+  
   if (
     message.content.includes(`<@!${client.user.id}>`) ||
     message.content.includes(`<@${client.user.id}>`) ||
@@ -312,18 +464,16 @@ setInterval(async () => {
   const oneHour = 60 * 60 * 1000;
 
   if (currentTime - lastInteractionTime > oneHour) {
-    console.log('Bot has been idle for 1 hour. Executing stop logic.');
+    console.log('Bot has been idle for 1 hour. Stopping all music playback.');
 
-    const stopCommand = client.commands.get('stop');
-    if (stopCommand) {
-      try {
-        await stopCommand.execute({
-          deferReply: async () => {},
-          followUp: async (message) => console.log(message),
-        });
-      } catch (error) {
-        console.error('Error executing stop command:', error);
-      }
+    // Stop music in all guilds
+    try {
+      client.guilds.cache.forEach(guild => {
+        stopPlaying(guild.id);
+      });
+      console.log('✅ Stopped all music playback due to inactivity.');
+    } catch (error) {
+      console.error('Error stopping music:', error);
     }
 
     lastInteractionTime = Date.now();

@@ -123,76 +123,102 @@ async function play(connection, url, guildId, onFinish) {
   
   console.log('DEBUG: play() using videoUrl:', videoUrl);
   
-  // Clean the URL to remove playlist and radio parameters that might cause issues
-  let cleanedUrl = videoUrl;
-  const parsed = parseYouTubeUrl(videoUrl);
-  if (parsed && parsed.videoId) {
-    cleanedUrl = `https://www.youtube.com/watch?v=${parsed.videoId}`;
-    console.log('DEBUG: cleaned videoUrl to:', cleanedUrl);
-  }
-  
-  // Get the direct audio stream URL using yt-dlp
+  // Get the best audio stream URL using yt-dlp
+  const youtubedl = require('youtube-dl-exec');
   let streamUrl;
+  
   try {
-    const youtubedl = require('youtube-dl-exec');
-    const info = await youtubedl(cleanedUrl, {
+    const info = await youtubedl(videoUrl, {
       dumpSingleJson: true,
       noCheckCertificates: true,
       noWarnings: true,
       preferFreeFormats: true,
-      addHeader: ['referer:youtube.com', 'user-agent:Mozilla/5.0']
+      format: 'bestaudio/best'
     });
     
-    if (!info.formats || info.formats.length === 0) {
-      throw new Error('No formats available');
-    }
-    
-    // Try to find audio-only formats first
-    let audioFormats = info.formats.filter(f => 
-      f.acodec && f.acodec !== 'none' && (!f.vcodec || f.vcodec === 'none')
+    // Find best audio format
+    const audioFormats = info.formats.filter(f => 
+      f.acodec && f.acodec !== 'none' && f.url
     );
     
-    // If no audio-only formats, use formats with audio (even if they have video)
     if (audioFormats.length === 0) {
-      console.log('No audio-only formats, using formats with audio');
-      audioFormats = info.formats.filter(f => f.acodec && f.acodec !== 'none');
+      throw new Error('No audio formats found');
     }
     
-    if (audioFormats.length === 0) {
-      throw new Error('No formats with audio found');
-    }
-    
-    // Sort by audio bitrate (prefer higher quality)
-    audioFormats.sort((a, b) => {
-      const aQuality = a.abr || a.tbr || 0;
-      const bQuality = b.abr || b.tbr || 0;
-      return bQuality - aQuality;
-    });
-    
+    // Sort by quality
+    audioFormats.sort((a, b) => (b.abr || b.tbr || 0) - (a.abr || a.tbr || 0));
     streamUrl = audioFormats[0].url;
     
-    console.log('Got direct stream URL, format:', audioFormats[0].ext, 
-                'codec:', audioFormats[0].acodec, 
-                'quality:', audioFormats[0].abr || audioFormats[0].tbr);
+    console.log('Got stream URL from yt-dlp, quality:', audioFormats[0].abr || audioFormats[0].tbr);
   } catch (err) {
     console.error('Error getting stream URL:', err);
     throw new Error('Failed to get audio stream from YouTube.');
   }
   
-  // Create audio resource from the stream URL
-  const resource = createAudioResource(streamUrl, {
+  // Stream the URL through ffmpeg for better compatibility
+  const { spawn } = require('child_process');
+  const ffmpeg = spawn('ffmpeg', [
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '5',
+    '-i', streamUrl,
+    '-analyzeduration', '0',
+    '-loglevel', '0',
+    '-f', 's16le',
+    '-ar', '48000',
+    '-ac', '2',
+    'pipe:1'
+  ], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  
+  ffmpeg.stderr.on('data', (data) => {
+    // Suppress ffmpeg logs unless there's an error
+  });
+  
+  console.log('Created ffmpeg stream for audio');
+  
+  // Create audio resource from ffmpeg output
+  const resource = createAudioResource(ffmpeg.stdout, {
+    inputType: require('@discordjs/voice').StreamType.Raw,
     inlineVolume: true
   });
-  let player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+  
+  // Reuse existing player or create new one
+  let player = players.get(guildId);
+  if (!player) {
+    player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+    players.set(guildId, player);
+  }
+  
+  // Add error handler for the resource
+  resource.playStream.on('error', error => {
+    console.error('Stream error:', error);
+  });
+  
   player.play(resource);
   connection.subscribe(player);
+  
+  // Clear old listeners to avoid duplicates
+  player.removeAllListeners(AudioPlayerStatus.Idle);
+  player.removeAllListeners('error');
+  
   player.on(AudioPlayerStatus.Idle, () => {
+    console.log('Player went idle for guild:', guildId);
     const queue = getQueue(guildId);
     queue.isPlaying = false;
     queue.nowPlaying = null;
     
     if (onFinish) onFinish();
   });
+  
+  player.on('error', error => {
+    console.error('Audio player error:', error);
+    const queue = getQueue(guildId);
+    queue.isPlaying = false;
+    queue.nowPlaying = null;
+  });
+  
   return player;
 }
 

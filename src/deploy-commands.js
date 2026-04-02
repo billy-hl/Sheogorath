@@ -22,10 +22,19 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
     console.log('Started refreshing application (/) commands.');
+    
+    // Use guild commands for instant propagation (no 1-hour delay)
     await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
       { body: commands },
     );
+    
+    // Clear any old global commands to avoid duplicates
+    await rest.put(
+      Routes.applicationCommands(process.env.CLIENT_ID),
+      { body: [] },
+    );
+    
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
     console.error(error);

@@ -1,30 +1,9 @@
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, getVoiceConnection, demuxProbe } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, getVoiceConnection } = require('@discordjs/voice');
 const ytdl = require('@distube/ytdl-core');
 const ytdlexec = require('youtube-dl-exec');
 
-// Helper function to parse YouTube URLs
-function parseYouTubeUrl(url) {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/
-  ];
-  
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
-
-// Optional: Use cookies if provided to improve access to restricted videos
-let requestOptions = undefined;
-if (process.env.YOUTUBE_COOKIE) {
-  requestOptions = { headers: { cookie: process.env.YOUTUBE_COOKIE } };
-  console.log('DEBUG: YouTube cookie configured for ytdl-core requests.');
-}
-
 const players = new Map();
-const queues = new Map(); // Store queue for each guild
+const queues = new Map();
 
 // Queue management functions
 function getQueue(guildId) {
@@ -32,7 +11,10 @@ function getQueue(guildId) {
     queues.set(guildId, {
       songs: [],
       nowPlaying: null,
-      isPlaying: false
+      isPlaying: false,
+      autoplay: true,
+      lastVideoId: null,
+      playedHistory: new Set()
     });
   }
   return queues.get(guildId);
@@ -49,6 +31,8 @@ function clearQueue(guildId) {
   queue.songs = [];
   queue.nowPlaying = null;
   queue.isPlaying = false;
+  queue.lastVideoId = null;
+  queue.playedHistory = new Set();
 }
 
 function removeFromQueue(guildId, index) {
@@ -120,6 +104,18 @@ async function play(connection, url, guildId, onFinish) {
   const queue = getQueue(guildId);
   queue.nowPlaying = { url: videoUrl, title };
   queue.isPlaying = true;
+  
+  // Track video ID for autoplay related songs
+  const videoIdMatch = videoUrl.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+  if (videoIdMatch) {
+    queue.lastVideoId = videoIdMatch[1];
+    queue.playedHistory.add(videoIdMatch[1]);
+    // Cap history at 50 entries to avoid memory bloat
+    if (queue.playedHistory.size > 50) {
+      const first = queue.playedHistory.values().next().value;
+      queue.playedHistory.delete(first);
+    }
+  }
   
   console.log('DEBUG: play() using videoUrl:', videoUrl);
   
@@ -275,6 +271,84 @@ function getConnection(guild) {
   return getVoiceConnection(guild.id);
 }
 
+// Fetch a related song using YouTube's auto-mix playlist (RD prefix)
+async function fetchRelatedSong(guildId) {
+  const queue = getQueue(guildId);
+  const videoId = queue.lastVideoId;
+  if (!videoId) return null;
+
+  try {
+    const mixUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
+    console.log(`Autoplay: Fetching related songs from mix: ${mixUrl}`);
+    
+    const raw = await ytdlexec(mixUrl, {
+      flatPlaylist: true,
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCheckCertificates: true,
+    });
+    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const entries = data?.entries || [];
+    
+    // Filter out songs we've already played
+    const candidates = entries.filter(e => e?.id && !queue.playedHistory.has(e.id));
+    
+    if (candidates.length === 0) {
+      console.log('Autoplay: No unplayed candidates found in mix, picking any entry');
+      // Fall back to any entry that isn't the current song
+      const fallback = entries.find(e => e?.id && e.id !== videoId);
+      if (!fallback) return null;
+      return {
+        query: `https://www.youtube.com/watch?v=${fallback.id}`,
+        title: fallback.title || 'Unknown',
+        addedBy: 'Autoplay'
+      };
+    }
+    
+    // Pick a random song from the top 5 candidates for variety
+    const pick = candidates[Math.floor(Math.random() * Math.min(5, candidates.length))];
+    return {
+      query: `https://www.youtube.com/watch?v=${pick.id}`,
+      title: pick.title || 'Unknown',
+      addedBy: 'Autoplay'
+    };
+  } catch (err) {
+    console.error('Autoplay: Failed to fetch related songs:', err?.message || err);
+    return null;
+  }
+}
+
+// Expand a YouTube playlist URL into an array of individual video entries
+async function expandPlaylist(playlistUrl) {
+  try {
+    console.log(`Expanding playlist: ${playlistUrl}`);
+    const raw = await ytdlexec(playlistUrl, {
+      flatPlaylist: true,
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCheckCertificates: true,
+    });
+    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const entries = data?.entries || [];
+    
+    // Cap at 100 songs
+    const capped = entries.slice(0, 100);
+    
+    return {
+      title: data?.title || 'Unknown Playlist',
+      songs: capped.map(e => ({
+        query: e?.webpage_url || `https://www.youtube.com/watch?v=${e?.id}`,
+        title: e?.title || 'Unknown',
+        id: e?.id
+      })),
+      totalCount: entries.length
+    };
+  } catch (err) {
+    console.error('Playlist expansion failed:', err?.message || err);
+    return null;
+  }
+}
+
 module.exports = { 
   play, 
   connectToChannel, 
@@ -289,5 +363,7 @@ module.exports = {
   stopPlaying,
   pausePlaying,
   resumePlaying,
-  skipSong
+  skipSong,
+  fetchRelatedSong,
+  expandPlaylist
 };

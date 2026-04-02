@@ -33,17 +33,20 @@ module.exports = {
         if (queue.songs.length > 0) {
           description += '**📋 Up Next:**\n';
           queue.songs.slice(0, 10).forEach((song, index) => {
-            const title = song.query.length > 50 ? song.query.substring(0, 47) + '...' : song.query;
-            description += `${index + 1}. ${title}\n`;
+            const displayTitle = song.title || song.query;
+            const title = displayTitle.length > 50 ? displayTitle.substring(0, 47) + '...' : displayTitle;
+            const autoTag = song.addedBy === 'Autoplay' ? ' `🔄`' : '';
+            description += `${index + 1}. ${title}${autoTag}\n`;
           });
           
           if (queue.songs.length > 10) {
             description += `\n*...and ${queue.songs.length - 10} more songs*`;
           }
           
-          embed.setFooter({ text: `Total songs in queue: ${queue.songs.length}` });
+          embed.setFooter({ text: `Total songs in queue: ${queue.songs.length} | Autoplay: ${queue.autoplay ? 'ON' : 'OFF'}` });
         } else {
           description += '\n*No songs in queue*';
+          embed.setFooter({ text: `Autoplay: ${queue.autoplay ? 'ON' : 'OFF'}` });
         }
         
         embed.setDescription(description);

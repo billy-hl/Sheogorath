@@ -27,7 +27,7 @@ module.exports = {
       console.log(`Downloading Instagram video from: ${testUrl}`);
       
       // Download with yt-dlp
-      const { stdout, stderr } = await exec(`yt-dlp --no-check-certificate -o "${outputPath}" "${testUrl}"`);
+      const { stdout, stderr } = await exec(`yt-dlp --no-check-certificate --age-limit 99 --cookies-from-browser chrome -o "${outputPath}" "${testUrl}"`);
       
       if (fs.existsSync(outputPath)) {
         const stats = fs.statSync(outputPath);

@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { play, connectToChannel, getConnection, players, getQueue, addToQueue, getNextSong, resolveVideoUrl } = require('../music/player');
+const { play, connectToChannel, getConnection, players, getQueue, addToQueue, getNextSong, resolveVideoUrl, fetchRelatedSong, expandPlaylist } = require('../music/player');
 const { getAIResponse } = require('../ai/grok');
 
 async function playNextInQueue(interaction, connection) {
@@ -7,9 +7,35 @@ async function playNextInQueue(interaction, connection) {
   const queue = getQueue(guildId);
   
   if (queue.songs.length === 0) {
-    queue.isPlaying = false;
-    queue.nowPlaying = null;
-    return;
+    // Try autoplay if enabled
+    if (queue.autoplay && queue.lastVideoId) {
+      try {
+        const related = await fetchRelatedSong(guildId);
+        if (related) {
+          console.log(`Autoplay: Queuing related song: ${related.title}`);
+          addToQueue(guildId, related);
+          try {
+            await interaction.followUp(`🔄 **Autoplay:** Queuing **${related.title}**`);
+          } catch (e) {
+            console.error('Could not send autoplay message:', e);
+          }
+          // Fall through to play the newly added song
+        } else {
+          queue.isPlaying = false;
+          queue.nowPlaying = null;
+          return;
+        }
+      } catch (err) {
+        console.error('Autoplay error:', err);
+        queue.isPlaying = false;
+        queue.nowPlaying = null;
+        return;
+      }
+    } else {
+      queue.isPlaying = false;
+      queue.nowPlaying = null;
+      return;
+    }
   }
   
   const nextSong = getNextSong(guildId);
@@ -79,6 +105,75 @@ module.exports = {
     const isUrl = ytdl.validateURL(query);
     const guildId = interaction.guild.id;
     const queue = getQueue(guildId);
+    
+    // Check if the URL contains a playlist (list= parameter)
+    const playlistMatch = query.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+    const isPlaylistUrl = /^https?:\/\/.*(youtube\.com|youtu\.be).*list=/.test(query);
+    const isPurePlaylist = /^https?:\/\/.*(youtube\.com)\/playlist\?list=/.test(query);
+    
+    if (isPlaylistUrl) {
+      try {
+        await interaction.editReply('📋 Loading playlist...');
+        
+        const playlist = await expandPlaylist(query);
+        if (!playlist || playlist.songs.length === 0) {
+          await interaction.editReply('❌ Could not load the playlist or it\'s empty.');
+          return;
+        }
+        
+        let startIndex = 0;
+        
+        // If it's a watch URL with list= (not a pure playlist URL), 
+        // find the specific video and start from there
+        if (!isPurePlaylist) {
+          const videoIdMatch = query.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+          if (videoIdMatch) {
+            const videoId = videoIdMatch[1];
+            const foundIndex = playlist.songs.findIndex(s => s.id === videoId);
+            if (foundIndex >= 0) startIndex = foundIndex;
+          }
+        }
+        
+        const songsToAdd = playlist.songs.slice(startIndex);
+        
+        // Add all songs to queue
+        for (const song of songsToAdd) {
+          addToQueue(guildId, { query: song.query, title: song.title, addedBy: interaction.user.tag });
+        }
+        
+        const cappedMsg = playlist.totalCount > 100 ? ` (capped at 100 of ${playlist.totalCount})` : '';
+        await interaction.editReply(`📋 Added **${songsToAdd.length}** songs from **${playlist.title}**${cappedMsg}`);
+        
+        // Start playing if nothing is playing
+        if (!queue.isPlaying) {
+          queue.isPlaying = true;
+          const firstSong = queue.songs.shift();
+          if (firstSong) {
+            const player = await play(connection, firstSong.query, guildId, async () => {
+              try {
+                await interaction.followUp(`✅ Finished: **${queue.nowPlaying?.title || 'Song'}**`);
+              } catch (e) {
+                console.error('Could not send followUp after song finished:', e);
+              }
+              await playNextInQueue(interaction, connection);
+            });
+            players.set(guildId, player);
+            
+            try {
+              await interaction.followUp(`🎵 Now playing: **${queue.nowPlaying?.title || firstSong.title || firstSong.query}**`);
+            } catch (e) {
+              console.error('Could not send now playing message:', e);
+            }
+          }
+        }
+        
+        return;
+      } catch (err) {
+        console.error('Playlist loading error:', err);
+        await interaction.editReply('❌ Failed to load the playlist. Trying as a single video...');
+        // Fall through to normal single-video handling
+      }
+    }
     
     try {
       if (isUrl) {

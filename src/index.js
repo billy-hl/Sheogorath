@@ -1,39 +1,22 @@
 'use strict';
 require('dotenv').config();
 
-// Suppress ytdl-core warnings globally and prevent debug file creation
-const originalConsoleWarn = console.warn;
-console.warn = (...args) => {
-  if (args.some(arg => typeof arg === 'string' && 
-      (arg.includes('decipher function') || arg.includes('n transform function')))) {
-    return; // Suppress ytdl-core warnings
-  }
-  originalConsoleWarn(...args);
-};
-
-// Override fs.writeFileSync to prevent ytdl-core from creating debug files
 const fs = require('fs');
-const originalWriteFileSync = fs.writeFileSync;
-fs.writeFileSync = function(filename, ...args) {
-  if (typeof filename === 'string' && filename.includes('player-script.js')) {
-    return; // Prevent creating player-script.js files
-  }
-  return originalWriteFileSync.call(this, filename, ...args);
-};
-const { Client, GatewayIntentBits, Collection, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const schedule = require('node-schedule');
 const { getState, setState } = require('./storage/state');
-
-const fetch = require('node-fetch');
 const { getNewArticles } = require('./services/rss-feed');
+const { getAIResponse, getAIResponseWithHistory } = require('./ai/grok');
+const { handleInstagramLinks } = require('./services/instagram');
+const { stopPlaying } = require('./music/player');
 
-// Channel IDs
-const UFC_NEWS_CHANNEL_ID = '1462490563155726367'; // UFC news channel
+// Channel IDs from environment
+const UFC_NEWS_CHANNEL_ID = process.env.UFC_NEWS_CHANNEL_ID || '1462490563155726367';
+const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
 
-let greetServer = false; // Flag to track if the live stream has been announced
-let lastInteractionTime = Date.now(); // Track the last interaction time
-const conversationHistory = new Map(); // Store conversation history per user
+let lastInteractionTime = Date.now();
+const conversationHistory = new Map();
 
 const requiredEnv = [
   'GROK_API_KEY',
@@ -226,41 +209,22 @@ client.once('ready', async () => {
   // Proactive AI engagement - random messages every 45 minutes
   schedule.scheduleJob('*/45 * * * *', async () => {
     try {
-      const channel = await client.channels.fetch('380486887309180929');
+      const channel = await client.channels.fetch(AI_CHANNEL_ID);
       if (!channel || !channel.isTextBased()) return;
       
       // 3% chance to send a random engaging message
       if (Math.random() < 0.03) {
         // Fetch recent messages from the AI channel for context
         const recentMessages = await channel.messages.fetch({ limit: 20 });
-        const conversationContext = recentMessages
-          .filter(msg => !msg.author.bot || msg.author.id === client.user.id)
-          .reverse()
-          .slice(-10) // Get last 10 relevant messages
-          .map(async msg => {
-            let content = msg.author.id === client.user.id ? msg.content : `${msg.author.username}: ${msg.content}`;
-            
-            // Clean up user mentions in conversation context
-            if (msg.author.id !== client.user.id) {
-              const mentionRegex = /<@!?(\d+)>/g;
-              let match;
-              while ((match = mentionRegex.exec(msg.content)) !== null) {
-                const userId = match[1];
-                try {
-                  const user = await client.users.fetch(userId);
-                  const username = user.username;
-                  content = content.replace(match[0], `@${username}`);
-                } catch (error) {
-                  console.log(`Could not fetch user ${userId} in conversation context, keeping original mention`);
-                }
-              }
-            }
-            
-            return {
-              role: msg.author.id === client.user.id ? 'assistant' : 'user',
-              content: content
-            };
+        const conversationContext = [];
+        
+        for (const msg of recentMessages.filter(m => !m.author.bot || m.author.id === client.user.id).reverse().values()) {
+          let msgContent = msg.author.id === client.user.id ? msg.content : `${msg.author.username}: ${msg.content}`;
+          conversationContext.push({
+            role: msg.author.id === client.user.id ? 'assistant' : 'user',
+            content: msgContent
           });
+        }
 
         const conversationalPrompts = [
           "Based on the recent conversation, share a relevant thought or continue the discussion in your chaotic style.",
@@ -272,25 +236,12 @@ client.once('ready', async () => {
         
         const randomPrompt = conversationalPrompts[Math.floor(Math.random() * conversationalPrompts.length)];
         
-        const axios = require('axios');
-        const response = await axios.post('https://api.x.ai/v1/chat/completions', {
-          model: 'grok-code-fast-1',
-          messages: [
-            { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-            ...conversationContext,
-            { role: 'user', content: randomPrompt }
-          ],
-          max_tokens: 200,
-          temperature: 0.7,
-        }, {
-          headers: {
-            'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        const aiMessage = await getAIResponseWithHistory([
+          ...conversationContext.slice(-10),
+          { role: 'user', content: randomPrompt }
+        ], 200);
         
-        const message = response.data.choices[0].message.content;
-        await channel.send(message);
+        await channel.send(aiMessage);
       }
     } catch (e) {
       console.error('Proactive AI engagement failed:', e?.message || e);
@@ -300,100 +251,12 @@ client.once('ready', async () => {
 });
 
 
-// Optional: If you want to keep the scheduled news job, keep this block, otherwise remove it if not needed
-client.on('ready', async (c) => {
-  console.log(`${c.user.tag} is online.`);
-
-  const channel = await client.channels.fetch(process.env.CHANNEL_ID);
-  if (channel && greetServer) {
-    greetChatGpt(channel, 'Greet your servants');
-  }
-
-});
-
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+  lastInteractionTime = Date.now();
   
   // Instagram video downloader
-  const instagramRegex = /https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/gi;
-  const instagramMatch = message.content.match(instagramRegex);
-  
-  if (instagramMatch) {
-    const fs = require('fs');
-    const path = require('path');
-    const { promisify } = require('util');
-    const exec = promisify(require('child_process').exec);
-    
-    for (const url of instagramMatch) {
-      try {
-        await message.channel.sendTyping();
-        
-        const outputPath = path.join(__dirname, '..', 'temp', `instagram_${Date.now()}.mp4`);
-        const tempDir = path.join(__dirname, '..', 'temp');
-        
-        // Create temp directory if it doesn't exist
-        if (!fs.existsSync(tempDir)) {
-          fs.mkdirSync(tempDir, { recursive: true });
-        }
-        
-        console.log(`Downloading Instagram video from: ${url}`);
-        
-        // Download with yt-dlp (no format specification - let yt-dlp choose best)
-        const { stdout, stderr } = await exec(`yt-dlp --no-check-certificate -o "${outputPath}" "${url}"`);
-        
-        console.log('yt-dlp stdout:', stdout);
-        if (stderr) console.log('yt-dlp stderr:', stderr);
-        
-        if (fs.existsSync(outputPath)) {
-          const stats = fs.statSync(outputPath);
-          const fileSizeMB = stats.size / (1024 * 1024);
-          
-          // Discord file size limit is 25MB for regular servers
-          if (fileSizeMB > 24) {
-            try {
-              await message.reply('❌ Video is too large to upload (>24MB). Try a shorter clip!');
-            } catch (permError) {
-              console.log('Could not send message (missing permissions)');
-            }
-            fs.unlinkSync(outputPath);
-            continue;
-          }
-          
-          try {
-            await message.reply({
-              content: `🎬 Here's the Instagram video from ${message.author}:`,
-              files: [outputPath]
-            });
-            console.log('✅ Instagram video sent successfully');
-          } catch (sendError) {
-            console.log('❌ Failed to send video. Error:', sendError.message);
-            const permissions = message.channel.permissionsFor(message.guild.members.me);
-            const hasAttachFiles = permissions.has('AttachFiles');
-            console.log('Has AttachFiles permission:', hasAttachFiles);
-            
-            if (!hasAttachFiles) {
-              try {
-                await message.reply('❌ I downloaded the video but need the **Attach Files** permission to send it here!');
-              } catch (e) {
-                console.log('Could not send error message');
-              }
-            }
-          }
-          
-          // Clean up
-          if (fs.existsSync(outputPath)) {
-            fs.unlinkSync(outputPath);
-          }
-        } else {
-          console.error('Video file not found after download');
-        }
-        
-      } catch (error) {
-        console.error('Instagram download error:', error.message || error);
-        // Silently fail - don't try to react if we don't have permissions
-      }
-    }
-  }
+  await handleInstagramLinks(message);
   
   if (
     message.content.includes(`<@!${client.user.id}>`) ||
@@ -405,15 +268,12 @@ client.on('messageCreate', async (message) => {
     askChatGPT(message);
   }
   
-  // Enhanced conversational triggers
+  // Conversational triggers - only respond to bot-specific mentions
   const content = message.content.toLowerCase();
   const triggers = [
     'sheogorath',
     'mad king',
-    'tell me',
-    'what do you think',
-    'help me',
-    'i need advice'
+    'sheo'
   ];
   
   const isTriggered = triggers.some(trigger => content.includes(trigger));
@@ -509,28 +369,14 @@ client.on('guildMemberAdd', async (member) => {
     if (!channel || !channel.isTextBased()) return;
     
     const prompt = `Welcome ${member.user.username} to the server in your typical chaotic, sarcastic, and threatening style. Make it memorable and fun.`;
-    const axios = require('axios');
-    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
-      model: 'grok-code-fast-1',
-      messages: [
-        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 200,
-      temperature: 0.7,
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    const message = response.data.choices[0].message.content;
+    const message = await getAIResponse(prompt);
     await channel.send(`🎉 ${message}`);
   } catch (error) {
     console.error('AI welcome message failed:', error);
-    // Fallback welcome
-    await channel.send(`🎉 Welcome ${member.user.username}! The Mad King awaits your entertainment...`);
+    try {
+      const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+      if (channel) await channel.send(`🎉 Welcome ${member.user.username}! The Mad King awaits your entertainment...`);
+    } catch (e) { /* ignore */ }
   }
 });
 
@@ -543,125 +389,59 @@ async function askChatGPT(userMessage) {
   console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);
   
   try {
-    // Clean up user mentions to use actual usernames instead of raw IDs
+    // Clean up user mentions to use actual usernames
     let cleanedContent = userMessage.content;
     const mentionRegex = /<@!?(\d+)>/g;
     let match;
     while ((match = mentionRegex.exec(userMessage.content)) !== null) {
-      const userId = match[1];
       try {
-        const user = await client.users.fetch(userId);
-        const username = user.username;
-        cleanedContent = cleanedContent.replace(match[0], `@${username}`);
-      } catch (error) {
-        console.log(`Could not fetch user ${userId}, keeping original mention`);
-        // Keep the original mention if we can't fetch the user
-      }
+        const user = await client.users.fetch(match[1]);
+        cleanedContent = cleanedContent.replace(match[0], `@${user.username}`);
+      } catch (e) { /* keep original mention */ }
     }
     
     const messages = [
-      { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-      // Reduce conversation history to last 5 messages to save tokens
-      ...history.slice(-5), // Keep last 5 messages for context
+      ...history.slice(-5),
       { role: 'user', content: cleanedContent }
     ];
     
-    const axios = require('axios');
-    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
-      model: 'grok-code-fast-1',
-      messages: messages,
-      max_tokens: 500, // Increased significantly to give more room
-      temperature: 0.7,
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 20000, // Increased timeout
-    });
-
-    console.log(`Full API response:`, JSON.stringify(response.data, null, 2));
-    console.log(`Response choices:`, response.data.choices);
-    console.log(`Response choices length:`, response.data.choices ? response.data.choices.length : 'undefined');
-
-    const assistantReply = response.data.choices[0].message.content;
-    console.log(`AI response generated: ${assistantReply ? assistantReply.substring(0, 200) : 'EMPTY RESPONSE'}...`);
-    console.log(`Response length: ${assistantReply ? assistantReply.length : 0} characters`);
-    
-    // Check if response is empty and provide fallback
-    const finalReply = assistantReply && assistantReply.trim() ? assistantReply : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";
+    const assistantReply = await getAIResponseWithHistory(messages);
+    const finalReply = assistantReply && assistantReply.trim()
+      ? assistantReply
+      : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";
     
     // Store conversation (keep last 15 exchanges)
     history.push(
       { role: 'user', content: cleanedContent },
       { role: 'assistant', content: finalReply }
     );
-    if (history.length > 30) { // Keep max 30 messages (15 exchanges)
-      history.splice(0, history.length - 30);
-    }
+    if (history.length > 30) history.splice(0, history.length - 30);
     conversationHistory.set(userId, history);
     
-    // Send response to the designated AI channel instead of replying
-    const aiChannelId = '380486887309180929';
-    
-    // If the mention is in the AI channel, reply directly
-    if (userMessage.channelId === aiChannelId) {
-      console.log(`Mention in AI channel, replying directly`);
+    // Reply in the same channel, or redirect to AI channel
+    if (userMessage.channelId === AI_CHANNEL_ID) {
       await userMessage.reply(finalReply);
     } else {
-      // Try to send to AI channel, fallback to original channel
       try {
-        const aiChannel = await client.channels.fetch(aiChannelId);
-        if (aiChannel && aiChannel.isTextBased()) {
+        const aiChannel = await client.channels.fetch(AI_CHANNEL_ID);
+        if (aiChannel?.isTextBased()) {
           await aiChannel.send(finalReply);
-          console.log(`Response sent to AI channel ${aiChannel.id}`);
         } else {
-          console.log(`AI channel not found, replying in original channel ${userMessage.channelId}`);
           await userMessage.reply(finalReply);
         }
-      } catch (channelError) {
-        console.log(`Error accessing AI channel, replying in original channel ${userMessage.channelId}:`, channelError.message);
+      } catch (e) {
         await userMessage.reply(finalReply);
       }
     }
   } catch (error) {
-    console.error('Error in askChatGPT:', error);
-    console.log(`Error details: ${error.message}`);
-    console.log(`Sending error response to channel ${userMessage.channelId}`);
+    console.error('Error in askChatGPT:', error.message);
     await userMessage.reply('❌ An error occurred while trying to fetch the AI response. The Mad King is... temporarily indisposed.');
-  }
-}
-
-async function greetChatGpt(channel, messageToSend) {
-  try {
-    const axios = require('axios');
-    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
-      model: 'grok-code-fast-1',
-      messages: [
-        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS || 'You are Grok, a helpful AI assistant.' },
-        { role: 'user', content: messageToSend }
-      ],
-      max_tokens: 200,
-      temperature: 0.7,
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    const assistantReply = response.data.choices[0].message.content;
-    channel.send(assistantReply);
-  } catch (error) {
-    console.error('Error in greetChatGpt:', error);
-    return 'An error occurred while trying to fetch the response.';
   }
 }
 
 // Clean shutdown handler
 process.on('SIGINT', () => {
   console.log('Bot is shutting down...');
-  
   client.destroy();
   process.exit(0);
 });

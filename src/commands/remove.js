@@ -47,7 +47,7 @@ module.exports = {
       const removed = removeFromQueue(interaction.guild.id, position - 1);
       
       if (removed) {
-        await interaction.editReply(`✅ Removed from queue: **${removed.query}**`);
+        await interaction.editReply(`✅ Removed from queue: **${removed.title || removed.query}**`);
       } else {
         await interaction.editReply('❌ Failed to remove the song from the queue.');
       }

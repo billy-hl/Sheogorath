@@ -37,12 +37,12 @@ async function getAIResponse(prompt) {
  * @returns {Promise<string>} AI response
  */
 async function getAIResponseWithHistory(messages, maxTokens = 500) {
-  try {
+  const makeRequest = async (msgs, timeout) => {
     const response = await axios.post(GROK_API_URL, {
       model: 'grok-code-fast-1',
       messages: [
         { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
-        ...messages
+        ...msgs
       ],
       max_tokens: maxTokens,
       temperature: 0.7,
@@ -51,11 +51,28 @@ async function getAIResponseWithHistory(messages, maxTokens = 500) {
         'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      timeout: 20000,
+      timeout,
     });
-
     return response.data.choices[0].message.content.trim();
+  };
+
+  try {
+    // Try with full history (30s timeout)
+    return await makeRequest(messages, 30000);
   } catch (error) {
+    const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+    
+    if (isTimeout && messages.length > 1) {
+      console.log('Grok timed out with history, retrying with last message only...');
+      try {
+        // Retry with just the latest message (no history)
+        return await makeRequest(messages.slice(-1), 30000);
+      } catch (retryError) {
+        console.error('Grok API retry also failed:', retryError.message);
+        throw new Error('AI response timed out. The Mad King is... temporarily indisposed.');
+      }
+    }
+    
     console.error('Grok API Error (history):', error.response?.data || error.message);
     throw new Error(`Grok API Error: ${error.response?.status || 'Unknown'}`);
   }

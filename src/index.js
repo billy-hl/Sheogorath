@@ -212,8 +212,8 @@ client.once('ready', async () => {
       const channel = await client.channels.fetch(AI_CHANNEL_ID);
       if (!channel || !channel.isTextBased()) return;
       
-      // 3% chance to send a random engaging message
-      if (Math.random() < 0.03) {
+      // 1% chance to send a random engaging message
+      if (Math.random() < 0.01) {
         // Fetch recent messages from the AI channel for context
         const recentMessages = await channel.messages.fetch({ limit: 20 });
         const conversationContext = [];
@@ -419,18 +419,44 @@ async function askChatGPT(userMessage) {
     conversationHistory.set(userId, history);
     
     // Reply in the same channel, or redirect to AI channel
+    const sendReply = async (channel, reply, isReply = false) => {
+      // Split into 2000-char chunks if needed (Discord's limit)
+      const chunks = [];
+      let remaining = reply;
+      while (remaining.length > 0) {
+        if (remaining.length <= 2000) {
+          chunks.push(remaining);
+          break;
+        }
+        // Try to split at a newline or space near the 2000 limit
+        let splitAt = remaining.lastIndexOf('\n', 2000);
+        if (splitAt < 1000) splitAt = remaining.lastIndexOf(' ', 2000);
+        if (splitAt < 1000) splitAt = 2000;
+        chunks.push(remaining.slice(0, splitAt));
+        remaining = remaining.slice(splitAt).trimStart();
+      }
+      
+      for (let i = 0; i < chunks.length; i++) {
+        if (i === 0 && isReply) {
+          await userMessage.reply(chunks[i]);
+        } else {
+          await channel.send(chunks[i]);
+        }
+      }
+    };
+
     if (userMessage.channelId === AI_CHANNEL_ID) {
-      await userMessage.reply(finalReply);
+      await sendReply(userMessage.channel, finalReply, true);
     } else {
       try {
         const aiChannel = await client.channels.fetch(AI_CHANNEL_ID);
         if (aiChannel?.isTextBased()) {
-          await aiChannel.send(finalReply);
+          await sendReply(aiChannel, finalReply, false);
         } else {
-          await userMessage.reply(finalReply);
+          await sendReply(userMessage.channel, finalReply, true);
         }
       } catch (e) {
-        await userMessage.reply(finalReply);
+        await sendReply(userMessage.channel, finalReply, true);
       }
     }
   } catch (error) {

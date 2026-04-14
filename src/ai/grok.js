@@ -57,8 +57,8 @@ async function getAIResponseWithHistory(messages, maxTokens = 500) {
   };
 
   try {
-    // Try with full history (30s timeout)
-    return await makeRequest(messages, 30000);
+    // Try with full history (2 minute timeout)
+    return await makeRequest(messages, 120000);
   } catch (error) {
     const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
     
@@ -66,10 +66,10 @@ async function getAIResponseWithHistory(messages, maxTokens = 500) {
       console.log('Grok timed out with history, retrying with last message only...');
       try {
         // Retry with just the latest message (no history)
-        return await makeRequest(messages.slice(-1), 30000);
+        return await makeRequest(messages.slice(-1), 120000);
       } catch (retryError) {
         console.error('Grok API retry also failed:', retryError.message);
-        throw new Error('AI response timed out. The Mad King is... temporarily indisposed.');
+        throw new Error('AI response timed out after retry.');
       }
     }
     

@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { getState } = require('../storage/state');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -34,9 +33,6 @@ module.exports = {
           error: e.message
         };
       }
-
-      // Get current state
-      const state = getState();
 
       // Create response embed
       const embed = {

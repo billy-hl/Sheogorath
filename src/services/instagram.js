@@ -5,6 +5,23 @@ const exec = promisify(require('child_process').exec);
 
 const TEMP_DIR = path.join(__dirname, '..', '..', 'temp');
 
+// Rate limit: max 3 downloads per channel per 60 seconds
+const channelCooldowns = new Map();
+const MAX_DOWNLOADS = 3;
+const COOLDOWN_MS = 60000;
+
+function checkRateLimit(channelId) {
+  const now = Date.now();
+  if (!channelCooldowns.has(channelId)) {
+    channelCooldowns.set(channelId, []);
+  }
+  const timestamps = channelCooldowns.get(channelId).filter(t => now - t < COOLDOWN_MS);
+  channelCooldowns.set(channelId, timestamps);
+  if (timestamps.length >= MAX_DOWNLOADS) return false;
+  timestamps.push(now);
+  return true;
+}
+
 /**
  * Download and send an Instagram video from a message containing an Instagram URL.
  * Handles compression if the video exceeds Discord's 24MB upload limit.
@@ -21,6 +38,12 @@ async function handleInstagramLinks(message) {
   }
 
   for (const url of matches) {
+    // Check rate limit before downloading
+    if (!checkRateLimit(message.channel.id)) {
+      console.log(`Instagram rate limit hit in channel ${message.channel.id}`);
+      return;
+    }
+
     try {
       await message.channel.sendTyping();
 

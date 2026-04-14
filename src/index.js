@@ -4,15 +4,11 @@ require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
-const schedule = require('node-schedule');
-const { getState, setState } = require('./storage/state');
-const { getNewArticles } = require('./services/rss-feed');
 const { getAIResponse, getAIResponseWithHistory } = require('./ai/grok');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
 
 // Channel IDs from environment
-const UFC_NEWS_CHANNEL_ID = process.env.UFC_NEWS_CHANNEL_ID || '1462490563155726367';
 const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
 
 let lastInteractionTime = Date.now();
@@ -80,134 +76,8 @@ client.once('ready', async () => {
     console.error('Error registering commands:', error);
   }
 
-  // Sherdog MMA RSS Feed Monitoring - Check every 15 minutes
-  const SHERDOG_RSS = 'https://www.sherdog.com/rss/news.xml';
-  let lastMMAArticleGuid = null;
-  
-  schedule.scheduleJob('*/15 * * * *', async () => {
-    try {
-      const newArticles = await getNewArticles(SHERDOG_RSS, lastMMAArticleGuid);
-      
-      if (newArticles.length > 0) {
-        const channel = await client.channels.fetch(UFC_NEWS_CHANNEL_ID);
-        if (!channel || !channel.isTextBased()) return;
-        
-        // Post new articles (newest first, limit to 3 per check to avoid spam)
-        for (const article of newArticles.slice(0, 3).reverse()) {
-          const embed = {
-            color: 0xE31C23, // Sherdog red
-            author: {
-              name: 'Sherdog MMA News',
-              icon_url: 'https://www.sherdog.com/favicon.ico',
-              url: 'https://www.sherdog.com/news'
-            },
-            title: `🥊 ${article.title}`,
-            url: article.link,
-            description: article.content || 'Click to read the full article',
-            image: {
-              url: 'https://dmxg5wxfqgb4u.cloudfront.net/styles/card/s3/2024-08/081724-UFC-306-Sean-OMalley-Merab-Dvalishvili-Press-Conference-THUMB-GettyImages-2165279081.jpg?itok=_XdXLNh7'
-            },
-            fields: article.categories && article.categories.length > 0 ? [
-              {
-                name: '📁 Category',
-                value: article.categories[0],
-                inline: true
-              }
-            ] : [],
-            timestamp: new Date(article.pubDate).toISOString(),
-            footer: { 
-              text: 'Sherdog',
-              icon_url: 'https://www.sherdog.com/favicon.ico'
-            }
-          };
-          
-          await channel.send({ embeds: [embed] });
-          
-          // Small delay between posts
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        // Update last seen article
-        lastMMAArticleGuid = newArticles[0].guid;
-        setState({ lastMMAArticleGuid });
-      }
-    } catch (e) {
-      console.error('MMA RSS feed check failed:', e.message);
-    }
-  });
-  
-  // Initialize last article GUID from state
-  const state = getState();
-  if (state.lastMMAArticleGuid) {
-    lastMMAArticleGuid = state.lastMMAArticleGuid;
-  }
-
-  // Run RSS check immediately on startup (after 5 seconds delay)
-  setTimeout(async () => {
-    console.log('Running initial MMA RSS feed check...');
-    try {
-      const newArticles = await getNewArticles(SHERDOG_RSS, lastMMAArticleGuid);
-      console.log(`Found ${newArticles.length} new articles`);
-      
-      if (newArticles.length > 0) {
-        const channel = await client.channels.fetch(UFC_NEWS_CHANNEL_ID);
-        if (!channel || !channel.isTextBased()) {
-          console.error('UFC news channel not found or not text-based');
-          return;
-        }
-        
-        console.log(`Posting to channel ${UFC_NEWS_CHANNEL_ID}`);
-        
-        // Post new articles (newest first, limit to 3 per check to avoid spam)
-        for (const article of newArticles.slice(0, 3).reverse()) {
-          const embed = {
-            color: 0xE31C23, // Sherdog red
-            author: {
-              name: 'Sherdog MMA News',
-              icon_url: 'https://www.sherdog.com/favicon.ico',
-              url: 'https://www.sherdog.com/news'
-            },
-            title: `🥊 ${article.title}`,
-            url: article.link,
-            description: article.content || 'Click to read the full article',
-            image: {
-              url: 'https://dmxg5wxfqgb4u.cloudfront.net/styles/card/s3/2024-08/081724-UFC-306-Sean-OMalley-Merab-Dvalishvili-Press-Conference-THUMB-GettyImages-2165279081.jpg?itok=_XdXLNh7'
-            },
-            fields: article.categories && article.categories.length > 0 ? [
-              {
-                name: '📁 Category',
-                value: article.categories[0],
-                inline: true
-              }
-            ] : [],
-            timestamp: new Date(article.pubDate).toISOString(),
-            footer: { 
-              text: 'Sherdog',
-              icon_url: 'https://www.sherdog.com/favicon.ico'
-            }
-          };
-          
-          await channel.send({ embeds: [embed] });
-          
-          console.log(`Posted article: ${article.title}`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        lastMMAArticleGuid = newArticles[0].guid;
-        setState({ lastMMAArticleGuid });
-        console.log('Initial RSS feed check complete');
-      } else {
-        console.log('No new articles found');
-      }
-    } catch (e) {
-      console.error('Initial MMA RSS feed check failed:', e.message);
-    }
-  }, 5000);
-
-  // 
-
   // Proactive AI engagement - random messages every 45 minutes
-  schedule.scheduleJob('*/45 * * * *', async () => {
+  setInterval(async () => {
     try {
       const channel = await client.channels.fetch(AI_CHANNEL_ID);
       if (!channel || !channel.isTextBased()) return;
@@ -246,7 +116,7 @@ client.once('ready', async () => {
     } catch (e) {
       console.error('Proactive AI engagement failed:', e?.message || e);
     }
-  });
+  }, 45 * 60 * 1000); // 45 minutes
 
 });
 
@@ -266,20 +136,17 @@ client.on('messageCreate', async (message) => {
   ) {
     console.log(`Mention detected in channel ${message.channelId} by ${message.author.username}: ${message.content}`);
     askChatGPT(message);
+    return; // Prevent conversational triggers from also firing
   }
   
-  // Conversational triggers - only respond to bot-specific mentions
-  const content = message.content.toLowerCase();
-  const triggers = [
-    'sheogorath',
-    'mad king',
-    'sheo'
-  ];
-  
-  const isTriggered = triggers.some(trigger => content.includes(trigger));
-  
-  if (isTriggered && !message.content.includes(`<@!${client.user.id}>`) && !message.content.includes(`<@${client.user.id}>`)) {
-    askChatGPT(message);
+  // Conversational triggers - only in AI channel, whole-word matches only
+  if (message.channelId === AI_CHANNEL_ID) {
+    const content = message.content.toLowerCase();
+    const triggerPattern = /\b(sheogorath|mad king)\b/i;
+    
+    if (triggerPattern.test(content)) {
+      askChatGPT(message);
+    }
   }
 });
 
@@ -362,8 +229,13 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 });
 
-// AI welcome messages for new members
+// AI welcome messages for new members (rate-limited: 1 per 10 seconds)
+let lastWelcomeTime = 0;
 client.on('guildMemberAdd', async (member) => {
+  const now = Date.now();
+  if (now - lastWelcomeTime < 10000) return; // Skip if within 10s cooldown
+  lastWelcomeTime = now;
+  
   try {
     const channel = await client.channels.fetch(process.env.CHANNEL_ID);
     if (!channel || !channel.isTextBased()) return;
@@ -381,7 +253,11 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 async function askChatGPT(userMessage) {
+  // Keep the "is typing" indicator alive every 8s until we're done
   userMessage.channel.sendTyping();
+  const typingInterval = setInterval(() => {
+    userMessage.channel.sendTyping().catch(() => {});
+  }, 8000);
   
   const userId = userMessage.author.id;
   const history = conversationHistory.get(userId) || [];
@@ -418,8 +294,9 @@ async function askChatGPT(userMessage) {
     if (history.length > 30) history.splice(0, history.length - 30);
     conversationHistory.set(userId, history);
     
-    // Reply in the same channel, or redirect to AI channel
-    const sendReply = async (channel, reply, isReply = false) => {
+    // Always reply in the same channel the user messaged in
+    clearInterval(typingInterval);
+    const sendReply = async (channel, reply) => {
       // Split into 2000-char chunks if needed (Discord's limit)
       const chunks = [];
       let remaining = reply;
@@ -428,7 +305,6 @@ async function askChatGPT(userMessage) {
           chunks.push(remaining);
           break;
         }
-        // Try to split at a newline or space near the 2000 limit
         let splitAt = remaining.lastIndexOf('\n', 2000);
         if (splitAt < 1000) splitAt = remaining.lastIndexOf(' ', 2000);
         if (splitAt < 1000) splitAt = 2000;
@@ -437,7 +313,7 @@ async function askChatGPT(userMessage) {
       }
       
       for (let i = 0; i < chunks.length; i++) {
-        if (i === 0 && isReply) {
+        if (i === 0) {
           await userMessage.reply(chunks[i]);
         } else {
           await channel.send(chunks[i]);
@@ -445,21 +321,9 @@ async function askChatGPT(userMessage) {
       }
     };
 
-    if (userMessage.channelId === AI_CHANNEL_ID) {
-      await sendReply(userMessage.channel, finalReply, true);
-    } else {
-      try {
-        const aiChannel = await client.channels.fetch(AI_CHANNEL_ID);
-        if (aiChannel?.isTextBased()) {
-          await sendReply(aiChannel, finalReply, false);
-        } else {
-          await sendReply(userMessage.channel, finalReply, true);
-        }
-      } catch (e) {
-        await sendReply(userMessage.channel, finalReply, true);
-      }
-    }
+    await sendReply(userMessage.channel, finalReply);
   } catch (error) {
+    clearInterval(typingInterval);
     console.error('Error in askChatGPT:', error.message);
     await userMessage.reply('❌ An error occurred while trying to fetch the AI response. The Mad King is... temporarily indisposed.');
   }

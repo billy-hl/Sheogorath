@@ -26,8 +26,6 @@
     "axios": "^1.6.0",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5",
-    "node-schedule": "^2.1.1",
-    "rss-parser": "^3.13.0",
     "sodium-native": "^5.0.9",
     "youtube-dl-exec": "^3.0.13"
   },

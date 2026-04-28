@@ -4,145 +4,19 @@
   "kickLive": false,
   "eokafishKickLive": false,
   "allisterasKickLive": false,
-  "osrsConfig": {
-    "trackedPlayers": [
-      "Alchmore"
-    ],
-    "notificationChannelId": "1438313880374870117",
-    "checkInterval": 3600000
-  },
-  "osrs": {
-    "Alchmore": {
-      "stats": {
-        "Overall": {
-          "rank": null,
-          "level": 837,
-          "xp": 1828117
-        },
-        "Attack": {
-          "rank": null,
-          "level": 35,
-          "xp": 24092
-        },
-        "Defence": {
-          "rank": null,
-          "level": 37,
-          "xp": 28581
-        },
-        "Strength": {
-          "rank": null,
-          "level": 38,
-          "xp": 32355
-        },
-        "Hitpoints": {
-          "rank": null,
-          "level": 45,
-          "xp": 61790
-        },
-        "Ranged": {
-          "rank": null,
-          "level": 39,
-          "xp": 34560
-        },
-        "Prayer": {
-          "rank": null,
-          "level": 15,
-          "xp": 2553
-        },
-        "Magic": {
-          "rank": null,
-          "level": 53,
-          "xp": 144172
-        },
-        "Cooking": {
-          "rank": null,
-          "level": 38,
-          "xp": 32728
-        },
-        "Woodcutting": {
-          "rank": null,
-          "level": 49,
-          "xp": 94385
-        },
-        "Fletching": {
-          "rank": 1952440,
-          "level": 58,
-          "xp": 229973
-        },
-        "Fishing": {
-          "rank": 1805131,
-          "level": 63,
-          "xp": 395575
-        },
-        "Firemaking": {
-          "rank": null,
-          "level": 5,
-          "xp": 400
-        },
-        "Crafting": {
-          "rank": null,
-          "level": 53,
-          "xp": 145741
-        },
-        "Smithing": {
-          "rank": null,
-          "level": 33,
-          "xp": 18336
-        },
-        "Mining": {
-          "rank": null,
-          "level": 47,
-          "xp": 76247
-        },
-        "Herblore": {
-          "rank": 1818281,
-          "level": 47,
-          "xp": 80656
-        },
-        "Agility": {
-          "rank": 1803774,
-          "level": 61,
-          "xp": 330119
-        },
-        "Thieving": {
-          "rank": null,
-          "level": 42,
-          "xp": 45544
-        },
-        "Slayer": {
-          "rank": null,
-          "level": 18,
-          "xp": 3669
-        },
-        "Farming": {
-          "rank": 1853302,
-          "level": 41,
-          "xp": 44345
-        },
-        "Runecraft": {
-          "rank": null,
-          "level": 1,
-          "xp": 0
-        },
-        "Hunter": {
-          "rank": null,
-          "level": 9,
-          "xp": 1000
-        },
-        "Construction": {
-          "rank": null,
-          "level": 10,
-          "xp": 1296
-        }
-      },
-      "lastChecked": 1763402401900
-    }
-  },
   "lastMMAArticleGuid": "https://www.sherdog.com/news/news/Dominick-Reyes-defends-actionstarved-victory-over-Johnny-Walker-at-UFC-327-200830",
   "userActivity": {
     "215938135450714113": {
-      "lastChat": "2026-04-28T01:17:59.011Z",
-      "lastVoiceJoin": "2026-04-28T01:17:00.029Z"
+      "lastChat": "2026-04-28T01:20:19.244Z",
+      "lastVoiceJoin": "2026-04-28T16:15:23.828Z"
+    },
+    "355959472834871298": {
+      "lastChat": "2026-04-28T03:52:10.197Z",
+      "lastVoiceJoin": null
+    },
+    "263118141758898178": {
+      "lastChat": null,
+      "lastVoiceJoin": "2026-04-28T01:39:00.256Z"
     }
   }
 }

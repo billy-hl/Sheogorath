@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { getUserActivity, getUserNotes } = require('../storage/state');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('admin')
     .setDescription('Bot administration commands (Admin only)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(subcommand =>
       subcommand
         .setName('stats')
@@ -28,18 +28,28 @@ module.exports = {
         .addBooleanOption(option =>
           option.setName('everyone')
             .setDescription('Mention @everyone?')
-            .setRequired(false))),
+            .setRequired(false)))
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('userinfo')
+        .setDescription('View user activity and notes')
+        .addUserOption(option =>
+          option.setName('user')
+            .setDescription('User to look up')
+            .setRequired(true))),
 
   async execute(interaction) {
     const subcommand = interaction.options.getSubcommand();
 
     // Check permissions
-    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                   interaction.user.id === process.env.ADMIN_USER_ID;
+    const ADMIN_ROLE_ID = '602514337495646228';
+    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
+                   interaction.user.id === process.env.ADMIN_USER_ID ||
+                   interaction.member.roles.cache.has(ADMIN_ROLE_ID);
     
     if (!isAdmin) {
       return await interaction.reply({
-        content: '❌ You need Administrator permissions to use admin commands!',
+        content: '❌ You do not have permission to use admin commands!',
         flags: 64
       });
     }
@@ -111,6 +121,35 @@ module.exports = {
           content: mentionEveryone ? '@everyone' : undefined,
           embeds: [embed]
         });
+        break;
+      }
+
+      case 'userinfo': {
+        const targetUser = interaction.options.getUser('user');
+        const activity = getUserActivity(targetUser.id);
+        const notes = getUserNotes(targetUser.id);
+
+        const lastChatDate = activity.lastChat ? new Date(activity.lastChat).toLocaleString() : 'Never';
+        const lastVoiceDate = activity.lastVoiceJoin ? new Date(activity.lastVoiceJoin).toLocaleString() : 'Never';
+
+        const notesText = notes.length > 0
+          ? notes.map((n, i) => `${i + 1}. ${n.text}`).join('\n')
+          : 'No notes recorded.';
+
+        const embed = new EmbedBuilder()
+          .setTitle(`📋 User Info: ${targetUser.username}`)
+          .setColor(0x0099ff)
+          .setThumbnail(targetUser.displayAvatarURL())
+          .addFields(
+            { name: '👤 User ID', value: targetUser.id, inline: true },
+            { name: '💬 Last Chat', value: lastChatDate, inline: true },
+            { name: '🎤 Last Voice Join', value: lastVoiceDate, inline: true },
+            { name: '📝 Notes', value: notesText }
+          )
+          .setFooter({ text: `Requested by ${interaction.user.username}` })
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [embed] });
         break;
       }
     }

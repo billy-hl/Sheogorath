@@ -1,8 +1,11 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { play, connectToChannel, getConnection, players, getQueue, addToQueue, getNextSong, resolveVideoUrl, fetchRelatedSong, expandPlaylist } = require('../music/player');
 
+const MUSIC_CHANNEL_ID = '534553333034123289';
+
 // Use channel.send() instead of interaction.followUp() to avoid 15-min token expiry
-async function playNextInQueue(channel, connection, guildId) {
+async function playNextInQueue(client, connection, guildId) {
+  const channel = await client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
   const queue = getQueue(guildId);
   
   if (queue.songs.length === 0) {
@@ -13,7 +16,7 @@ async function playNextInQueue(channel, connection, guildId) {
         if (related) {
           console.log(`Autoplay: Queuing related song: ${related.title}`);
           addToQueue(guildId, related);
-          try {
+          if (channel) try {
             await channel.send(`🔄 **Autoplay:** Queuing **${related.title}**`);
           } catch (e) {
             console.error('Could not send autoplay message:', e);
@@ -41,18 +44,18 @@ async function playNextInQueue(channel, connection, guildId) {
   
   try {
     const player = await play(connection, nextSong.query, guildId, async () => {
-      await playNextInQueue(channel, connection, guildId);
+      await playNextInQueue(client, connection, guildId);
     });
     players.set(guildId, player);
     
-    try {
+    if (channel) try {
       await channel.send(`🎵 Now playing: **${queue.nowPlaying?.title || nextSong.query}**`);
     } catch (e) {
       console.error('Could not send now playing message:', e);
     }
   } catch (err) {
     console.error('Error playing next song in queue:', err);
-    await playNextInQueue(channel, connection, guildId);
+    await playNextInQueue(client, connection, guildId);
   }
 }
 
@@ -67,7 +70,7 @@ module.exports = {
   async execute(interaction) {
     const query = interaction.options.getString('query');
     try {
-      await interaction.deferReply();
+      await interaction.deferReply({ flags: 64 });
     } catch (err) {
       console.error('ERROR: deferReply failed:', err);
       return;
@@ -140,14 +143,14 @@ module.exports = {
           queue.isPlaying = true;
           const firstSong = queue.songs.shift();
           if (firstSong) {
-            const channel = interaction.channel;
+            const musicChannel = await interaction.client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
             const player = await play(connection, firstSong.query, guildId, async () => {
-              await playNextInQueue(channel, connection, guildId);
+              await playNextInQueue(interaction.client, connection, guildId);
             });
             players.set(guildId, player);
             
-            try {
-              await channel.send(`🎵 Now playing: **${queue.nowPlaying?.title || firstSong.title || firstSong.query}**`);
+            if (musicChannel) try {
+              await musicChannel.send(`🎵 Now playing: **${queue.nowPlaying?.title || firstSong.title || firstSong.query}**`);
             } catch (e) {
               console.error('Could not send now playing message:', e);
             }
@@ -185,9 +188,8 @@ module.exports = {
       
       // Nothing playing, start playing immediately
       queue.isPlaying = true;
-      const channel = interaction.channel;
       const player = await play(connection, query, guildId, async () => {
-        await playNextInQueue(channel, connection, guildId);
+        await playNextInQueue(interaction.client, connection, guildId);
       });
       players.set(guildId, player);
       

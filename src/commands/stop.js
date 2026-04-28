@@ -7,7 +7,7 @@ module.exports = {
     .setDescription('Stop music playback and clear the queue'),
   async execute(interaction) {
     try {
-      await interaction.deferReply();
+      await interaction.deferReply({ flags: 64 });
     } catch (err) {
       console.error('ERROR: deferReply failed:', err);
       return;

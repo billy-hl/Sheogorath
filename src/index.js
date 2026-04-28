@@ -4,9 +4,11 @@ require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
+const { setUserActivity, getUserNotes } = require('./storage/state');
 const { getAIResponse, getAIResponseWithHistory } = require('./ai/grok');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
+const { parseActions, executeActions } = require('./ai/actions');
 
 // Channel IDs from environment
 const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
@@ -45,6 +47,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildPresences,
   ],
 });
 
@@ -124,6 +127,9 @@ client.once('ready', async () => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   lastInteractionTime = Date.now();
+
+  // Track last chat time for this user
+  setUserActivity(message.author.id, { lastChat: new Date().toISOString() });
   
   // Instagram video downloader
   await handleInstagramLinks(message);
@@ -208,6 +214,11 @@ setInterval(async () => {
 }, 60 * 1000); // Check every minute
 
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  // Track when a user joins a voice channel (was not in one, now is)
+  if (!oldState.channelId && newState.channelId && newState.member && !newState.member.user.bot) {
+    setUserActivity(newState.member.id, { lastVoiceJoin: new Date().toISOString() });
+  }
+
   const voiceChannel = oldState.channel || newState.channel;
 
   if (voiceChannel) {
@@ -252,6 +263,64 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
+// --- UFC Stream Announcements ---
+const STREAM_ANNOUNCE_CHANNEL = process.env.ANNOUNCEMENTS_CHANNEL_ID || AI_CHANNEL_ID;
+const WATCHED_STREAMER_ID = '1464671421102952581';
+const streamAnnounceCooldown = new Map();
+
+async function announceStream(guild, userId, streamName) {
+  // Cooldown: 1 announcement per hour
+  const lastAnnounce = streamAnnounceCooldown.get(userId) || 0;
+  if (Date.now() - lastAnnounce < 60 * 60 * 1000) return;
+  streamAnnounceCooldown.set(userId, Date.now());
+
+  const isUFC = /\b(ufc|mma|fight\s*night|ppv)\b/i.test(streamName || '');
+
+  try {
+    const channel = await client.channels.fetch(STREAM_ANNOUNCE_CHANNEL);
+    if (!channel || !channel.isTextBased()) return;
+
+    const member = await guild.members.fetch(userId);
+    const displayName = member.displayName || member.user.username;
+
+    if (isUFC) {
+      const prompt = `Announce that ${displayName} is now streaming UFC/MMA live on Discord. Hype it up. Keep it under 200 characters.`;
+      const announcement = await getAIResponse(prompt);
+      await channel.send(`${announcement}\n\n<@${userId}> is live! <@&1269321898035249325>`);
+    } else {
+      await channel.send(`<@${userId}> is now streaming${streamName ? ` **${streamName}**` : ''}! <@&1269321898035249325>`);
+    }
+    console.log(`Stream announcement sent for ${displayName}`);
+  } catch (error) {
+    console.error('Stream announcement error:', error.message);
+  }
+}
+
+// Detect Rich Presence streaming (Twitch/YouTube linked streams)
+client.on('presenceUpdate', async (oldPresence, newPresence) => {
+  if (!newPresence || newPresence.userId !== WATCHED_STREAMER_ID) return;
+
+  const wasStreaming = oldPresence?.activities?.some(a => a.type === 1) || false;
+  const streaming = newPresence.activities.find(a => a.type === 1);
+
+  if (!streaming || wasStreaming) return;
+
+  const streamName = streaming.details || streaming.state || streaming.name || '';
+  await announceStream(newPresence.guild, newPresence.userId, streamName);
+});
+
+// Detect Go Live / screen share in voice channels
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  if (newState.id !== WATCHED_STREAMER_ID) return;
+
+  // User started streaming (Go Live)
+  if (!oldState.streaming && newState.streaming) {
+    console.log(`Go Live detected for user ${newState.id} in ${newState.channel?.name}`);
+    const streamName = newState.channel?.name || '';
+    await announceStream(newState.guild, newState.id, streamName);
+  }
+});
+
 async function askChatGPT(userMessage) {
   // Keep the "is typing" indicator alive every 8s until we're done
   userMessage.channel.sendTyping();
@@ -276,15 +345,29 @@ async function askChatGPT(userMessage) {
       } catch (e) { /* keep original mention */ }
     }
     
+    // Build notes context for this user
+    const userNotes = getUserNotes(userId);
+    const notesContext = userNotes.length > 0
+      ? `[Notes about this user (${userMessage.author.username})]:\n` +
+        userNotes.map((n, i) => `${i + 1}. ${n.text} (recorded ${n.addedAt})`).join('\n') + '\n'
+      : '';
+
     const messages = [
       ...history.slice(-5),
-      { role: 'user', content: cleanedContent }
+      { role: 'user', content: notesContext ? `${notesContext}\n${cleanedContent}` : cleanedContent }
     ];
     
     const assistantReply = await getAIResponseWithHistory(messages);
-    const finalReply = assistantReply && assistantReply.trim()
+    const raw = assistantReply && assistantReply.trim()
       ? assistantReply
       : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";
+
+    // Parse and execute any AI-initiated actions
+    const { cleanResponse, actions } = parseActions(raw);
+    if (actions.length > 0) {
+      await executeActions(actions, { guild: userMessage.guild, message: userMessage });
+    }
+    const finalReply = cleanResponse || raw;
     
     // Store conversation (keep last 15 exchanges)
     history.push(

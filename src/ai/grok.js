@@ -2,12 +2,28 @@ const axios = require('axios');
 
 const GROK_API_URL = 'https://api.x.ai/v1/chat/completions';
 
-async function getAIResponse(prompt) {
+const ACTION_DOCS = `
+
+You may silently embed action tags anywhere in your response to interact with user records.
+These tags are invisible to users and are stripped before the message is sent:
+  [ACTION:note:userId:your note text]   — Save a note about a user (use their Discord user ID)
+  [ACTION:clearnotes:userId]             — Erase all notes for a user
+  [ACTION:warn:userId:reason]            — Issue a warning to a user
+  [ACTION:timeout:userId:minutes:reason] — Timeout a user
+  [ACTION:delete:reason]                 — Delete the triggering message
+Only use these when it makes sense. Notes are shown to you at the start of future conversations with that user.
+`;
+
+function buildSystemPrompt(base) {
+  return (base || process.env.CLIENT_INSTRUCTIONS) + ACTION_DOCS;
+}
+
+async function getAIResponse(prompt, { systemPrompt, maxTokens } = {}) {
   try {
     const response = await axios.post(GROK_API_URL, {
       model: 'grok-code-fast-1',
       messages: [
-        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
+        { role: 'system', content: buildSystemPrompt(systemPrompt) },
         { role: 'user', content: prompt }
       ],
       max_tokens: 500,
@@ -17,14 +33,14 @@ async function getAIResponse(prompt) {
         'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      timeout: 15000,
+      timeout: 120000,
     });
 
     return response.data.choices[0].message.content.trim();
   } catch (error) {
     console.error('Grok API Error:', error.response?.data || error.message);
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-      throw new Error('AI response timed out. The Mad King is... contemplating too deeply.');
+      throw new Error('AI response timed out.');
     }
     throw new Error(`Grok API Error: ${error.response?.status || 'Unknown'} - ${error.response?.data?.error?.message || error.message}`);
   }
@@ -41,7 +57,7 @@ async function getAIResponseWithHistory(messages, maxTokens = 500) {
     const response = await axios.post(GROK_API_URL, {
       model: 'grok-code-fast-1',
       messages: [
-        { role: 'system', content: process.env.CLIENT_INSTRUCTIONS },
+        { role: 'system', content: buildSystemPrompt() },
         ...msgs
       ],
       max_tokens: maxTokens,

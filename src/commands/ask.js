@@ -17,7 +17,7 @@ module.exports = {
 
     try {
       const response = await getAIResponse(question, {
-        systemPrompt: SERIOUS_PROMPT,
+        rawSystemPrompt: SERIOUS_PROMPT,
         maxTokens: 1000,
       });
 

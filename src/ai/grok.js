@@ -18,15 +18,15 @@ function buildSystemPrompt(base) {
   return (base || process.env.CLIENT_INSTRUCTIONS) + ACTION_DOCS;
 }
 
-async function getAIResponse(prompt, { systemPrompt, maxTokens } = {}) {
+async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt } = {}) {
   try {
     const response = await axios.post(GROK_API_URL, {
       model: 'grok-code-fast-1',
       messages: [
-        { role: 'system', content: buildSystemPrompt(systemPrompt) },
+        { role: 'system', content: rawSystemPrompt || buildSystemPrompt(systemPrompt) },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 500,
+      max_tokens: maxTokens || 500,
       temperature: 0.7,
     }, {
       headers: {

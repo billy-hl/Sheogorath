@@ -4,7 +4,7 @@ require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
-const { setUserActivity, getUserNotes } = require('./storage/state');
+const { setUserActivity, getUserActivity, getUserNotes, addUserNote } = require('./storage/state');
 const { getAIResponse, getAIResponseWithHistory } = require('./ai/grok');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
@@ -15,6 +15,57 @@ const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
 
 let lastInteractionTime = Date.now();
 const conversationHistory = new Map();
+// Per-user timers that fire a note-summarization pass 5 min after last exchange
+const summarizeTimers = new Map();
+
+const SUMMARIZE_DELAY_MS = 5 * 60 * 1000; // 5 minutes idle before summarizing
+const SUMMARIZE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // once per 24 hours per user
+const SUMMARIZE_MIN_MESSAGES = 6; // minimum messages before bothering
+
+async function summarizeUserConversation(userId, username, history) {
+  // Require a meaningful conversation
+  if (!history || history.length < SUMMARIZE_MIN_MESSAGES) return;
+
+  // 24-hour cooldown per user
+  const activity = getUserActivity(userId);
+  const lastRun = activity.lastNoteSummary ? new Date(activity.lastNoteSummary).getTime() : 0;
+  if (Date.now() - lastRun < SUMMARIZE_COOLDOWN_MS) return;
+
+  try {
+    // Only send the last 6 messages (3 exchanges) to keep tokens low
+    const transcript = history
+      .slice(-6)
+      .map(m => `${m.role === 'user' ? username : 'Sheogorath'}: ${m.content}`)
+      .join('\n');
+
+    const { getAIResponse } = require('./ai/grok');
+    console.log(`[AutoNote] Running summarization for ${username} (${history.length} messages in history)`);
+    const raw = await getAIResponse(
+      `Based on this chat, write 1-2 short, brutally honest, NSFW and funny notes about "${username}". ` +
+      `Be crude, savage, and specific. No filter. ` +
+      `Return ONLY a JSON array of short strings. Example: ["Asks dumb questions after midnight", "Obsessed with UFC like a caveman"]\n\n${transcript}`,
+      { rawSystemPrompt: 'You are a crude, uncensored note-taker. Respond only with a valid JSON array of strings. No extra text.', maxTokens: 100 }
+    );
+    console.log(`[AutoNote] Raw response for ${username}:`, raw);
+
+    const jsonMatch = raw.match(/\[.*\]/s);
+    if (!jsonMatch) return;
+    const notes = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(notes)) return;
+
+    for (const note of notes) {
+      if (typeof note === 'string' && note.trim()) {
+        addUserNote(userId, note.trim());
+      }
+    }
+
+    // Record the time so we don't run again for 24h
+    setUserActivity(userId, { lastNoteSummary: new Date().toISOString() });
+    console.log(`[AutoNote] Saved ${notes.length} note(s) for ${username}`);
+  } catch (e) {
+    console.warn('[AutoNote] Summarization failed:', e?.message || e);
+  }
+}
 
 const requiredEnv = [
   'GROK_API_KEY',
@@ -146,7 +197,10 @@ client.on('messageCreate', async (message) => {
   }
   
   // Conversational triggers - only in AI channel, whole-word matches only
-  if (message.channelId === AI_CHANNEL_ID) {
+  // Skip if the message already contains a direct bot mention (handled above)
+  const isMention = message.content.includes(`<@!${client.user.id}>`) ||
+                    message.content.includes(`<@${client.user.id}>`);
+  if (!isMention && message.channelId === AI_CHANNEL_ID) {
     const content = message.content.toLowerCase();
     const triggerPattern = /\b(sheogorath|mad king)\b/i;
     
@@ -376,6 +430,15 @@ async function askChatGPT(userMessage) {
     );
     if (history.length > 30) history.splice(0, history.length - 30);
     conversationHistory.set(userId, history);
+
+    // Schedule a post-conversation note summarization (resets on each message)
+    if (summarizeTimers.has(userId)) clearTimeout(summarizeTimers.get(userId));
+    const snapHistory = [...history];
+    const snapUsername = userMessage.author.username;
+    summarizeTimers.set(userId, setTimeout(async () => {
+      summarizeTimers.delete(userId);
+      await summarizeUserConversation(userId, snapUsername, snapHistory);
+    }, SUMMARIZE_DELAY_MS));
     
     // Always reply in the same channel the user messaged in
     clearInterval(typingInterval);

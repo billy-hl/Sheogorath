@@ -74,10 +74,7 @@ const requiredEnv = [
   'CLIENT_MODEL',
   'CHANNEL_ID',
   'DISCORD_TOKEN',
-  'POLLING_RETRIES',
-  'POLLING_TIMEOUT',
   'GUILD_ID',
-  'DEFAULT_IMAGE_URL',
 ];
 
 const missingEnv = requiredEnv.filter((envVar) => !process.env[envVar]);

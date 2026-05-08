@@ -2,6 +2,7 @@
 require('dotenv').config();
 
 const fs = require('fs');
+const path = require('path');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
 const { setUserActivity, getUserActivity, getUserNotes, addUserNote } = require('./storage/state');
@@ -126,6 +127,27 @@ client.once('ready', async () => {
     console.log('Commands registered successfully.');
   } catch (error) {
     console.error('Error registering commands:', error);
+  }
+
+  // Clean up old temp files on startup (older than 1 hour)
+  try {
+    const tempDir = path.join(__dirname, '..', 'temp');
+    if (fs.existsSync(tempDir)) {
+      const files = fs.readdirSync(tempDir);
+      const oneHourAgo = Date.now() - 60 * 60 * 1000;
+      let cleaned = 0;
+      for (const file of files) {
+        const filePath = path.join(tempDir, file);
+        const stat = fs.statSync(filePath);
+        if (stat.mtimeMs < oneHourAgo) {
+          fs.unlinkSync(filePath);
+          cleaned++;
+        }
+      }
+      if (cleaned > 0) console.log(`[Cleanup] Removed ${cleaned} old temp file(s)`);
+    }
+  } catch (err) {
+    console.error('[Cleanup] Failed to clean temp directory:', err.message);
   }
 
   // Proactive AI engagement - random messages every 45 minutes

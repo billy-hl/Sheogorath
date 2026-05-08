@@ -5,6 +5,38 @@ const path = require('path');
 const { createAudioResource, StreamType } = require('@discordjs/voice');
 
 const TEMP_DIR = path.join(__dirname, '..', '..', 'temp');
+const USAGE_FILE = path.join(__dirname, '..', '..', 'data', 'tts-usage.json');
+
+// Monthly character limit (40k credits = 40k characters)
+const MONTHLY_LIMIT = parseInt(process.env.TTS_MONTHLY_LIMIT) || 40000;
+
+function getUsage() {
+  try {
+    if (!fs.existsSync(USAGE_FILE)) return { month: new Date().getMonth(), chars: 0 };
+    return JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8'));
+  } catch {
+    return { month: new Date().getMonth(), chars: 0 };
+  }
+}
+
+function saveUsage(chars) {
+  const currentMonth = new Date().getMonth();
+  let usage = getUsage();
+  
+  // Reset if new month
+  if (usage.month !== currentMonth) {
+    usage = { month: currentMonth, chars: 0 };
+  }
+  
+  usage.chars += chars;
+  
+  const dir = path.dirname(USAGE_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(USAGE_FILE, JSON.stringify(usage));
+  
+  console.log(`[TTS] Usage: ${usage.chars}/${MONTHLY_LIMIT} chars this month`);
+  return usage.chars;
+}
 
 /**
  * Convert text to speech using ElevenLabs API and return an audio resource.
@@ -19,10 +51,22 @@ async function textToSpeech(text) {
     throw new Error('ELEVENLABS_API_KEY not set in .env');
   }
 
+  // Check monthly limit
+  const usage = getUsage();
+  if (usage.chars >= MONTHLY_LIMIT) {
+    throw new Error(`TTS monthly limit reached (${MONTHLY_LIMIT} chars). Resets next month.`);
+  }
+
   // Truncate to 5000 chars (ElevenLabs limit for standard tier)
   const truncatedText = text.slice(0, 5000);
   if (text.length > 5000) {
     console.log(`[TTS] Text truncated from ${text.length} to 5000 chars`);
+  }
+
+  // Check if this request would exceed limit
+  if (usage.chars + truncatedText.length > MONTHLY_LIMIT) {
+    const remaining = MONTHLY_LIMIT - usage.chars;
+    throw new Error(`TTS limit would be exceeded. ${remaining} chars remaining this month.`);
   }
 
   const payload = JSON.stringify({
@@ -33,6 +77,7 @@ async function textToSpeech(text) {
       similarity_boost: 0.75,
       style: 0.0,
       use_speaker_boost: true,
+      speed: 1.2,
     },
   });
 
@@ -65,6 +110,9 @@ async function textToSpeech(text) {
 
         res.pipe(writeStream);
         writeStream.on('finish', () => {
+          // Track usage
+          saveUsage(truncatedText.length);
+          
           console.log(`[TTS] Generated audio: ${tempFile}`);
           const resource = createAudioResource(tempFile, {
             inputType: StreamType.Arbitrary,

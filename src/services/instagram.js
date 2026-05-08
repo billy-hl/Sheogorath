@@ -30,11 +30,14 @@ async function handleInstagramLinks(message) {
   const matches = message.content.match(instagramRegex);
   if (!matches) return;
 
+  console.log(`[Instagram] Detected ${matches.length} Instagram link(s) in message from ${message.author.username}`);
+
   if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
   for (const url of matches) {
     if (!checkRateLimit(message.channel.id)) {
-      console.log(`Instagram rate limit hit in channel ${message.channel.id}`);
+      console.log(`[Instagram] Rate limit hit in channel ${message.channel.id} — skipping ${url}`);
+      try { await message.reply('⏳ Instagram rate limit: max 3 downloads per minute in this channel.'); } catch { /* ignore */ }
       return;
     }
 

@@ -3,12 +3,13 @@ require('dotenv').config();
 
 const fs = require('fs');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
-const { getVoiceConnection } = require('@discordjs/voice');
+const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
 const { setUserActivity, getUserActivity, getUserNotes, addUserNote } = require('./storage/state');
 const { getAIResponse, getAIResponseWithHistory } = require('./ai/grok');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
 const { parseActions, executeActions } = require('./ai/actions');
+const { textToSpeech } = require('./services/tts');
 
 // Channel IDs from environment
 const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
@@ -437,38 +438,81 @@ async function askChatGPT(userMessage) {
       await summarizeUserConversation(userId, snapUsername, snapHistory);
     }, SUMMARIZE_DELAY_MS));
     
-    // Always reply in the same channel the user messaged in
     clearInterval(typingInterval);
-    const sendReply = async (channel, reply) => {
-      // Split into 2000-char chunks if needed (Discord's limit)
-      const chunks = [];
-      let remaining = reply;
-      while (remaining.length > 0) {
-        if (remaining.length <= 2000) {
-          chunks.push(remaining);
-          break;
-        }
-        let splitAt = remaining.lastIndexOf('\n', 2000);
-        if (splitAt < 1000) splitAt = remaining.lastIndexOf(' ', 2000);
-        if (splitAt < 1000) splitAt = 2000;
-        chunks.push(remaining.slice(0, splitAt));
-        remaining = remaining.slice(splitAt).trimStart();
-      }
-      
-      for (let i = 0; i < chunks.length; i++) {
-        if (i === 0) {
-          await userMessage.reply(chunks[i]);
-        } else {
-          await channel.send(chunks[i]);
-        }
-      }
-    };
 
-    await sendReply(userMessage.channel, finalReply);
+    // Check if user is in voice — if so, join and speak
+    const member = userMessage.guild.members.cache.get(userId);
+    const voiceChannel = member?.voice?.channel;
+    
+    if (voiceChannel && process.env.ELEVENLABS_API_KEY) {
+      try {
+        console.log(`[Voice] User in voice channel, joining to speak response`);
+        
+        // Join voice channel
+        let connection = getVoiceConnection(userMessage.guild.id);
+        if (!connection || connection.joinConfig.channelId !== voiceChannel.id) {
+          connection = joinVoiceChannel({
+            channelId: voiceChannel.id,
+            guildId: userMessage.guild.id,
+            adapterCreator: userMessage.guild.voiceAdapterCreator,
+          });
+        }
+
+        // Generate TTS audio
+        const audioResource = await textToSpeech(finalReply);
+        
+        // Play audio
+        const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+        connection.subscribe(player);
+        player.play(audioResource);
+
+        // Also send text reply
+        await sendReply(userMessage.channel, finalReply);
+
+        // Auto-disconnect after audio finishes
+        player.once(AudioPlayerStatus.Idle, () => {
+          setTimeout(() => {
+            if (connection.state.status !== 'destroyed') connection.destroy();
+          }, 2000);
+        });
+      } catch (voiceErr) {
+        console.error('[Voice] TTS failed:', voiceErr.message);
+        // Fall back to text-only
+        await sendReply(userMessage.channel, finalReply);
+      }
+    } else {
+      // Text-only reply
+      await sendReply(userMessage.channel, finalReply);
+    }
   } catch (error) {
     clearInterval(typingInterval);
     console.error('Error in askChatGPT:', error.message);
     await userMessage.reply('❌ An error occurred while trying to fetch the AI response. The Mad King is... temporarily indisposed.');
+  }
+
+  async function sendReply(channel, reply) {
+    // Split into 2000-char chunks if needed (Discord's limit)
+    const chunks = [];
+    let remaining = reply;
+    while (remaining.length > 0) {
+      if (remaining.length <= 2000) {
+        chunks.push(remaining);
+        break;
+      }
+      let splitAt = remaining.lastIndexOf('\n', 2000);
+      if (splitAt < 1000) splitAt = remaining.lastIndexOf(' ', 2000);
+      if (splitAt < 1000) splitAt = 2000;
+      chunks.push(remaining.slice(0, splitAt));
+      remaining = remaining.slice(splitAt).trimStart();
+    }
+    
+    for (let i = 0; i < chunks.length; i++) {
+      if (i === 0) {
+        await userMessage.reply(chunks[i]);
+      } else {
+        await channel.send(chunks[i]);
+      }
+    }
   }
 }
 

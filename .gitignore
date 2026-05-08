@@ -206,4 +206,5 @@ discord-bot/*.log
 # Backup files
 *.bak
 *.backup
-*~
+*~instagram-cookies.txt
+www.instagram.com_cookies.txt

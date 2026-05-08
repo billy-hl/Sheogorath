@@ -1,8 +1,10 @@
+'use strict';
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const exec = promisify(require('child_process').exec);
 
+const COOKIES_FILE = path.join(__dirname, '..', '..', 'www.instagram.com_cookies.txt');
 const TEMP_DIR = path.join(__dirname, '..', '..', 'temp');
 
 // Rate limit: max 3 downloads per channel per 60 seconds
@@ -12,9 +14,7 @@ const COOLDOWN_MS = 60000;
 
 function checkRateLimit(channelId) {
   const now = Date.now();
-  if (!channelCooldowns.has(channelId)) {
-    channelCooldowns.set(channelId, []);
-  }
+  if (!channelCooldowns.has(channelId)) channelCooldowns.set(channelId, []);
   const timestamps = channelCooldowns.get(channelId).filter(t => now - t < COOLDOWN_MS);
   channelCooldowns.set(channelId, timestamps);
   if (timestamps.length >= MAX_DOWNLOADS) return false;
@@ -23,22 +23,16 @@ function checkRateLimit(channelId) {
 }
 
 /**
- * Download and send an Instagram video from a message containing an Instagram URL.
- * Handles compression if the video exceeds Discord's 24MB upload limit.
- * @param {import('discord.js').Message} message - The Discord message containing Instagram URLs
+ * Download Instagram post (photo or video) using gallery-dl.
  */
 async function handleInstagramLinks(message) {
   const instagramRegex = /https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/gi;
   const matches = message.content.match(instagramRegex);
   if (!matches) return;
 
-  // Create temp directory if it doesn't exist
-  if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
-  }
+  if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
   for (const url of matches) {
-    // Check rate limit before downloading
     if (!checkRateLimit(message.channel.id)) {
       console.log(`Instagram rate limit hit in channel ${message.channel.id}`);
       return;
@@ -47,116 +41,105 @@ async function handleInstagramLinks(message) {
     try {
       await message.channel.sendTyping();
 
-      const outputPath = path.join(TEMP_DIR, `instagram_${Date.now()}.mp4`);
+      const cookieArg = fs.existsSync(COOKIES_FILE) ? `--cookies "${COOKIES_FILE}"` : '';
+      const dlDir = path.join(TEMP_DIR, `ig_${Date.now()}`);
+      fs.mkdirSync(dlDir, { recursive: true });
 
-      console.log(`Downloading Instagram video from: ${url}`);
+      console.log(`[Instagram] Downloading: ${url}`);
 
-      const { stdout, stderr } = await exec(
-        `yt-dlp --no-check-certificate --age-limit 99 --cookies-from-browser chrome -o "${outputPath}" "${url}"`
-      );
-
-      if (stdout) console.log('yt-dlp stdout:', stdout);
-      if (stderr) console.log('yt-dlp stderr:', stderr);
-
-      if (!fs.existsSync(outputPath)) {
-        console.error('Video file not found after download');
-        continue;
-      }
-
-      const fileSizeMB = fs.statSync(outputPath).size / (1024 * 1024);
-      let finalPath = outputPath;
-
-      // Compress if over Discord's 24MB limit
-      if (fileSizeMB > 24) {
-        const compressedPath = outputPath.replace('.mp4', '_compressed.mp4');
-        finalPath = await compressVideo(outputPath, compressedPath, message);
-        if (!finalPath) {
-          cleanup(outputPath, compressedPath);
+      try {
+        await exec(`gallery-dl ${cookieArg} -D "${dlDir}" "${url}"`, { timeout: 60000 });
+      } catch (dlErr) {
+        // gallery-dl may exit non-zero even on partial success; check if files landed
+        const files = fs.existsSync(dlDir) ? fs.readdirSync(dlDir) : [];
+        if (files.length === 0) {
+          console.error('[Instagram] gallery-dl failed:', dlErr.message.split('\n')[0]);
+          try { await message.reply('❌ Instagram download failed — the post may be private or cookies need refreshing.'); } catch { /* ignore */ }
+          fs.rmSync(dlDir, { recursive: true, force: true });
           continue;
         }
       }
 
-      // Send the video
-      try {
-        await message.reply({
-          content: `🎬 Here's the Instagram video from ${message.author}:`,
-          files: [finalPath],
-        });
-        console.log('✅ Instagram video sent successfully');
-      } catch (sendError) {
-        console.log('❌ Failed to send video:', sendError.message);
-        const perms = message.channel.permissionsFor(message.guild.members.me);
-        if (!perms.has('AttachFiles')) {
-          try {
-            await message.reply('❌ I need the **Attach Files** permission to send videos here!');
-          } catch (e) { /* ignore */ }
+      const files = fs.readdirSync(dlDir).map(f => path.join(dlDir, f));
+      if (files.length === 0) {
+        try { await message.reply('❌ Nothing was downloaded from that Instagram link.'); } catch { /* ignore */ }
+        fs.rmSync(dlDir, { recursive: true, force: true });
+        continue;
+      }
+
+      // Send each file (Discord accepts images + videos)
+      const videoExts = ['.mp4', '.mov', '.webm', '.mkv'];
+      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+
+      for (const filePath of files) {
+        const ext = path.extname(filePath).toLowerCase();
+        const sizeMB = fs.statSync(filePath).size / (1024 * 1024);
+        const isVideo = videoExts.includes(ext);
+        const isImage = imageExts.includes(ext);
+
+        if (!isVideo && !isImage) {
+          console.log(`[Instagram] Skipping unknown file type: ${ext}`);
+          continue;
+        }
+
+        let finalPath = filePath;
+
+        if (sizeMB > 24 && isVideo) {
+          const compressedPath = filePath.replace(ext, '_c.mp4');
+          finalPath = await compressVideo(filePath, compressedPath, message) || null;
+          if (!finalPath) continue;
+        } else if (sizeMB > 24) {
+          try { await message.reply(`❌ File too large to send (${sizeMB.toFixed(1)}MB).`); } catch { /* ignore */ }
+          continue;
+        }
+
+        const label = isVideo ? `🎬 Instagram video from ${message.author}:` : `📸 Instagram photo from ${message.author}:`;
+
+        try {
+          await message.reply({ content: label, files: [finalPath] });
+          console.log(`[Instagram] Sent ${isVideo ? 'video' : 'photo'}: ${path.basename(finalPath)}`);
+        } catch (sendErr) {
+          console.error('[Instagram] Send failed:', sendErr.message);
         }
       }
 
-      // Clean up temp files
-      cleanup(outputPath, outputPath.replace('.mp4', '_compressed.mp4'));
+      fs.rmSync(dlDir, { recursive: true, force: true });
     } catch (error) {
-      console.error('Instagram download error:', error.message || error);
+      console.error('[Instagram] Unexpected error:', error.message);
     }
   }
 }
 
-/**
- * Compress a video to fit under Discord's upload limit.
- * @returns {string|null} Path to the compressed file, or null on failure
- */
 async function compressVideo(inputPath, outputPath, message) {
+  try { await message.channel.send('⏳ Video is large, compressing...'); } catch { /* ignore */ }
   try {
-    await message.channel.send('⏳ Video is large, compressing...');
-  } catch (e) { /* ignore */ }
-
-  try {
-    // Get video duration
     const { stdout: probeOut } = await exec(
       `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`
     );
     const duration = parseFloat(probeOut.trim()) || 60;
-
-    // Calculate bitrate to fit in ~23MB
     const targetSizeKbits = 23 * 8 * 1024;
     const audioBitrate = 128;
     const videoBitrate = Math.floor(targetSizeKbits / duration - audioBitrate);
-
     if (videoBitrate < 100) {
-      try { await message.reply('❌ Video is too long to compress under 24MB.'); } catch (e) { /* ignore */ }
+      try { await message.reply('❌ Video is too long to compress under 24MB.'); } catch { /* ignore */ }
       return null;
     }
-
-    console.log(`Compressing: duration=${duration}s, target video bitrate=${videoBitrate}k`);
-
     await exec(
       `ffmpeg -i "${inputPath}" -b:v ${videoBitrate}k -b:a ${audioBitrate}k ` +
       `-vf "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2" ` +
       `-y "${outputPath}"`,
       { timeout: 120000 }
     );
-
     if (!fs.existsSync(outputPath)) return null;
-
     const compressedSizeMB = fs.statSync(outputPath).size / (1024 * 1024);
-    console.log(`Compressed: ${(fs.statSync(inputPath).size / (1024 * 1024)).toFixed(2)}MB → ${compressedSizeMB.toFixed(2)}MB`);
-
     if (compressedSizeMB > 24) {
-      try { await message.reply('❌ Video is still too large after compression.'); } catch (e) { /* ignore */ }
+      try { await message.reply('❌ Video still too large after compression.'); } catch { /* ignore */ }
       return null;
     }
-
     return outputPath;
   } catch (err) {
-    console.error('Compression failed:', err.message);
-    try { await message.reply('❌ Failed to compress the video.'); } catch (e) { /* ignore */ }
+    console.error('[Instagram] Compression failed:', err.message);
     return null;
-  }
-}
-
-function cleanup(...paths) {
-  for (const p of paths) {
-    try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) { /* ignore */ }
   }
 }
 

@@ -1,4 +1,4 @@
 {
   "verbose": true,
-  "ignore": ["*.json", "*-player-script.js", "data/", "temp/", "**/*-player-script.js"]
+  "ignore": ["*.json", "*-player-script.js", "data/", "temp/", "**/*-player-script.js", "*.txt", "*.csv"]
 }

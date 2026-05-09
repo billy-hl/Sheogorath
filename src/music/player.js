@@ -195,6 +195,30 @@ async function play(connection, url, guildId, onFinish) {
   player.play(resource);
   connection.subscribe(player);
   
+  // Add error recovery for connection issues
+  connection.on('stateChange', (oldState, newState) => {
+    if (newState.status === 'disconnected') {
+      console.log('Voice connection disconnected, attempting to reconnect...');
+      setTimeout(() => {
+        try {
+          connection.rejoin();
+          console.log('Successfully rejoined voice channel');
+        } catch (err) {
+          console.error('Failed to rejoin voice channel:', err);
+        }
+      }, 1000);
+    }
+  });
+  
+  connection.on('error', (error) => {
+    console.error('Voice connection error:', error);
+    try {
+      connection.rejoin();
+    } catch (err) {
+      console.error('Failed to recover from connection error:', err);
+    }
+  });
+  
   // Clear old listeners to avoid duplicates
   player.removeAllListeners(AudioPlayerStatus.Idle);
   player.removeAllListeners('error');
@@ -365,5 +389,8 @@ module.exports = {
   resumePlaying,
   skipSong,
   fetchRelatedSong,
-  expandPlaylist
+  expandPlaylist,
+  stopPlayer: stopPlaying,
+  pausePlayer: pausePlaying,
+  resumePlayer: resumePlaying
 };

@@ -150,7 +150,11 @@ module.exports = {
             players.set(guildId, player);
             
             if (musicChannel) try {
-              await musicChannel.send(`🎵 Now playing: **${queue.nowPlaying?.title || firstSong.title || firstSong.query}**`);
+              const msg = await musicChannel.send(`🎵 Now playing: **${queue.nowPlaying?.title || firstSong.title || firstSong.query}**`);
+              // Add reaction controls
+              await msg.react('⏯️').catch(() => {});
+              await msg.react('⏭️').catch(() => {});
+              await msg.react('⏹️').catch(() => {});
             } catch (e) {
               console.error('Could not send now playing message:', e);
             }

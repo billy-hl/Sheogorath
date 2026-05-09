@@ -439,6 +439,63 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 });
 
+// Music reaction controls
+client.on('messageReactionAdd', async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.partial) {
+    try {
+      await reaction.fetch();
+    } catch (err) {
+      console.error('Error fetching reaction:', err);
+      return;
+    }
+  }
+
+  const message = reaction.message;
+  if (message.author.id !== client.user.id) return;
+  if (!message.content.startsWith('🎵 Now playing:')) return;
+
+  const { pausePlayer, resumePlayer, skipSong } = require('./music/player');
+  const guildId = message.guild.id;
+
+  try {
+    switch (reaction.emoji.name) {
+      case '⏯️':
+        const player = require('./music/player').players.get(guildId);
+        if (player) {
+          if (player.state.status === 'playing') {
+            pausePlayer(guildId);
+            await message.channel.send('⏸️ Paused').then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
+          } else {
+            resumePlayer(guildId);
+            await message.channel.send('▶️ Resumed').then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
+          }
+        }
+        break;
+
+      case '⏭️':
+        await skipSong(guildId);
+        await message.channel.send('⏭️ Skipped').then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
+        break;
+
+      case '⏹️':
+        const { stopPlayer } = require('./music/player');
+        stopPlayer(guildId);
+        await message.channel.send('⏹️ Stopped').then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
+        break;
+    }
+  } catch (err) {
+    console.error('Error handling music reaction:', err);
+  }
+
+  // Remove the user's reaction
+  try {
+    await reaction.users.remove(user.id);
+  } catch (err) {
+    console.error('Error removing reaction:', err);
+  }
+});
+
 async function askChatGPT(userMessage) {
   // Keep the "is typing" indicator alive every 8s until we're done
   userMessage.channel.sendTyping();

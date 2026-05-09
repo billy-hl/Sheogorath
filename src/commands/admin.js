@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { getUserActivity, getUserNotes } = require('../storage/state');
+const fs = require('fs');
+const path = require('path');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -39,6 +41,9 @@ module.exports = {
             .setRequired(true))),
 
   async execute(interaction) {
+    // Defer reply immediately to prevent timeout
+    await interaction.deferReply({ flags: 64 });
+    
     const subcommand = interaction.options.getSubcommand();
 
     // Check permissions
@@ -48,9 +53,8 @@ module.exports = {
                    interaction.member.roles.cache.has(ADMIN_ROLE_ID);
     
     if (!isAdmin) {
-      return await interaction.reply({
-        content: '❌ You do not have permission to use admin commands!',
-        flags: 64
+      return await interaction.editReply({
+        content: '❌ You do not have permission to use admin commands!'
       });
     }
 
@@ -58,6 +62,18 @@ module.exports = {
       case 'stats': {
         const uptime = process.uptime();
         const uptimeString = `${Math.floor(uptime / 86400)}d ${Math.floor((uptime % 86400) / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`;
+
+        // Get TTS usage from local tracking
+        const usageFile = path.join(__dirname, '..', '..', 'data', 'tts-usage.json');
+        let ttsUsage = { chars: 0 };
+        try {
+          if (fs.existsSync(usageFile)) {
+            ttsUsage = JSON.parse(fs.readFileSync(usageFile, 'utf8'));
+          }
+        } catch (err) {
+          console.error('Error reading TTS usage:', err);
+        }
+        const ttsLimit = parseInt(process.env.TTS_MONTHLY_LIMIT) || 40000;
 
         const embed = new EmbedBuilder()
           .setTitle('🤖 Bot Statistics')
@@ -68,12 +84,13 @@ module.exports = {
             { name: '👥 Total Users', value: interaction.client.users.cache.size.toString(), inline: true },
             { name: '💬 Commands', value: interaction.client.commands.size.toString(), inline: true },
             { name: '🧠 Memory Usage', value: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`, inline: true },
-            { name: '⚡ Node Version', value: process.version, inline: true }
+            { name: '⚡ Node Version', value: process.version, inline: true },
+            { name: '🔊 TTS Usage', value: `${ttsUsage.chars.toLocaleString()} / ${ttsLimit.toLocaleString()} chars`, inline: true }
           )
           .setFooter({ text: `Requested by ${interaction.user.username}` })
           .setTimestamp();
 
-        await interaction.reply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed] });
         break;
       }
 
@@ -81,9 +98,8 @@ module.exports = {
         const amount = interaction.options.getInteger('amount');
 
         if (amount < 1 || amount > 100) {
-          return await interaction.reply({
-            content: '❌ Please specify a number between 1 and 100.',
-            flags: 64
+          return await interaction.editReply({
+            content: '❌ Please specify a number between 1 and 100.'
           });
         }
 
@@ -95,12 +111,11 @@ module.exports = {
             .setColor(0x00ff00)
             .setTimestamp();
 
-          await interaction.reply({ embeds: [embed], flags: 64 });
+          await interaction.editReply({ embeds: [embed] });
         } catch (error) {
           console.error('Error clearing messages:', error);
-          await interaction.reply({
-            content: '❌ Failed to clear messages. They may be too old or I lack permissions.',
-            flags: 64
+          await interaction.editReply({
+            content: '❌ Failed to clear messages. They may be too old or I lack permissions.'
           });
         }
         break;
@@ -117,7 +132,7 @@ module.exports = {
           .setFooter({ text: `Announced by ${interaction.user.username}` })
           .setTimestamp();
 
-        await interaction.reply({
+        await interaction.editReply({
           content: mentionEveryone ? '@everyone' : undefined,
           embeds: [embed]
         });
@@ -149,7 +164,7 @@ module.exports = {
           .setFooter({ text: `Requested by ${interaction.user.username}` })
           .setTimestamp();
 
-        await interaction.reply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed] });
         break;
       }
     }

@@ -135,4 +135,47 @@ async function textToSpeech(text) {
   });
 }
 
-module.exports = { textToSpeech };
+/**
+ * Get ElevenLabs subscription info with real-time quota usage
+ * @returns {Promise<Object>} Subscription data with character_count, character_limit, etc.
+ */
+async function getElevenLabsQuota() {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error('ELEVENLABS_API_KEY not set in .env');
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'api.elevenlabs.io',
+        path: '/v1/user/subscription',
+        method: 'GET',
+        headers: {
+          'xi-api-key': apiKey,
+        },
+      },
+      res => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            reject(new Error(`ElevenLabs API error ${res.statusCode}: ${data}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(data));
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+module.exports = { textToSpeech, getElevenLabsQuota };

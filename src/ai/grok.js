@@ -56,7 +56,7 @@ async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt 
           { role: 'system', content: rawSystemPrompt || buildSystemPrompt(systemPrompt) },
           { role: 'user', content: prompt },
         ],
-        max_tokens: maxTokens || 200,
+        max_tokens: maxTokens || 50,
         temperature: 0.7,
       },
       { Authorization: `Bearer ${process.env.GROK_API_KEY}` }
@@ -73,10 +73,10 @@ async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt 
 /**
  * Get AI response with conversation history for multi-turn chat.
  * @param {Array<{role: string, content: string}>} messages - Conversation history
- * @param {number} [maxTokens=200] - Max response tokens (default 200 = ~650 chars)
+ * @param {number} [maxTokens=50] - Max response tokens (default 50 = ~160 chars)
  * @returns {Promise<string>} AI response
  */
-async function getAIResponseWithHistory(messages, maxTokens = 200) {
+async function getAIResponseWithHistory(messages, maxTokens = 50) {
   const makeRequest = async (msgs, timeout) => {
     const response = await httpsPost(
       GROK_API_URL,

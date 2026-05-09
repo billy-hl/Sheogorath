@@ -155,6 +155,7 @@ module.exports = {
               await msg.react('⏯️').catch(() => {});
               await msg.react('⏭️').catch(() => {});
               await msg.react('⏹️').catch(() => {});
+              await msg.react('🗑️').catch(() => {}); // Remove from radio.csv
             } catch (e) {
               console.error('Could not send now playing message:', e);
             }

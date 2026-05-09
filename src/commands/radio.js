@@ -27,6 +27,39 @@ function loadRadioTracks() {
   return tracks;
 }
 
+/** Remove a track from radio.csv by matching the query */
+function removeTrackFromRadio(trackQuery) {
+  const raw = fs.readFileSync(CSV_PATH, 'utf8');
+  const lines = raw.split('\n');
+  const header = lines[0].split(',').map(h => h.trim());
+  const nameIdx   = header.indexOf('Track Name');
+  const artistIdx = header.indexOf('Artist Name(s)');
+
+  // Filter out the matching track
+  const filtered = [lines[0]]; // Keep header
+  let removed = false;
+
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const cols = lines[i].match(/(".*?"|[^,]+)(?=,|$)/g) || [];
+    const name   = (cols[nameIdx]   || '').replace(/^"|"$/g, '').trim();
+    const artist = (cols[artistIdx] || '').replace(/^"|"$/g, '').trim().split(';')[0];
+    const trackTitle = `${artist} - ${name}`;
+
+    if (trackTitle.toLowerCase() === trackQuery.toLowerCase()) {
+      removed = true;
+      continue; // Skip this line
+    }
+    filtered.push(lines[i]);
+  }
+
+  if (removed) {
+    fs.writeFileSync(CSV_PATH, filtered.join('\n'));
+  }
+
+  return removed;
+}
+
 /** Fisher-Yates shuffle */
 function shuffle(arr) {
   const a = [...arr];
@@ -135,4 +168,7 @@ module.exports = {
       }
     }
   },
+
+  // Export helper for removing tracks
+  removeTrackFromRadio,
 };

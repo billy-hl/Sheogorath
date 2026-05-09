@@ -453,9 +453,10 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
   const message = reaction.message;
   if (message.author.id !== client.user.id) return;
-  if (!message.content.startsWith('🎵 Now playing:')) return;
+  if (!message.content.startsWith('🎵 Now playing:') && !message.content.startsWith('📻 Radio started:')) return;
 
   const { pausePlayer, resumePlayer, skipSong } = require('./music/player');
+  const { removeTrackFromRadio } = require('./commands/radio');
   const guildId = message.guild.id;
 
   try {
@@ -482,6 +483,22 @@ client.on('messageReactionAdd', async (reaction, user) => {
         const { stopPlayer } = require('./music/player');
         stopPlayer(guildId);
         await message.channel.send('⏹️ Stopped').then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
+        break;
+
+      case '🗑️':
+        // Extract song title from message
+        const match = message.content.match(/\*\*(.+?)\*\*/);
+        if (match) {
+          const trackTitle = match[1];
+          const removed = removeTrackFromRadio(trackTitle);
+          if (removed) {
+            await message.channel.send(`🗑️ Removed **${trackTitle}** from radio playlist, skipping...`).then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
+            // Skip the current song
+            await skipSong(guildId);
+          } else {
+            await message.channel.send(`❌ Could not find **${trackTitle}** in radio playlist`).then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
+          }
+        }
         break;
     }
   } catch (err) {

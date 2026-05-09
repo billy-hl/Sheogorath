@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
 const { textToSpeech } = require('../services/tts');
+const { markVoiceActive } = require('../utils/voiceIdle');
 
 const SERIOUS_PROMPT = `You are a helpful, knowledgeable assistant. Answer accurately, concisely, and factually. No roleplay, no character, no whimsy. Provide direct, well-sourced answers. If you're unsure about something, say so.`;
 
@@ -56,11 +57,9 @@ module.exports = {
           // Also send text
           await sendTextReply(interaction, question, response);
 
-          // Auto-disconnect
+          // Start idle timer
           player.once(AudioPlayerStatus.Idle, () => {
-            setTimeout(() => {
-              if (connection.state.status !== 'destroyed') connection.destroy();
-            }, 2000);
+            markVoiceActive(interaction.guild.id);
           });
         } catch (voiceErr) {
           console.error('[Voice] TTS failed:', voiceErr.message);

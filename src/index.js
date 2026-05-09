@@ -11,6 +11,10 @@ const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
 const { parseActions, executeActions } = require('./ai/actions');
 const { textToSpeech } = require('./services/tts');
+const { checkCooldown, setCooldown } = require('./utils/cooldowns');
+const { setClient, notifyError } = require('./utils/errorNotify');
+const { trackCommand } = require('./commands/stats');
+const { markVoiceActive } = require('./utils/voiceIdle');
 
 // Channel IDs from environment
 const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
@@ -117,6 +121,8 @@ for (const file of commandFiles) {
 
 
 client.once('ready', async () => {
+  setClient(client); // Enable error notifications
+  
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) {
     console.error('Guild not found. Please check GUILD_ID in your environment variables.');
@@ -192,6 +198,28 @@ client.once('ready', async () => {
     }
   }, 45 * 60 * 1000); // 45 minutes
 
+  // Memory monitoring - log every 30 minutes, clear old history if high
+  setInterval(() => {
+    const mem = process.memoryUsage();
+    const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
+    const heapTotalMB = Math.round(mem.heapTotal / 1024 / 1024);
+    console.log(`[Memory] ${heapUsedMB}MB / ${heapTotalMB}MB`);
+    
+    // If using >400MB, aggressively clear old conversation history
+    if (heapUsedMB > 400) {
+      let cleared = 0;
+      for (const [userId, history] of conversationHistory.entries()) {
+        if (history.length > 10) {
+          conversationHistory.set(userId, history.slice(-10));
+          cleared++;
+        }
+      }
+      if (cleared > 0) {
+        console.log(`[Memory] High usage detected, cleared history for ${cleared} users`);
+      }
+    }
+  }, 30 * 60 * 1000); // 30 minutes
+
 });
 
 
@@ -243,10 +271,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    // Check cooldown
+    const cooldown = checkCooldown(interaction.user.id, interaction.commandName);
+    if (cooldown) {
+      return interaction.reply({
+        content: `⏳ Please wait ${cooldown}s before using \`/${interaction.commandName}\` again.`,
+        flags: 64
+      });
+    }
+
+    // Set cooldown
+    setCooldown(interaction.user.id, interaction.commandName);
+
+    // Track command usage
+    trackCommand(interaction.commandName);
+
     await command.execute(interaction);
 
   } catch (error) {
     console.error('Interaction error:', error);
+    notifyError(`Command /${interaction.commandName} failed for ${interaction.user.username}`, error);
     try {
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({
@@ -491,11 +535,9 @@ async function askChatGPT(userMessage) {
         // Also send text reply
         await sendReply(userMessage.channel, finalReply);
 
-        // Auto-disconnect after audio finishes
+        // Start idle timer after audio finishes
         player.once(AudioPlayerStatus.Idle, () => {
-          setTimeout(() => {
-            if (connection.state.status !== 'destroyed') connection.destroy();
-          }, 2000);
+          markVoiceActive(userMessage.guild.id);
         });
       } catch (voiceErr) {
         console.error('[Voice] TTS failed:', voiceErr.message);
@@ -509,6 +551,7 @@ async function askChatGPT(userMessage) {
   } catch (error) {
     clearInterval(typingInterval);
     console.error('Error in askChatGPT:', error.message);
+    notifyError(`askChatGPT failed for ${userMessage.author.username}`, error);
     await userMessage.reply('❌ An error occurred while trying to fetch the AI response. The Mad King is... temporarily indisposed.');
   }
 

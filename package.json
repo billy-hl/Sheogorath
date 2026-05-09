@@ -27,6 +27,7 @@
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5",
     "sodium-native": "^5.0.9",
+    "winston": "^3.19.0",
     "youtube-dl-exec": "^3.0.13"
   },
   "devDependencies": {

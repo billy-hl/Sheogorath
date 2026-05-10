@@ -71,14 +71,14 @@ async function textToSpeech(text) {
 
   const payload = JSON.stringify({
     text: truncatedText,
-    model_id: 'eleven_turbo_v2_5',
+    model_id: 'eleven_monolingual_v1',
     voice_settings: {
       stability: 0.5,
-      similarity_boost: 0.75,
+      similarity_boost: 0.85,
       style: 0.0,
-      use_speaker_boost: true,
-      speed: 1.0,
+      use_speaker_boost: true
     },
+    output_format: 'mp3_44100_128'
   });
 
   return new Promise((resolve, reject) => {

@@ -15,7 +15,29 @@ function markVoiceActive(guildId) {
   const timer = setTimeout(() => {
     const connection = getVoiceConnection(guildId);
     if (connection && connection.state.status !== 'destroyed') {
-      console.log(`[Voice] Auto-leaving ${guildId} after 5 minutes of inactivity`);
+      // Check if there are any users left in the voice channel
+      const channel = connection.joinConfig.channelId;
+      const guild = connection.joinConfig.guildId;
+      
+      // Need to get the actual channel object to check members
+      const { client } = require('../index');
+      if (client && client.guilds) {
+        const guildObj = client.guilds.cache.get(guild);
+        if (guildObj) {
+          const voiceChannel = guildObj.channels.cache.get(channel);
+          if (voiceChannel && voiceChannel.members) {
+            const humanMembers = voiceChannel.members.filter(m => !m.user.bot);
+            if (humanMembers.size > 0) {
+              console.log(`[Voice] Not leaving ${guildId} - ${humanMembers.size} user(s) still in channel`);
+              // Restart the timer since people are still there
+              markVoiceActive(guildId);
+              return;
+            }
+          }
+        }
+      }
+      
+      console.log(`[Voice] Auto-leaving ${guildId} after 5 minutes of inactivity (channel empty)`);
       connection.destroy();
     }
     voiceTimers.delete(guildId);

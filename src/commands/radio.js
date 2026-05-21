@@ -1,11 +1,15 @@
 'use strict';
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const { play, connectToChannel, getConnection, players, getQueue, addToQueue, getNextSong } = require('../music/player');
+const { createNowPlayingEmbed } = require('../music/embeds');
 
 const MUSIC_CHANNEL_ID = '534553333034123289';
 const CSV_PATH = path.join(__dirname, '../../radio.csv');
+
+// Track last now playing message to keep channel clean
+const lastNowPlayingMessages = new Map(); // guildId -> messageId
 
 /** Parse the radio.csv into an array of { title, artist, query } */
 function loadRadioTracks() {
@@ -90,7 +94,42 @@ async function playNextInQueue(client, connection, guildId) {
     players.set(guildId, player);
 
     if (channel) try {
-      await channel.send(`🎵 Now playing: **${queue.nowPlaying?.title || nextSong.title}**`);
+      // Clear all messages in the music channel
+      try {
+        const messages = await channel.messages.fetch({ limit: 100 });
+        await channel.bulkDelete(messages, true);
+      } catch (err) {
+        console.error('Could not clear music channel:', err.message);
+      }
+
+      const embed = await createNowPlayingEmbed(
+        { url: queue.nowPlaying?.url, title: queue.nowPlaying?.title || nextSong.title, query: nextSong.query },
+        nextSong.addedBy || 'Radio'
+      );
+      
+      // Create button controls
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('music_pause')
+            .setLabel('⏯️ Pause/Resume')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('music_skip')
+            .setLabel('⏭️ Skip')
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId('music_stop')
+            .setLabel('⏹️ Stop')
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId('music_remove')
+            .setLabel('🗑️ Remove')
+            .setStyle(ButtonStyle.Danger)
+        );
+      
+      const msg = await channel.send({ embeds: [embed], components: [row] });
+      lastNowPlayingMessages.set(guildId, msg.id);
     } catch (e) { /* ignore */ }
   } catch (err) {
     console.error('Radio: error playing next song:', err.message);
@@ -163,7 +202,42 @@ module.exports = {
         });
         players.set(guildId, player);
         if (musicChannel) try {
-          await musicChannel.send(`📻 Radio started: **${queue.nowPlaying?.title || first.title}**`);
+          // Clear all messages in the music channel
+          try {
+            const messages = await musicChannel.messages.fetch({ limit: 100 });
+            await musicChannel.bulkDelete(messages, true);
+          } catch (err) {
+            console.error('Could not clear music channel:', err.message);
+          }
+
+          const embed = await createNowPlayingEmbed(
+            { url: queue.nowPlaying?.url, title: queue.nowPlaying?.title || first.title, query: first.query },
+            first.addedBy || 'Radio'
+          );
+          
+          // Create button controls
+          const row = new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId('music_pause')
+                .setLabel('⏯️ Pause/Resume')
+                .setStyle(ButtonStyle.Primary),
+              new ButtonBuilder()
+                .setCustomId('music_skip')
+                .setLabel('⏭️ Skip')
+                .setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder()
+                .setCustomId('music_stop')
+                .setLabel('⏹️ Stop')
+                .setStyle(ButtonStyle.Danger),
+              new ButtonBuilder()
+                .setCustomId('music_remove')
+                .setLabel('🗑️ Remove')
+                .setStyle(ButtonStyle.Danger)
+            );
+          
+          const msg = await musicChannel.send({ embeds: [embed], components: [row] });
+          lastNowPlayingMessages.set(guildId, msg.id);
         } catch (e) { /* ignore */ }
       }
     }

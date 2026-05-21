@@ -1,20 +1,23 @@
 'use strict';
 const { timeoutUser, warnUser, deleteMessage } = require('../services/automod');
 const { addUserNote, clearUserNotes } = require('../storage/state');
+const { addMemory } = require('../storage/memory');
 
 /**
  * Action tag format the AI can include in its response:
  *   [ACTION:timeout:userId:durationMinutes:reason]
  *   [ACTION:warn:userId:reason]
  *   [ACTION:delete:reason]
+ *   [ACTION:memory:userId:memory text]
  *
  * Returns { cleanResponse, actions[] }
  */
 function parseActions(response) {
-  const actionRegex = /\[ACTION:(timeout|warn|delete|note|clearnotes):([^\]]+)\]/g;
+  const actionRegex = /\[ACTION:(timeout|warn|delete|note|clearnotes|memory):([^\]]+)\]/g;
   const actions = [];
   let cleanResponse = response;
 
+  console.log('[Actions] Parsing response for action tags...');
   let match;
   while ((match = actionRegex.exec(response)) !== null) {
     const [fullMatch, type, params] = match;
@@ -61,10 +64,25 @@ function parseActions(response) {
         actions.push({ type: 'clearnotes', userId });
         break;
       }
+      case 'memory': {
+        const [userId, ...memoryParts] = parts;
+        actions.push({
+          type: 'memory',
+          userId,
+          memory: memoryParts.join(':'),
+        });
+        break;
+      }
     }
 
     // Strip the action tag from the visible response
     cleanResponse = cleanResponse.replace(fullMatch, '').trim();
+  }
+
+  if (actions.length > 0) {
+    console.log(`[Actions] Found ${actions.length} action tag(s) in response`);
+  } else {
+    console.log('[Actions] No action tags found in response');
   }
 
   return { cleanResponse, actions };
@@ -104,6 +122,12 @@ async function executeActions(actions, context) {
           clearUserNotes(action.userId);
           results.push({ ...action, success: true });
           console.log(`[AI Action] Cleared notes for ${action.userId}`);
+          break;
+
+        case 'memory':
+          addMemory(action.userId, action.memory);
+          results.push({ ...action, success: true });
+          console.log(`[AI Action] Saved memory for ${action.userId}: ${action.memory}`);
           break;
 
         case 'delete':

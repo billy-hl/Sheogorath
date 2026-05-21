@@ -7,12 +7,19 @@ const ACTION_DOCS = `
 
 You may silently embed action tags anywhere in your response to interact with user records.
 These tags are invisible to users and are stripped before the message is sent:
-  [ACTION:note:userId:your note text]   — Save a note about a user (use their Discord user ID)
+  [ACTION:note:userId:your note text]   — Save a temporary note about a user (use their Discord user ID)
   [ACTION:clearnotes:userId]             — Erase all notes for a user
+  [ACTION:memory:userId:important fact] — Save a LONG-TERM memory about a user (birthdays, preferences, key facts)
   [ACTION:warn:userId:reason]            — Issue a warning to a user
   [ACTION:timeout:userId:minutes:reason] — Timeout a user
   [ACTION:delete:reason]                 — Delete the triggering message
-Only use these when it makes sense. Notes are shown to you at the start of future conversations with that user.
+
+IMPORTANT: Actively use NOTE and MEMORY actions frequently! 
+- When users share personal info, preferences, plans, emotions, or facts about themselves
+- When they mention games they play, music they like, hobbies, jobs, relationships
+- When they tell you something they want/don't want
+- When they reveal personality traits or quirks
+These help you remember mortals across conversations. Use them liberally!
 `;
 
 function buildSystemPrompt(base) {

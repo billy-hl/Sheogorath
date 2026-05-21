@@ -1,7 +1,4 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
-const { textToSpeech } = require('../services/tts');
-const { markVoiceActive } = require('../utils/voiceIdle');
 
 const SERIOUS_PROMPT = `You are a helpful, knowledgeable assistant. Answer accurately, concisely, and factually. No roleplay, no character, no whimsy. Provide direct, well-sourced answers. If you're unsure about something, say so.`;
 
@@ -28,47 +25,8 @@ module.exports = {
         throw new Error('Empty response from AI');
       }
 
-      // Check if user is in voice
-      const member = interaction.member;
-      const voiceChannel = member?.voice?.channel;
-
-      if (voiceChannel && process.env.ELEVENLABS_API_KEY) {
-        try {
-          console.log(`[Voice] /ask user in voice channel, joining to speak`);
-
-          // Join voice
-          let connection = getVoiceConnection(interaction.guild.id);
-          if (!connection || connection.joinConfig.channelId !== voiceChannel.id) {
-            connection = joinVoiceChannel({
-              channelId: voiceChannel.id,
-              guildId: interaction.guild.id,
-              adapterCreator: interaction.guild.voiceAdapterCreator,
-            });
-          }
-
-          // Generate TTS
-          const audioResource = await textToSpeech(response);
-
-          // Play audio
-          const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-          connection.subscribe(player);
-          player.play(audioResource);
-
-          // Also send text
-          await sendTextReply(interaction, question, response);
-
-          // Start idle timer
-          player.once(AudioPlayerStatus.Idle, () => {
-            markVoiceActive(interaction.guild.id);
-          });
-        } catch (voiceErr) {
-          console.error('[Voice] TTS failed:', voiceErr.message);
-          await sendTextReply(interaction, question, response);
-        }
-      } else {
-        // Text-only
-        await sendTextReply(interaction, question, response);
-      }
+      // Always send text-only response (no TTS)
+      await sendTextReply(interaction, question, response);
     } catch (err) {
       console.error('Ask command error:', err.message);
       await interaction.editReply(`Something went wrong: ${err.message}`);

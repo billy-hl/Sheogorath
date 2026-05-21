@@ -38,7 +38,15 @@ module.exports = {
         .addUserOption(option =>
           option.setName('user')
             .setDescription('User to look up')
-            .setRequired(true))),
+            .setRequired(true)))
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('purge')
+        .setDescription('Clear ALL messages from a channel')
+        .addChannelOption(option =>
+          option.setName('channel')
+            .setDescription('Channel to purge (leave empty for current channel)')
+            .setRequired(false))),
 
   async execute(interaction) {
     // Defer reply immediately to prevent timeout
@@ -165,6 +173,89 @@ module.exports = {
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
+        break;
+      }
+
+      case 'purge': {
+        const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+        
+        try {
+          await interaction.editReply(`🗑️ Starting to purge all messages from ${targetChannel}...`);
+          
+          // Send a separate message for progress updates (since interaction token expires after 15min)
+          const progressMsg = await targetChannel.send('🗑️ Purge in progress...');
+          
+          let deletedTotal = 0;
+          let lastId;
+          
+          // Keep fetching and deleting in batches until no more messages
+          while (true) {
+            const fetchOptions = { limit: 100 };
+            if (lastId) fetchOptions.before = lastId;
+            
+            const messages = await targetChannel.messages.fetch(fetchOptions);
+            if (messages.size === 0) break;
+            
+            // Separate messages by age (Discord can only bulk delete messages < 14 days old)
+            const recent = messages.filter(m => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
+            const old = messages.filter(m => Date.now() - m.createdTimestamp >= 14 * 24 * 60 * 60 * 1000);
+            
+            // Bulk delete recent messages
+            if (recent.size > 0) {
+              await targetChannel.bulkDelete(recent, true);
+              deletedTotal += recent.size;
+            }
+            
+            // Delete old messages one by one (but faster - 5 per second max)
+            let oldDeleted = 0;
+            for (const [id, message] of old) {
+              try {
+                await message.delete();
+                deletedTotal++;
+                oldDeleted++;
+                // Rate limit: Discord allows 5 deletes per second
+                if (oldDeleted % 5 === 0) {
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+              } catch (err) {
+                console.error('Failed to delete old message:', err.message);
+              }
+            }
+            
+            lastId = messages.last().id;
+            
+            // Stop if we got less than 100 messages
+            if (messages.size < 100) break;
+            
+            // Update progress message every 500 deletions (not every batch)
+            if (deletedTotal % 500 < 100) {
+              try {
+                await progressMsg.edit(`🗑️ Purging... ${deletedTotal} messages deleted so far`);
+              } catch (err) {
+                // Message might have been deleted, continue anyway
+              }
+            }
+          }
+          
+          // Delete progress message
+          try {
+            await progressMsg.delete();
+          } catch (err) {
+            // Already deleted
+          }
+          
+          // Send final result to original channel (might be different from target)
+          await interaction.followUp({
+            content: `✅ Purge complete! Deleted **${deletedTotal}** messages from ${targetChannel}`,
+            flags: 64
+          });
+        } catch (error) {
+          console.error('Error purging channel:', error);
+          await interaction.followUp({
+            content: `❌ Error purging channel: ${error.message}`,
+            flags: 64
+          });
+        }
         break;
       }
     }

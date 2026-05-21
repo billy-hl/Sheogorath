@@ -93,7 +93,6 @@ if (missingEnv.length > 0) {
 }
 
 
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -106,6 +105,9 @@ const client = new Client({
 });
 
 client.commands = new Map();
+
+// Export client for other modules
+module.exports = { client };
 
 
 // Dynamically load commands from src/commands
@@ -262,6 +264,58 @@ client.on(Events.InteractionCreate, async (interaction) => {
   lastInteractionTime = Date.now();
 
   try {
+    // Handle button interactions for music controls
+    if (interaction.isButton()) {
+      const { pausePlayer, resumePlayer, skipSong, stopPlayer } = require('./music/player');
+      const { removeTrackFromRadio } = require('./commands/radio');
+      const guildId = interaction.guild.id;
+
+      switch (interaction.customId) {
+        case 'music_pause':
+          const player = require('./music/player').players.get(guildId);
+          if (player) {
+            if (player.state.status === 'playing') {
+              pausePlayer(guildId);
+              await interaction.reply({ content: '⏸️ Paused', ephemeral: true });
+            } else {
+              resumePlayer(guildId);
+              await interaction.reply({ content: '▶️ Resumed', ephemeral: true });
+            }
+          } else {
+            await interaction.reply({ content: '❌ No music playing', ephemeral: true });
+          }
+          break;
+
+        case 'music_skip':
+          await skipSong(guildId);
+          await interaction.reply({ content: '⏭️ Skipped', ephemeral: true });
+          break;
+
+        case 'music_stop':
+          stopPlayer(guildId);
+          await interaction.reply({ content: '⏹️ Stopped', ephemeral: true });
+          break;
+
+        case 'music_remove':
+          // Extract song title from embed
+          const embed = interaction.message.embeds[0];
+          if (embed && embed.description) {
+            const trackTitle = embed.description.split('\n')[0].replace(/\*\*/g, '');
+            const removed = removeTrackFromRadio(trackTitle);
+            if (removed) {
+              await skipSong(guildId);
+              await interaction.reply({ content: `🗑️ Removed **${trackTitle}** from radio playlist and skipped`, ephemeral: true });
+            } else {
+              await interaction.reply({ content: `❌ Could not find **${trackTitle}** in radio playlist`, ephemeral: true });
+            }
+          } else {
+            await interaction.reply({ content: '❌ Could not identify track', ephemeral: true });
+          }
+          break;
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const command = interaction.client.commands.get(interaction.commandName);
@@ -335,6 +389,41 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   // Track when a user joins a voice channel (was not in one, now is)
   if (!oldState.channelId && newState.channelId && newState.member && !newState.member.user.bot) {
     setUserActivity(newState.member.id, { lastVoiceJoin: new Date().toISOString() });
+    
+    // Sheogorath speaks when users join voice (20% chance to avoid spam)
+    if (Math.random() < 0.2 && process.env.ELEVENLABS_API_KEY) {
+      try {
+        const activity = getUserActivity(newState.member.id);
+        const notes = getUserNotes(newState.member.id);
+        const context = notes.length > 0 ? ` (Notes: ${notes.map(n => n.text).join('; ')})` : '';
+        
+        const { getAIResponse } = require('./ai/grok');
+        const greeting = await getAIResponse(
+          `${newState.member.user.username} just joined your voice channel.${context} Greet them briefly!`,
+          { maxTokens: 50 }
+        );
+        
+        // Join voice and speak
+        const connection = joinVoiceChannel({
+          channelId: newState.channelId,
+          guildId: newState.guild.id,
+          adapterCreator: newState.guild.voiceAdapterCreator,
+        });
+        
+        const { textToSpeech } = require('./services/tts');
+        const audioResource = await textToSpeech(greeting);
+        
+        const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+        connection.subscribe(player);
+        player.play(audioResource);
+        
+        player.once(AudioPlayerStatus.Idle, () => {
+          markVoiceActive(newState.guild.id);
+        });
+      } catch (err) {
+        console.error('[Voice Join] Failed to greet:', err.message);
+      }
+    }
   }
 
   const voiceChannel = oldState.channel || newState.channel;
@@ -453,7 +542,12 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
   const message = reaction.message;
   if (message.author.id !== client.user.id) return;
-  if (!message.content.startsWith('🎵 Now playing:') && !message.content.startsWith('📻 Radio started:')) return;
+  // Check if message has embeds with "Now Playing" title
+  const isNowPlaying = message.embeds.length > 0 && 
+    (message.embeds[0].title === '🎵 Now Playing' || 
+     message.content.startsWith('🎵 Now playing:') || 
+     message.content.startsWith('📻 Radio started:'));
+  if (!isNowPlaying) return;
 
   const { pausePlayer, resumePlayer, skipSong } = require('./music/player');
   const { removeTrackFromRadio } = require('./commands/radio');
@@ -486,10 +580,20 @@ client.on('messageReactionAdd', async (reaction, user) => {
         break;
 
       case '🗑️':
-        // Extract song title from message
-        const match = message.content.match(/\*\*(.+?)\*\*/);
-        if (match) {
-          const trackTitle = match[1];
+        // Extract song title from message (either content or embed description)
+        let trackTitle = null;
+        const contentMatch = message.content.match(/\*\*(.+?)\*\*/);
+        if (contentMatch) {
+          trackTitle = contentMatch[1];
+        } else if (message.embeds.length > 0) {
+          const description = message.embeds[0].description;
+          if (description) {
+            // Extract first line (title) from embed description
+            trackTitle = description.split('\n')[0].replace(/\*\*/g, '');
+          }
+        }
+        
+        if (trackTitle) {
           const removed = removeTrackFromRadio(trackTitle);
           if (removed) {
             await message.channel.send(`🗑️ Removed **${trackTitle}** from radio playlist, skipping...`).then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
@@ -544,9 +648,13 @@ async function askChatGPT(userMessage) {
         userNotes.map((n, i) => `${i + 1}. ${n.text} (recorded ${n.addedAt})`).join('\n') + '\n'
       : '';
 
+    // Add long-term memories
+    const { formatMemoriesForContext } = require('./storage/memory');
+    const memoriesContext = formatMemoriesForContext(userId);
+
     const messages = [
       ...history.slice(-5),
-      { role: 'user', content: notesContext ? `${notesContext}\n${cleanedContent}` : cleanedContent }
+      { role: 'user', content: notesContext + memoriesContext + (notesContext || memoriesContext ? '\n' : '') + cleanedContent }
     ];
     
     const assistantReply = await getAIResponseWithHistory(messages);
@@ -554,9 +662,12 @@ async function askChatGPT(userMessage) {
       ? assistantReply
       : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";
 
+    console.log('[AI Response]', raw.substring(0, 200)); // Log first 200 chars to see if actions are present
+
     // Parse and execute any AI-initiated actions
     const { cleanResponse, actions } = parseActions(raw);
     if (actions.length > 0) {
+      console.log(`[Actions] Detected ${actions.length} action(s):`, actions.map(a => `${a.type} for ${a.userId || 'N/A'}`));
       await executeActions(actions, { guild: userMessage.guild, message: userMessage });
     }
     const finalReply = cleanResponse || raw;

@@ -401,8 +401,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         
         const { getAIResponse } = require('./ai/grok');
         const greeting = await getAIResponse(
-          `${newState.member.user.username} just joined your voice channel.${context} Greet them briefly!`,
-          { maxTokens: 50 }
+          `${newState.member.user.username} just joined the voice channel.${context} Greet them in 8 words or fewer.`,
+          { maxTokens: 15, rawSystemPrompt: process.env.CLIENT_INSTRUCTIONS }
         );
         
         // Join voice and speak

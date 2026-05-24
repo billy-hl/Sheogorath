@@ -82,6 +82,13 @@ function parseActions(response) {
     cleanResponse = cleanResponse.replace(fullMatch, '').trim();
   }
 
+  // Final safety pass: strip any complete or partial [ACTION:...] tags that slipped through
+  cleanResponse = cleanResponse
+    .replace(/\[ACTION:[^\]]*\]/g, '')   // any complete tags
+    .replace(/\[ACTION:[^\]]*$/g, '')    // any incomplete tags at end
+    .replace(/\[ACTION:.*/g, '')         // any ACTION: prefix remaining
+    .trim();
+
   if (actions.length > 0) {
     console.log(`[Actions] Found ${actions.length} action tag(s) in response`);
   } else {

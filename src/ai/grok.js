@@ -161,4 +161,42 @@ async function getGrokUsage() {
   });
 }
 
-module.exports = { getAIResponse, getAIResponseWithHistory, getGrokUsage };
+/**
+ * Extract a memorable fact from a single user message.
+ * Returns a short string to save, or null if nothing notable.
+ * @param {string} username - User's display name
+ * @param {string} message - The raw user message
+ * @returns {Promise<string|null>}
+ */
+async function extractMemoryFromMessage(username, message) {
+  try {
+    const response = await httpsPost(
+      GROK_API_URL,
+      {
+        model: 'grok-code-fast-1',
+        messages: [
+          {
+            role: 'system',
+            content: 'You extract memorable personal facts from chat messages. ' +
+              'If the message reveals a personal fact, preference, event, hobby, job, relationship, goal, or opinion about the user, ' +
+              'reply with ONE short sentence (max 15 words) stating that fact, written in third-person about "the user". ' +
+              'If there is nothing worth remembering, reply with exactly: NONE'
+          },
+          { role: 'user', content: `User "${username}" said: ${message}` }
+        ],
+        max_tokens: 30,
+        temperature: 0.3,
+      },
+      { Authorization: `Bearer ${process.env.GROK_API_KEY}` },
+      15000
+    );
+    if (response.status !== 200) return null;
+    const text = response.data.choices[0].message.content.trim();
+    if (!text || text.toUpperCase() === 'NONE' || text.toUpperCase().startsWith('NONE')) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { getAIResponse, getAIResponseWithHistory, getGrokUsage, extractMemoryFromMessage };

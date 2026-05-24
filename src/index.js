@@ -6,7 +6,8 @@ const path = require('path');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
 const { setUserActivity, getUserActivity, getUserNotes, addUserNote } = require('./storage/state');
-const { getAIResponse, getAIResponseWithHistory } = require('./ai/grok');
+const { addMemory } = require('./storage/memory');
+const { getAIResponse, getAIResponseWithHistory, extractMemoryFromMessage } = require('./ai/grok');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
 const { parseActions, executeActions } = require('./ai/actions');
@@ -62,12 +63,13 @@ async function summarizeUserConversation(userId, username, history) {
     for (const note of notes) {
       if (typeof note === 'string' && note.trim()) {
         addUserNote(userId, note.trim());
+        addMemory(userId, note.trim(), 'auto-summary');
       }
     }
 
     // Record the time so we don't run again for 24h
     setUserActivity(userId, { lastNoteSummary: new Date().toISOString() });
-    console.log(`[AutoNote] Saved ${notes.length} note(s) for ${username}`);
+    console.log(`[AutoNote] Saved ${notes.length} note(s) and memories for ${username}`);
   } catch (e) {
     console.warn('[AutoNote] Summarization failed:', e?.message || e);
   }
@@ -122,7 +124,7 @@ for (const file of commandFiles) {
 }
 
 
-client.once('ready', async () => {
+client.once(Events.ClientReady, async () => {
   setClient(client); // Enable error notifications
   
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
@@ -679,6 +681,14 @@ async function askChatGPT(userMessage) {
     );
     if (history.length > 30) history.splice(0, history.length - 30);
     conversationHistory.set(userId, history);
+
+    // Background memory extraction — fire-and-forget, no blocking
+    extractMemoryFromMessage(userMessage.author.username, cleanedContent).then(fact => {
+      if (fact) {
+        addMemory(userId, fact);
+        console.log(`[Memory] Auto-extracted for ${userMessage.author.username}: ${fact}`);
+      }
+    }).catch(() => {});
 
     // Schedule a post-conversation note summarization (resets on each message)
     if (summarizeTimers.has(userId)) clearTimeout(summarizeTimers.get(userId));

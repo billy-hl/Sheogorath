@@ -83,7 +83,7 @@ async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt 
  * @param {number} [maxTokens=50] - Max response tokens (default 50 = ~160 chars)
  * @returns {Promise<string>} AI response
  */
-async function getAIResponseWithHistory(messages, maxTokens = 50) {
+async function getAIResponseWithHistory(messages, maxTokens = 80) {
   const makeRequest = async (msgs, timeout) => {
     const response = await httpsPost(
       GROK_API_URL,

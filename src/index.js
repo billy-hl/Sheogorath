@@ -392,8 +392,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   if (!oldState.channelId && newState.channelId && newState.member && !newState.member.user.bot) {
     setUserActivity(newState.member.id, { lastVoiceJoin: new Date().toISOString() });
     
-    // Sheogorath speaks when users join voice (20% chance to avoid spam)
-    if (Math.random() < 0.2 && process.env.ELEVENLABS_API_KEY) {
+    // Sheogorath always speaks when users join voice
+    if (process.env.ELEVENLABS_API_KEY) {
       try {
         const activity = getUserActivity(newState.member.id);
         const notes = getUserNotes(newState.member.id);
@@ -449,13 +449,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 });
 
-// AI welcome messages for new members (rate-limited: 1 per 10 seconds)
-let lastWelcomeTime = 0;
+// AI welcome messages for new members
 client.on('guildMemberAdd', async (member) => {
-  const now = Date.now();
-  if (now - lastWelcomeTime < 10000) return; // Skip if within 10s cooldown
-  lastWelcomeTime = now;
-  
   try {
     const channel = await client.channels.fetch(process.env.CHANNEL_ID);
     if (!channel || !channel.isTextBased()) return;

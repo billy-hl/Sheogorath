@@ -17,6 +17,9 @@ function parseActions(response) {
   const actions = [];
   let cleanResponse = response;
 
+  // Strip any incomplete/unclosed action tags that got cut off by token limit
+  cleanResponse = cleanResponse.replace(/\[ACTION:[^\]]*$/g, '').trim();
+
   console.log('[Actions] Parsing response for action tags...');
   let match;
   while ((match = actionRegex.exec(response)) !== null) {

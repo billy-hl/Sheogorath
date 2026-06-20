@@ -199,4 +199,27 @@ async function extractMemoryFromMessage(username, message) {
   }
 }
 
-module.exports = { getAIResponse, getAIResponseWithHistory, getGrokUsage, extractMemoryFromMessage };
+/**
+ * Generate an image from a text prompt using Grok Imagine.
+ * @param {string} prompt - Text description of the image
+ * @returns {Promise<string>} - URL of the generated image
+ */
+async function generateImage(prompt) {
+  const response = await httpsPost(
+    'https://api.x.ai/v1/images/generations',
+    {
+      model: 'grok-imagine-image-quality',
+      prompt,
+      n: 1,
+      response_format: 'url',
+    },
+    { Authorization: `Bearer ${process.env.GROK_API_KEY}` },
+    60000
+  );
+  if (response.status !== 200) {
+    throw new Error(`Image generation failed: ${response.status} - ${JSON.stringify(response.data)}`);
+  }
+  return response.data.data[0].url;
+}
+
+module.exports = { getAIResponse, getAIResponseWithHistory, getGrokUsage, extractMemoryFromMessage, generateImage };

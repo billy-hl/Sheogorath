@@ -118,62 +118,46 @@ async function play(connection, url, guildId, onFinish) {
   }
   
   console.log('DEBUG: play() using videoUrl:', videoUrl);
-  
-  // Get the best audio stream URL using yt-dlp
-  const youtubedl = require('youtube-dl-exec');
-  let streamUrl;
-  
-  try {
-    const info = await youtubedl(videoUrl, {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
-      format: 'bestaudio/best'
-    });
-    
-    // Find best audio format
-    const audioFormats = info.formats.filter(f => 
-      f.acodec && f.acodec !== 'none' && f.url
-    );
-    
-    if (audioFormats.length === 0) {
-      throw new Error('No audio formats found');
-    }
-    
-    // Sort by quality
-    audioFormats.sort((a, b) => (b.abr || b.tbr || 0) - (a.abr || a.tbr || 0));
-    streamUrl = audioFormats[0].url;
-    
-    console.log('Got stream URL from yt-dlp, quality:', audioFormats[0].abr || audioFormats[0].tbr);
-  } catch (err) {
-    console.error('Error getting stream URL:', err);
-    throw new Error('Failed to get audio stream from YouTube.');
-  }
-  
-  // Stream the URL through ffmpeg for better compatibility
+
+  // Pipe yt-dlp directly into ffmpeg — avoids 403 on signed stream URLs
   const { spawn } = require('child_process');
+
+  const ytdlpBin = require('youtube-dl-exec').raw || 'yt-dlp';
+  const ytdlpProcess = spawn('yt-dlp', [
+    '--no-playlist',
+    '-f', 'bestaudio/best',
+    '-o', '-',
+    '--quiet',
+    '--no-warnings',
+    videoUrl
+  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
   const ffmpeg = spawn('ffmpeg', [
-    '-reconnect', '1',
-    '-reconnect_streamed', '1',
-    '-reconnect_delay_max', '5',
-    '-i', streamUrl,
+    '-i', 'pipe:0',
     '-analyzeduration', '0',
-    '-loglevel', '0',
+    '-loglevel', 'warning',
     '-f', 's16le',
     '-ar', '48000',
     '-ac', '2',
     'pipe:1'
-  ], {
-    stdio: ['pipe', 'pipe', 'pipe']
+  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  ytdlpProcess.stdout.pipe(ffmpeg.stdin);
+
+  let ffmpegError = '';
+  ffmpeg.stderr.on('data', (data) => { ffmpegError += data.toString(); });
+  ffmpeg.on('exit', (code) => {
+    if (code !== 0 && ffmpegError) {
+      console.error('[ffmpeg] exited with code', code, ':', ffmpegError.substring(0, 300));
+    }
   });
-  
-  ffmpeg.stderr.on('data', (data) => {
-    // Suppress ffmpeg logs unless there's an error
+
+  ytdlpProcess.stderr.on('data', (data) => {
+    const msg = data.toString();
+    if (msg.trim()) console.error('[yt-dlp]', msg.trim().substring(0, 200));
   });
-  
-  console.log('Created ffmpeg stream for audio');
-  
+
+  console.log('Piping yt-dlp → ffmpeg for audio');
   // Create audio resource from ffmpeg output
   const resource = createAudioResource(ffmpeg.stdout, {
     inputType: require('@discordjs/voice').StreamType.Raw,

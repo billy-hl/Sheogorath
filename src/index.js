@@ -391,41 +391,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   // Track when a user joins a voice channel (was not in one, now is)
   if (!oldState.channelId && newState.channelId && newState.member && !newState.member.user.bot) {
     setUserActivity(newState.member.id, { lastVoiceJoin: new Date().toISOString() });
-    
-    // Sheogorath always speaks when users join voice
-    if (process.env.ELEVENLABS_API_KEY) {
-      try {
-        const activity = getUserActivity(newState.member.id);
-        const notes = getUserNotes(newState.member.id);
-        const context = notes.length > 0 ? ` (Notes: ${notes.map(n => n.text).join('; ')})` : '';
-        
-        const { getAIResponse } = require('./ai/grok');
-        const greeting = await getAIResponse(
-          `${newState.member.user.username} just joined the voice channel.${context} Greet them in 8 words or fewer.`,
-          { maxTokens: 15, rawSystemPrompt: process.env.CLIENT_INSTRUCTIONS }
-        );
-        
-        // Join voice and speak
-        const connection = joinVoiceChannel({
-          channelId: newState.channelId,
-          guildId: newState.guild.id,
-          adapterCreator: newState.guild.voiceAdapterCreator,
-        });
-        
-        const { textToSpeech } = require('./services/tts');
-        const audioResource = await textToSpeech(greeting);
-        
-        const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-        connection.subscribe(player);
-        player.play(audioResource);
-        
-        player.once(AudioPlayerStatus.Idle, () => {
-          markVoiceActive(newState.guild.id);
-        });
-      } catch (err) {
-        console.error('[Voice Join] Failed to greet:', err.message);
-      }
-    }
   }
 
   const voiceChannel = oldState.channel || newState.channel;
@@ -449,23 +414,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 });
 
-// AI welcome messages for new members
-client.on('guildMemberAdd', async (member) => {
-  try {
-    const channel = await client.channels.fetch(process.env.CHANNEL_ID);
-    if (!channel || !channel.isTextBased()) return;
-    
-    const prompt = `Welcome ${member.user.username} to the server in your typical chaotic, sarcastic, and threatening style. Make it memorable and fun.`;
-    const message = await getAIResponse(prompt);
-    await channel.send(`🎉 ${message}`);
-  } catch (error) {
-    console.error('AI welcome message failed:', error);
-    try {
-      const channel = await client.channels.fetch(process.env.CHANNEL_ID);
-      if (channel) await channel.send(`🎉 Welcome ${member.user.username}! The Mad King awaits your entertainment...`);
-    } catch (e) { /* ignore */ }
-  }
-});
+// Entrance announcements disabled.
 
 // --- UFC Stream Announcements ---
 const STREAM_ANNOUNCE_CHANNEL = process.env.ANNOUNCEMENTS_CHANNEL_ID || AI_CHANNEL_ID;
@@ -667,7 +616,16 @@ async function askChatGPT(userMessage) {
       console.log(`[Actions] Detected ${actions.length} action(s):`, actions.map(a => `${a.type} for ${a.userId || 'N/A'}`));
       await executeActions(actions, { guild: userMessage.guild, message: userMessage });
     }
-    const finalReply = cleanResponse || raw;
+
+    // Final scrub — strip any remaining action tags regardless of parse result,
+    // and handle edge case where cleanResponse is empty string (falls back to raw)
+    const scrub = (text) => text
+      .replace(/\[ACTION:[^\]]*\]/gs, '')   // complete tags (s flag = dotall, matches newlines)
+      .replace(/\[ACTION:[^\]]*$/gm, '')    // truncated tags at end of line
+      .replace(/\[ACTION:.*/gs, '')         // any leftover prefix
+      .trim();
+
+    const finalReply = scrub(cleanResponse) || scrub(raw);
     
     // Store conversation (keep last 15 exchanges)
     history.push(

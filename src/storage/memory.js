@@ -92,7 +92,7 @@ function formatMemoriesForContext(userId) {
   if (memories.length === 0) return '';
   
   const recent = memories.slice(-10); // Last 10 memories
-  return '\n\nWhat I remember about this mortal:\n' + 
+  return '\n\nWhat I remember about this mortal:\n' + fdsf
     recent.map((m, i) => `${i + 1}. ${m.text}`).join('\n');
 }
 

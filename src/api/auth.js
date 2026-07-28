@@ -146,12 +146,16 @@ function requireRole(level) {
     }
 
     const ip = clientIp(req);
-    if (isBlocked(ip)) {
-      return res.status(429).json({ error: 'Too many failed attempts. Try again later.' });
-    }
-
     const role = roleFor(req);
+
+    // Deliberately check the credential before consulting the throttle. Behind
+    // Funnel several clients can share an apparent source address, so blocking
+    // on IP alone would let one bad actor lock every friend out. A correct
+    // password always gets in; only wrong guesses are ever refused.
     if (!role) {
+      if (isBlocked(ip)) {
+        return res.status(429).json({ error: 'Too many failed attempts. Try again later.' });
+      }
       noteFailure(ip);
       return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -173,9 +177,12 @@ const requireAdmin = requireRole('admin');
 /** For the WebSocket upgrade, which can't use Express middleware. */
 function authorizeSocket(req) {
   const ip = clientIp(req);
-  if (isBlocked(ip)) return null;
   const role = roleFor(req);
-  if (!role) { noteFailure(ip); return null; }
+  // Same ordering as the HTTP path: a valid credential is never throttled.
+  if (!role) {
+    if (!isBlocked(ip)) noteFailure(ip);
+    return null;
+  }
   noteSuccess(ip);
   return role;
 }

@@ -1,7 +1,7 @@
 'use strict';
 const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { getAIResponse } = require('../ai/grok');
-const { generateImage } = require('../ai/comfyui');
+const { generateImage } = require('../ai/krea');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,7 +15,17 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    await interaction.deferReply();
+    if (Date.now() - interaction.createdTimestamp > 2500) {
+      console.warn('[Imagine] Dropping stale interaction');
+      return;
+    }
+
+    try {
+      await interaction.deferReply();
+    } catch (err) {
+      console.warn('[Imagine] deferReply failed (stale interaction):', err.message);
+      return;
+    }
 
     const userPrompt = interaction.options.getString('prompt');
 
@@ -26,15 +36,9 @@ module.exports = {
         { maxTokens: 40, rawSystemPrompt: process.env.CLIENT_INSTRUCTIONS }
       );
 
-      // Enhance the prompt for cinematic realism with a dark fantasy tone
-      const enhancedPrompt = await getAIResponse(
-        `Rewrite this image prompt to be photorealistic and cinematic. Dark fantasy atmosphere, dramatic lighting, highly detailed, no cartoons or illustrations. Keep it under 200 characters. Prompt: "${userPrompt}"`,
-        { maxTokens: 60, rawSystemPrompt: 'You are a prompt engineer for photorealistic image generation. Output only the rewritten prompt, nothing else.' }
-      );
+      console.log(`[Imagine] Prompt: "${userPrompt}"`);
 
-      console.log(`[Imagine] Final prompt: ${enhancedPrompt || userPrompt}`);
-
-      const imageBuffer = await generateImage(enhancedPrompt || userPrompt);
+      const imageBuffer = await generateImage(userPrompt);
       const attachment = new AttachmentBuilder(imageBuffer, { name: 'vision.png' });
 
       const embed = new EmbedBuilder()
@@ -47,7 +51,8 @@ module.exports = {
       await interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (err) {
       console.error('[Imagine] Error:', err.message);
-      await interaction.editReply('The Mad God\'s visions are... unavailable at this moment. Even chaos has its limits. Try again!');
+      await interaction.editReply('The Mad God\'s visions are... unavailable at this moment. Even chaos has its limits. Try again!')
+        .catch(() => {});
     }
   },
 };

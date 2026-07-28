@@ -58,7 +58,7 @@ async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt 
     const response = await httpsPost(
       GROK_API_URL,
       {
-        model: 'grok-code-fast-1',
+        model: 'grok-4.3',
         messages: [
           { role: 'system', content: rawSystemPrompt || buildSystemPrompt(systemPrompt) },
           { role: 'user', content: prompt },
@@ -88,7 +88,7 @@ async function getAIResponseWithHistory(messages, maxTokens = 80) {
     const response = await httpsPost(
       GROK_API_URL,
       {
-        model: 'grok-code-fast-1',
+        model: 'grok-4.3',
         messages: [
           { role: 'system', content: buildSystemPrompt() },
           ...msgs,
@@ -173,7 +173,7 @@ async function extractMemoryFromMessage(username, message) {
     const response = await httpsPost(
       GROK_API_URL,
       {
-        model: 'grok-code-fast-1',
+        model: 'grok-4.3',
         messages: [
           {
             role: 'system',

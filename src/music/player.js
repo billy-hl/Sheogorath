@@ -1,9 +1,59 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, getVoiceConnection } = require('@discordjs/voice');
+const { EventEmitter } = require('events');
 const ytdl = require('@distube/ytdl-core');
 const ytdlexec = require('youtube-dl-exec');
 
 const players = new Map();
 const queues = new Map();
+// Track the yt-dlp/ffmpeg child processes per guild so we can tear them down
+// on stop/skip. Without this they keep writing to a dead pipe → EPIPE → crash.
+const processes = new Map();
+// Retain the live AudioResource per guild. Without this we can't reach the
+// inlineVolume transformer to change volume, or read playbackDuration for the
+// elapsed position the control app renders as a progress bar.
+const resources = new Map();
+// Volume persists across songs — each new resource is created mid-playback, so
+// we re-apply the guild's stored level rather than resetting to 1.0 every track.
+const volumes = new Map();
+
+const DEFAULT_VOLUME = 1.0;
+
+// Emits 'state' (guildId) whenever playback or the queue changes, so the
+// control API can push updates over WebSocket instead of the app polling.
+const musicEvents = new EventEmitter();
+// Discord button handlers and API clients can both drive playback; a listener
+// per guild per connection would otherwise pile up warnings.
+musicEvents.setMaxListeners(50);
+
+function emitState(guildId) {
+  try {
+    musicEvents.emit('state', guildId);
+  } catch (err) {
+    console.error('Error emitting music state:', err?.message || err);
+  }
+}
+
+// Kill any running yt-dlp/ffmpeg processes for a guild and swallow their errors.
+function killProcesses(guildId) {
+  const procs = processes.get(guildId);
+  if (!procs) return;
+  for (const proc of [procs.ytdlpProcess, procs.ffmpeg]) {
+    if (!proc) continue;
+    try {
+      // Detach listeners and ignore any late errors from the dying pipe.
+      proc.removeAllListeners();
+      if (proc.stdout) proc.stdout.removeAllListeners();
+      if (proc.stdin) proc.stdin.removeAllListeners();
+      proc.on('error', () => {});
+      if (proc.stdout) proc.stdout.on('error', () => {});
+      if (proc.stdin) proc.stdin.on('error', () => {});
+      if (!proc.killed) proc.kill('SIGKILL');
+    } catch (err) {
+      console.error('Error killing media process:', err?.message || err);
+    }
+  }
+  processes.delete(guildId);
+}
 
 // Queue management functions
 function getQueue(guildId) {
@@ -23,6 +73,7 @@ function getQueue(guildId) {
 function addToQueue(guildId, song) {
   const queue = getQueue(guildId);
   queue.songs.push(song);
+  emitState(guildId);
   return queue.songs.length;
 }
 
@@ -33,14 +84,32 @@ function clearQueue(guildId) {
   queue.isPlaying = false;
   queue.lastVideoId = null;
   queue.playedHistory = new Set();
+  emitState(guildId);
 }
 
 function removeFromQueue(guildId, index) {
   const queue = getQueue(guildId);
   if (index >= 0 && index < queue.songs.length) {
-    return queue.songs.splice(index, 1)[0];
+    const removed = queue.songs.splice(index, 1)[0];
+    emitState(guildId);
+    return removed;
   }
   return null;
+}
+
+/**
+ * Move a queued song to a different position. Used by the control app's
+ * drag-to-reorder; both indices are into the pending queue, excluding the
+ * currently playing track.
+ */
+function moveInQueue(guildId, fromIndex, toIndex) {
+  const queue = getQueue(guildId);
+  const len = queue.songs.length;
+  if (fromIndex < 0 || fromIndex >= len || toIndex < 0 || toIndex >= len) return null;
+  const [moved] = queue.songs.splice(fromIndex, 1);
+  queue.songs.splice(toIndex, 0, moved);
+  emitState(guildId);
+  return moved;
 }
 
 function getNextSong(guildId) {
@@ -48,15 +117,30 @@ function getNextSong(guildId) {
   return queue.songs.shift();
 }
 
+/**
+ * Pull the fields both the Discord embed and the control app need out of a
+ * yt-dlp JSON dump. Kept in one place so the two consumers can't drift.
+ */
+function extractMetadata(entry) {
+  if (!entry) return {};
+  return {
+    duration: typeof entry.duration === 'number' ? entry.duration : null,
+    thumbnail: entry.thumbnail || null,
+    uploader: entry.uploader || entry.channel || null,
+    viewCount: typeof entry.view_count === 'number' ? entry.view_count : null,
+  };
+}
+
 async function resolveVideoUrl(url) {
   if (!url || typeof url !== 'string' || url.trim() === '') {
     throw new Error('No URL or search term provided.');
   }
-  
+
   // If valid video URL, use directly; else search via yt-dlp
   let videoUrl = url;
   let title = url;
-  
+  let metadata = {};
+
   if (!ytdl.validateURL(url)) {
     try {
       const raw = await ytdlexec(`ytsearch1:${url}`, {
@@ -73,6 +157,7 @@ async function resolveVideoUrl(url) {
       const entry = data?.entries?.[0] || data;
       const id = entry?.id;
       title = entry?.title || url;
+      metadata = extractMetadata(entry);
       const webpageUrl = entry?.webpage_url || (id ? `https://www.youtube.com/watch?v=${id}` : null);
       if (!webpageUrl) throw new Error('No results found for your search.');
       videoUrl = webpageUrl;
@@ -90,19 +175,22 @@ async function resolveVideoUrl(url) {
       });
       const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
       title = data?.title || url;
+      metadata = extractMetadata(data);
     } catch (err) {
       console.log('Could not fetch title for URL:', err.message);
     }
   }
-  
+
   console.log('DEBUG: resolveVideoUrl() using videoUrl:', videoUrl);
-  return { url: videoUrl, title };
+  return { url: videoUrl, title, ...metadata };
 }
 
 async function play(connection, url, guildId, onFinish) {
-  const { url: videoUrl, title } = await resolveVideoUrl(url);
+  const { url: videoUrl, title, duration, thumbnail, uploader, viewCount } = await resolveVideoUrl(url);
   const queue = getQueue(guildId);
-  queue.nowPlaying = { url: videoUrl, title };
+  // Carry the resolved metadata on nowPlaying so the embed builder and the
+  // control app can both read duration/artwork without re-invoking yt-dlp.
+  queue.nowPlaying = { url: videoUrl, title, duration, thumbnail, uploader, viewCount };
   queue.isPlaying = true;
   
   // Track video ID for autoplay related songs
@@ -121,6 +209,9 @@ async function play(connection, url, guildId, onFinish) {
 
   // Pipe yt-dlp directly into ffmpeg — avoids 403 on signed stream URLs
   const { spawn } = require('child_process');
+
+  // Tear down any leftover processes from a previous song before starting.
+  killProcesses(guildId);
 
   const ytdlpBin = require('youtube-dl-exec').raw || 'yt-dlp';
   const ytdlpProcess = spawn('yt-dlp', [
@@ -142,6 +233,19 @@ async function play(connection, url, guildId, onFinish) {
     'pipe:1'
   ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
+  // Track these so stop/skip can kill them.
+  processes.set(guildId, { ytdlpProcess, ffmpeg });
+
+  // Attach error handlers to EVERY pipe end. When playback is stopped mid-song
+  // the reader disappears and these writes fail with EPIPE; an unhandled 'error'
+  // event on any of these streams would crash the whole process.
+  ytdlpProcess.on('error', (err) => console.error('[yt-dlp] process error:', err?.message || err));
+  ffmpeg.on('error', (err) => console.error('[ffmpeg] process error:', err?.message || err));
+  ytdlpProcess.stdout.on('error', () => {});
+  ytdlpProcess.stdin.on('error', () => {});
+  ffmpeg.stdin.on('error', () => {});
+  ffmpeg.stdout.on('error', () => {});
+
   ytdlpProcess.stdout.pipe(ffmpeg.stdin);
 
   let ffmpegError = '';
@@ -150,6 +254,11 @@ async function play(connection, url, guildId, onFinish) {
     if (code !== 0 && ffmpegError) {
       console.error('[ffmpeg] exited with code', code, ':', ffmpegError.substring(0, 300));
     }
+    // ffmpeg is done — yt-dlp has nowhere to write, make sure it dies too.
+    // Without this a finished track can leave yt-dlp resident.
+    try {
+      if (ytdlpProcess.exitCode === null && !ytdlpProcess.killed) ytdlpProcess.kill('SIGKILL');
+    } catch { /* already gone */ }
   });
 
   ytdlpProcess.stderr.on('data', (data) => {
@@ -163,7 +272,16 @@ async function play(connection, url, guildId, onFinish) {
     inputType: require('@discordjs/voice').StreamType.Raw,
     inlineVolume: true
   });
-  
+
+  // Retain it so setVolume/getPlaybackState can reach the volume transformer
+  // and playbackDuration, and re-apply the guild's persisted level — a fresh
+  // resource always starts at 1.0 otherwise.
+  resources.set(guildId, resource);
+  const storedVolume = volumes.get(guildId);
+  if (typeof storedVolume === 'number' && resource.volume) {
+    resource.volume.setVolume(storedVolume);
+  }
+
   // Reuse existing player or create new one
   let player = players.get(guildId);
   if (!player) {
@@ -212,32 +330,50 @@ async function play(connection, url, guildId, onFinish) {
     const queue = getQueue(guildId);
     queue.isPlaying = false;
     queue.nowPlaying = null;
-    
+    resources.delete(guildId);
+    emitState(guildId);
+
     if (onFinish) onFinish();
   });
-  
+
   player.on('error', error => {
     console.error('Audio player error:', error);
     const queue = getQueue(guildId);
     queue.isPlaying = false;
     queue.nowPlaying = null;
+    resources.delete(guildId);
+    emitState(guildId);
   });
-  
+
+  // Pause/resume can be driven from Discord buttons or the app; either way the
+  // other surface needs to see the new status.
+  player.removeAllListeners(AudioPlayerStatus.Paused);
+  player.removeAllListeners(AudioPlayerStatus.Playing);
+  player.on(AudioPlayerStatus.Paused, () => emitState(guildId));
+  player.on(AudioPlayerStatus.Playing, () => emitState(guildId));
+
+  emitState(guildId);
   return player;
 }
 
 function stopPlaying(guildId) {
   const player = players.get(guildId);
   if (player) {
-    player.stop();
+    // Remove the Idle handler first so force-stopping doesn't trigger autoplay.
+    player.removeAllListeners(AudioPlayerStatus.Idle);
+    player.stop(true);
     players.delete(guildId);
   }
+  // Kill the media processes so they stop writing to the now-dead pipe.
+  killProcesses(guildId);
+  resources.delete(guildId);
   clearQueue(guildId);
-  
+
   const connection = getVoiceConnection(guildId);
   if (connection) {
     connection.destroy();
   }
+  emitState(guildId);
 }
 
 function pausePlaying(guildId) {
@@ -265,6 +401,73 @@ function skipSong(guildId) {
     return true;
   }
   return false;
+}
+
+/**
+ * Set playback volume. `level` is 0.0–2.0, where 1.0 is unmodified — above 1.0
+ * amplifies and will clip on already-loud sources, so the app caps its slider
+ * at 2.0. Stored per guild and re-applied to each subsequent track.
+ */
+function setVolume(guildId, level) {
+  const clamped = Math.max(0, Math.min(2, Number(level)));
+  if (!Number.isFinite(clamped)) return false;
+  volumes.set(guildId, clamped);
+
+  const resource = resources.get(guildId);
+  if (resource?.volume) {
+    resource.volume.setVolume(clamped);
+  }
+  emitState(guildId);
+  // Report success even with nothing playing — the level is stored and will
+  // apply to the next track.
+  return true;
+}
+
+function getVolume(guildId) {
+  const stored = volumes.get(guildId);
+  return typeof stored === 'number' ? stored : DEFAULT_VOLUME;
+}
+
+/**
+ * Full snapshot of playback for the control app. Position comes from the
+ * resource's playbackDuration, which counts only audio actually streamed, so it
+ * stays correct across pauses without us tracking wall-clock time.
+ */
+function getPlaybackState(guildId) {
+  const queue = getQueue(guildId);
+  const player = players.get(guildId);
+  const resource = resources.get(guildId);
+  const status = player?.state?.status || 'idle';
+
+  return {
+    status,
+    isPlaying: status === AudioPlayerStatus.Playing,
+    isPaused: status === AudioPlayerStatus.Paused,
+    volume: getVolume(guildId),
+    autoplay: queue.autoplay,
+    connected: Boolean(getVoiceConnection(guildId)),
+    nowPlaying: queue.nowPlaying
+      ? {
+          ...queue.nowPlaying,
+          // playbackDuration is milliseconds; the app works in seconds.
+          position: resource ? Math.floor(resource.playbackDuration / 1000) : 0,
+        }
+      : null,
+    queue: queue.songs.map((song, index) => ({
+      index,
+      title: song.title || song.query,
+      query: song.query,
+      addedBy: song.addedBy || 'Unknown',
+    })),
+    queueLength: queue.songs.length,
+  };
+}
+
+function setAutoplay(guildId, enabled) {
+  const queue = getQueue(guildId);
+  queue.autoplay = Boolean(enabled);
+  emitState(guildId);
+  return queue.autoplay;
 }
 
 function connectToChannel(voiceChannel) {
@@ -357,21 +560,28 @@ async function expandPlaylist(playlistUrl) {
   }
 }
 
-module.exports = { 
-  play, 
-  connectToChannel, 
-  getConnection, 
+module.exports = {
+  play,
+  connectToChannel,
+  getConnection,
   players,
   resolveVideoUrl,
   getQueue,
   addToQueue,
   clearQueue,
   removeFromQueue,
+  moveInQueue,
   getNextSong,
   stopPlaying,
   pausePlaying,
   resumePlaying,
   skipSong,
+  setVolume,
+  getVolume,
+  setAutoplay,
+  getPlaybackState,
+  musicEvents,
+  emitState,
   fetchRelatedSong,
   expandPlaylist,
   stopPlayer: stopPlaying,

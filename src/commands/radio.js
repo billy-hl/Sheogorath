@@ -1,15 +1,11 @@
 'use strict';
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { play, connectToChannel, getConnection, players, getQueue, addToQueue, getNextSong } = require('../music/player');
-const { createNowPlayingEmbed } = require('../music/embeds');
+const { connectToChannel, getConnection, getQueue, addToQueue } = require('../music/player');
+const { playNextInQueue, startPlayback } = require('../music/session');
 
-const MUSIC_CHANNEL_ID = '534553333034123289';
 const CSV_PATH = path.join(__dirname, '../../radio.csv');
-
-// Track last now playing message to keep channel clean
-const lastNowPlayingMessages = new Map(); // guildId -> messageId
 
 /** Parse the radio.csv into an array of { title, artist, query } */
 function loadRadioTracks() {
@@ -74,69 +70,6 @@ function shuffle(arr) {
   return a;
 }
 
-async function playNextInQueue(client, connection, guildId) {
-  const channel = await client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
-  const queue = getQueue(guildId);
-
-  if (queue.songs.length === 0) {
-    queue.isPlaying = false;
-    queue.nowPlaying = null;
-    return;
-  }
-
-  const nextSong = getNextSong(guildId);
-  if (!nextSong) return;
-
-  try {
-    const player = await play(connection, nextSong.query, guildId, async () => {
-      await playNextInQueue(client, connection, guildId);
-    });
-    players.set(guildId, player);
-
-    if (channel) try {
-      // Clear all messages in the music channel
-      try {
-        const messages = await channel.messages.fetch({ limit: 100 });
-        await channel.bulkDelete(messages, true);
-      } catch (err) {
-        console.error('Could not clear music channel:', err.message);
-      }
-
-      const embed = await createNowPlayingEmbed(
-        { url: queue.nowPlaying?.url, title: queue.nowPlaying?.title || nextSong.title, query: nextSong.query },
-        nextSong.addedBy || 'Radio'
-      );
-      
-      // Create button controls
-      const row = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId('music_pause')
-            .setLabel('⏯️ Pause/Resume')
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId('music_skip')
-            .setLabel('⏭️ Skip')
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId('music_stop')
-            .setLabel('⏹️ Stop')
-            .setStyle(ButtonStyle.Danger),
-          new ButtonBuilder()
-            .setCustomId('music_remove')
-            .setLabel('🗑️ Remove')
-            .setStyle(ButtonStyle.Danger)
-        );
-      
-      const msg = await channel.send({ embeds: [embed], components: [row] });
-      lastNowPlayingMessages.set(guildId, msg.id);
-    } catch (e) { /* ignore */ }
-  } catch (err) {
-    console.error('Radio: error playing next song:', err.message);
-    await playNextInQueue(client, connection, guildId);
-  }
-}
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('radio')
@@ -196,49 +129,10 @@ module.exports = {
       queue.isPlaying = true;
       const first = queue.songs.shift();
       if (first) {
-        const musicChannel = await interaction.client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
-        const player = await play(connection, first.query, guildId, async () => {
-          await playNextInQueue(interaction.client, connection, guildId);
+        await startPlayback(interaction.client, connection, guildId, {
+          ...first,
+          addedBy: first.addedBy || 'Radio',
         });
-        players.set(guildId, player);
-        if (musicChannel) try {
-          // Clear all messages in the music channel
-          try {
-            const messages = await musicChannel.messages.fetch({ limit: 100 });
-            await musicChannel.bulkDelete(messages, true);
-          } catch (err) {
-            console.error('Could not clear music channel:', err.message);
-          }
-
-          const embed = await createNowPlayingEmbed(
-            { url: queue.nowPlaying?.url, title: queue.nowPlaying?.title || first.title, query: first.query },
-            first.addedBy || 'Radio'
-          );
-          
-          // Create button controls
-          const row = new ActionRowBuilder()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId('music_pause')
-                .setLabel('⏯️ Pause/Resume')
-                .setStyle(ButtonStyle.Primary),
-              new ButtonBuilder()
-                .setCustomId('music_skip')
-                .setLabel('⏭️ Skip')
-                .setStyle(ButtonStyle.Secondary),
-              new ButtonBuilder()
-                .setCustomId('music_stop')
-                .setLabel('⏹️ Stop')
-                .setStyle(ButtonStyle.Danger),
-              new ButtonBuilder()
-                .setCustomId('music_remove')
-                .setLabel('🗑️ Remove')
-                .setStyle(ButtonStyle.Danger)
-            );
-          
-          const msg = await musicChannel.send({ embeds: [embed], components: [row] });
-          lastNowPlayingMessages.set(guildId, msg.id);
-        } catch (e) { /* ignore */ }
       }
     }
   },

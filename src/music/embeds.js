@@ -14,12 +14,23 @@ async function createNowPlayingEmbed(song, addedBy = 'Unknown') {
     .setTimestamp();
 
   try {
-    // Try to fetch video info for rich data
-    const info = await ytdlexec(song.url || song.query, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificates: true,
-    });
+    // player.resolveVideoUrl already dumped this JSON when it resolved the
+    // track, so reuse what it captured rather than spawning yt-dlp a second
+    // time per song. Fall back to fetching only if we weren't handed metadata.
+    const info = song.duration != null || song.thumbnail
+      ? {
+          title: song.title,
+          uploader: song.uploader,
+          thumbnail: song.thumbnail,
+          duration: song.duration,
+          view_count: song.viewCount,
+          webpage_url: song.url,
+        }
+      : await ytdlexec(song.url || song.query, {
+          dumpSingleJson: true,
+          noWarnings: true,
+          noCheckCertificates: true,
+        });
 
     const title = info.title || song.title || 'Unknown Track';
     const artist = info.uploader || info.channel || 'Unknown Artist';

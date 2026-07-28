@@ -1,102 +1,6 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { play, connectToChannel, getConnection, players, getQueue, addToQueue, getNextSong, resolveVideoUrl, fetchRelatedSong, expandPlaylist } = require('../music/player');
-const { createNowPlayingEmbed } = require('../music/embeds');
-
-const MUSIC_CHANNEL_ID = '534553333034123289';
-
-// Track last now playing message to keep channel clean
-const lastNowPlayingMessages = new Map(); // guildId -> messageId
-
-// Use channel.send() instead of interaction.followUp() to avoid 15-min token expiry
-async function playNextInQueue(client, connection, guildId) {
-  const channel = await client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
-  const queue = getQueue(guildId);
-  
-  if (queue.songs.length === 0) {
-    // Try autoplay if enabled
-    if (queue.autoplay && queue.lastVideoId) {
-      try {
-        const related = await fetchRelatedSong(guildId);
-        if (related) {
-          console.log(`Autoplay: Queuing related song: ${related.title}`);
-          addToQueue(guildId, related);
-          if (channel) try {
-            await channel.send(`🔄 **Autoplay:** Queuing **${related.title}**`);
-          } catch (e) {
-            console.error('Could not send autoplay message:', e);
-          }
-        } else {
-          queue.isPlaying = false;
-          queue.nowPlaying = null;
-          return;
-        }
-      } catch (err) {
-        console.error('Autoplay error:', err);
-        queue.isPlaying = false;
-        queue.nowPlaying = null;
-        return;
-      }
-    } else {
-      queue.isPlaying = false;
-      queue.nowPlaying = null;
-      return;
-    }
-  }
-  
-  const nextSong = getNextSong(guildId);
-  if (!nextSong) return;
-  
-  try {
-    const player = await play(connection, nextSong.query, guildId, async () => {
-      await playNextInQueue(client, connection, guildId);
-    });
-    players.set(guildId, player);
-    
-    if (channel) try {
-      // Clear all messages in the music channel
-      try {
-        const messages = await channel.messages.fetch({ limit: 100 });
-        await channel.bulkDelete(messages, true);
-      } catch (err) {
-        console.error('Could not clear music channel:', err.message);
-      }
-
-      const embed = await createNowPlayingEmbed(
-        { url: queue.nowPlaying?.url, title: queue.nowPlaying?.title || nextSong.query, query: nextSong.query },
-        nextSong.addedBy || 'Unknown'
-      );
-      
-      // Create button controls
-      const row = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId('music_pause')
-            .setLabel('⏯️ Pause/Resume')
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId('music_skip')
-            .setLabel('⏭️ Skip')
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId('music_stop')
-            .setLabel('⏹️ Stop')
-            .setStyle(ButtonStyle.Danger),
-          new ButtonBuilder()
-            .setCustomId('music_remove')
-            .setLabel('🗑️ Remove')
-            .setStyle(ButtonStyle.Danger)
-        );
-      
-      const msg = await channel.send({ embeds: [embed], components: [row] });
-      lastNowPlayingMessages.set(guildId, msg.id);
-    } catch (e) {
-      console.error('Could not send now playing message:', e);
-    }
-  } catch (err) {
-    console.error('Error playing next song in queue:', err);
-    await playNextInQueue(client, connection, guildId);
-  }
-}
+const { SlashCommandBuilder } = require('discord.js');
+const { connectToChannel, getConnection, getQueue, addToQueue, resolveVideoUrl, expandPlaylist } = require('../music/player');
+const { playNextInQueue, startPlayback } = require('../music/session');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -182,55 +86,13 @@ module.exports = {
           queue.isPlaying = true;
           const firstSong = queue.songs.shift();
           if (firstSong) {
-            const musicChannel = await interaction.client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
-            const player = await play(connection, firstSong.query, guildId, async () => {
-              await playNextInQueue(interaction.client, connection, guildId);
+            await startPlayback(interaction.client, connection, guildId, {
+              ...firstSong,
+              addedBy: firstSong.addedBy || interaction.user.tag,
             });
-            players.set(guildId, player);
-            
-            if (musicChannel) try {
-              // Clear all messages in the music channel
-              try {
-                const messages = await musicChannel.messages.fetch({ limit: 100 });
-                await musicChannel.bulkDelete(messages, true);
-              } catch (err) {
-                console.error('Could not clear music channel:', err.message);
-              }
-
-              const embed = await createNowPlayingEmbed(
-                { url: queue.nowPlaying?.url, title: queue.nowPlaying?.title || firstSong.title || firstSong.query, query: firstSong.query },
-                firstSong.addedBy || interaction.user.tag
-              );
-              
-              // Create button controls
-              const row = new ActionRowBuilder()
-                .addComponents(
-                  new ButtonBuilder()
-                    .setCustomId('music_pause')
-                    .setLabel('⏯️ Pause/Resume')
-                    .setStyle(ButtonStyle.Primary),
-                  new ButtonBuilder()
-                    .setCustomId('music_skip')
-                    .setLabel('⏭️ Skip')
-                    .setStyle(ButtonStyle.Secondary),
-                  new ButtonBuilder()
-                    .setCustomId('music_stop')
-                    .setLabel('⏹️ Stop')
-                    .setStyle(ButtonStyle.Danger),
-                  new ButtonBuilder()
-                    .setCustomId('music_remove')
-                    .setLabel('🗑️ Remove')
-                    .setStyle(ButtonStyle.Danger)
-                );
-              
-              const msg = await musicChannel.send({ embeds: [embed], components: [row] });
-              lastNowPlayingMessages.set(guildId, msg.id);
-            } catch (e) {
-              console.error('Could not send now playing message:', e);
-            }
           }
         }
-        
+
         return;
       } catch (err) {
         console.error('Playlist loading error:', err);
@@ -262,11 +124,11 @@ module.exports = {
       
       // Nothing playing, start playing immediately
       queue.isPlaying = true;
-      const player = await play(connection, query, guildId, async () => {
-        await playNextInQueue(interaction.client, connection, guildId);
+      await startPlayback(interaction.client, connection, guildId, {
+        query,
+        addedBy: interaction.user.tag,
       });
-      players.set(guildId, player);
-      
+
       // Update with success message
       const nowPlaying = queue.nowPlaying?.title || query;
       if (!isUrl) {

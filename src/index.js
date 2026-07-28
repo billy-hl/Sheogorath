@@ -3,6 +3,25 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
+
+// Single-instance lock — exit immediately if another process holds the lock
+const LOCK_FILE = path.join(__dirname, '..', 'sheogorath.lock');
+try {
+  const existing = fs.existsSync(LOCK_FILE) && parseInt(fs.readFileSync(LOCK_FILE, 'utf8').trim(), 10);
+  if (existing) {
+    try { process.kill(existing, 0); } catch { fs.unlinkSync(LOCK_FILE); /* stale lock */ }
+    if (fs.existsSync(LOCK_FILE)) {
+      console.error(`[Lock] Another instance is already running (PID ${existing}). Exiting.`);
+      process.exit(1);
+    }
+  }
+  fs.writeFileSync(LOCK_FILE, String(process.pid));
+} catch (e) {
+  console.error('[Lock] Could not acquire lock:', e.message);
+  process.exit(1);
+}
+process.on('exit', () => { try { fs.unlinkSync(LOCK_FILE); } catch {} });
+process.on('SIGTERM', () => process.exit(0));
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
 const { setUserActivity, getUserActivity, getUserNotes, addUserNote } = require('./storage/state');
@@ -14,8 +33,10 @@ const { parseActions, executeActions } = require('./ai/actions');
 const { textToSpeech } = require('./services/tts');
 const { checkCooldown, setCooldown } = require('./utils/cooldowns');
 const { setClient, notifyError } = require('./utils/errorNotify');
+const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { markVoiceActive } = require('./utils/voiceIdle');
+const { startControlApi } = require('./api/server');
 
 // Channel IDs from environment
 const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
@@ -126,7 +147,16 @@ for (const file of commandFiles) {
 
 client.once(Events.ClientReady, async () => {
   setClient(client); // Enable error notifications
-  
+
+  // Control API for the companion app. Started after ready so it never reports
+  // healthy before the client can actually act on a request. Failure here must
+  // not take the bot down, so it's isolated.
+  try {
+    startControlApi(client);
+  } catch (err) {
+    console.error('[API] Failed to start control API:', err?.message || err);
+  }
+
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) {
     console.error('Guild not found. Please check GUILD_ID in your environment variables.');
@@ -231,12 +261,29 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   lastInteractionTime = Date.now();
 
+  // --- Text-image moderation (ASCII/Unicode sexualized art) ---
+  if (await isSexualizedTextImage(message.content)) {
+    console.log(`[TextImageMod] Flagged message from ${message.author.username}: ${message.content.slice(0, 80)}`);
+    try {
+      await message.delete();
+      const warn = await message.channel.send(
+        `🔞 <@${message.author.id}> — text-based explicit images aren't allowed here. ` +
+        `The Mad King sees all, mortal. Consider this a warning.`
+      );
+      // Auto-delete the warning after 10 seconds
+      setTimeout(() => warn.delete().catch(() => {}), 10_000);
+    } catch (err) {
+      console.error('[TextImageMod] Failed to delete or warn:', err.message);
+    }
+    return;
+  }
+
   // Track last chat time for this user
   setUserActivity(message.author.id, { lastChat: new Date().toISOString() });
-  
+
   // Instagram video downloader
   await handleInstagramLinks(message);
-  
+
   if (
     message.content.includes(`<@!${client.user.id}>`) ||
     message.content.includes(`<@${client.user.id}>`) ||
@@ -365,12 +412,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// Idle check - shut down bot after 1 hour of inactivity
+// Idle check - stop music after 1 hour of inactivity
 setInterval(async () => {
   const currentTime = Date.now();
   const oneHour = 60 * 60 * 1000;
 
   if (currentTime - lastInteractionTime > oneHour) {
+    // Active playback counts as activity — people listening to the radio
+    // without chatting shouldn't have it killed under them
+    const { players } = require('./music/player');
+    const anyPlaying = [...players.values()].some(p => p.state.status === 'playing');
+    if (anyPlaying) {
+      lastInteractionTime = currentTime;
+      return;
+    }
+    // Nothing is playing — nothing to stop, just reset the timer quietly
+    const anyPlayers = players.size > 0;
+    lastInteractionTime = currentTime;
+    if (!anyPlayers) return;
+
     console.log('Bot has been idle for 1 hour. Stopping all music playback.');
 
     // Stop music in all guilds

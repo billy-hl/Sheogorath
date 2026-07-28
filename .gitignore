@@ -210,3 +210,8 @@ discord-bot/*.log
 www.instagram.com_cookies.txt
 data/tts-usage.json
 logs/
+
+# The control API web page lives in a directory named "public" but is source,
+# not build output. The Gatsby rule above would otherwise silently exclude it.
+!src/api/public/
+!src/api/public/**

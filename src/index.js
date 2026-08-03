@@ -37,6 +37,25 @@ const { trackCommand } = require('./commands/stats');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature } = require('./config/guilds');
 const { musicDenialReason, commandDenialReason, commandsForGuild } = require('./utils/permissions');
+const { scheduleStoryTime } = require('./services/zomboid/storyTime');
+const { checkRequest, readServerConfig } = require('./services/zomboid/modCheck');
+
+/**
+ * Reply to a Workshop link in the mod-requests channel with whether the server
+ * can actually run it. Silent when the message contains no link, so ordinary
+ * discussion in the channel isn't interrupted.
+ */
+async function handleModRequest(message, zomboid) {
+  if (!zomboid?.serverIni) return;
+  const server = readServerConfig(zomboid.serverIni, zomboid.gameBuild || 42);
+
+  await message.channel.sendTyping().catch(() => {});
+  const reply = await checkRequest(message.content, server);
+  if (!reply) return;
+
+  await message.reply({ content: reply, allowedMentions: { repliedUser: false } });
+  console.log(`[Zomboid] Vetted mod request from ${message.author.username}`);
+}
 
 let lastInteractionTime = Date.now();
 const conversationHistory = new Map();
@@ -170,6 +189,14 @@ client.once(Events.ClientReady, async () => {
     }
   }
 
+  // Daily Project Zomboid chronicle. Isolated so a bad log path can't take
+  // the bot down with it.
+  try {
+    scheduleStoryTime(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule story time:', err?.message || err);
+  }
+
   // Clean up old temp files on startup (older than 1 hour)
   try {
     const tempDir = path.join(__dirname, '..', 'temp');
@@ -249,6 +276,12 @@ client.on('messageCreate', async (message) => {
   // Instagram video downloader
   if (hasFeature(guildId, 'instagram')) {
     await handleInstagramLinks(message);
+  }
+
+  // Vet Workshop links posted in the mod-requests channel.
+  if (hasFeature(guildId, 'zomboid') && message.channelId === config.zomboid?.channels?.modRequests) {
+    await handleModRequest(message, config.zomboid).catch(err =>
+      console.error('[Zomboid] Mod request check failed:', err?.message || err));
   }
 
   if (!hasFeature(guildId, 'ai')) return;

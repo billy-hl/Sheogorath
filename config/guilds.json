@@ -23,17 +23,22 @@
       "admin": null
     },
     "zomboid": {
-      "logDir": "/home/REPLACE/Zomboid/Logs",
+      "logDir": "/home/allisteras/gameservers/zomboid/data/Logs",
+      "serverIni": "/home/allisteras/gameservers/zomboid/data/Server/wabbajack.ini",
+      "gameBuild": 42,
       "rcon": {
         "host": "127.0.0.1",
         "port": 27015,
         "passwordEnv": "ZOMBOID_RCON_PASSWORD"
       },
       "channels": {
-        "chatRelay": null,
+        "storyTime": "1533322742407888896",
+        "chatRelay": "1533903291405172810",
+        "modRequests": "1533306181362385017",
         "events": null,
         "modUpdates": null
       },
+      "storyTimeHour": 21,
       "workshopPollMinutes": 15
     }
   }

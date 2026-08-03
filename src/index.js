@@ -38,6 +38,7 @@ const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature } = require('./config/guilds');
 const { musicDenialReason, commandDenialReason, commandsForGuild } = require('./utils/permissions');
 const { scheduleStoryTime } = require('./services/zomboid/storyTime');
+const { scheduleRaidWatch } = require('./services/zomboid/raidWatch');
 const { checkRequest, readServerConfig } = require('./services/zomboid/modCheck');
 
 /**
@@ -195,6 +196,14 @@ client.once(Events.ClientReady, async () => {
     scheduleStoryTime(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule story time:', err?.message || err);
+  }
+
+  // Watch for players quitting mid-fight to seal their safehouse. Isolated for
+  // the same reason as above.
+  try {
+    scheduleRaidWatch(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule raid watch:', err?.message || err);
   }
 
   // Clean up old temp files on startup (older than 1 hour)

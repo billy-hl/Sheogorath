@@ -35,11 +35,20 @@
         "storyTime": "1533322742407888896",
         "chatRelay": "1533903291405172810",
         "modRequests": "1533306181362385017",
+        "raidAlerts": "1533945700814033047",
         "events": null,
         "modUpdates": null
       },
       "storyTimeHour": 21,
-      "workshopPollMinutes": 15
+      "workshopPollMinutes": 15,
+      "raidWatch": {
+        "pollMinutes": 2,
+        "contactWindowSeconds": 300,
+        "clusterWindowSeconds": 180,
+        "minLeavers": 2,
+        "soloFastLeaveSeconds": 60,
+        "ignoreWeapons": ["zombie", "vehicle"]
+      }
     }
   }
 }

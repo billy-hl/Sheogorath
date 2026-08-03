@@ -23,23 +23,20 @@ try {
 process.on('exit', () => { try { fs.unlinkSync(LOCK_FILE); } catch {} });
 process.on('SIGTERM', () => process.exit(0));
 const { Client, GatewayIntentBits, Events } = require('discord.js');
-const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
+const { getVoiceConnection } = require('@discordjs/voice');
 const { setUserActivity, getUserActivity, getUserNotes, addUserNote } = require('./storage/state');
 const { addMemory } = require('./storage/memory');
 const { getAIResponse, getAIResponseWithHistory, extractMemoryFromMessage } = require('./ai/grok');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
 const { parseActions, executeActions } = require('./ai/actions');
-const { textToSpeech } = require('./services/tts');
 const { checkCooldown, setCooldown } = require('./utils/cooldowns');
 const { setClient, notifyError } = require('./utils/errorNotify');
 const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
-const { markVoiceActive } = require('./utils/voiceIdle');
 const { startControlApi } = require('./api/server');
-
-// Channel IDs from environment
-const AI_CHANNEL_ID = process.env.AI_CHANNEL_ID || '380486887309180929';
+const { getGuildConfig, guildIds, hasFeature } = require('./config/guilds');
+const { musicDenialReason, commandDenialReason, commandsForGuild } = require('./utils/permissions');
 
 let lastInteractionTime = Date.now();
 const conversationHistory = new Map();
@@ -50,12 +47,12 @@ const SUMMARIZE_DELAY_MS = 5 * 60 * 1000; // 5 minutes idle before summarizing
 const SUMMARIZE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // once per 24 hours per user
 const SUMMARIZE_MIN_MESSAGES = 6; // minimum messages before bothering
 
-async function summarizeUserConversation(userId, username, history) {
+async function summarizeUserConversation(guildId, userId, username, history) {
   // Require a meaningful conversation
   if (!history || history.length < SUMMARIZE_MIN_MESSAGES) return;
 
   // 24-hour cooldown per user
-  const activity = getUserActivity(userId);
+  const activity = getUserActivity(guildId, userId);
   const lastRun = activity.lastNoteSummary ? new Date(activity.lastNoteSummary).getTime() : 0;
   if (Date.now() - lastRun < SUMMARIZE_COOLDOWN_MS) return;
 
@@ -83,13 +80,13 @@ async function summarizeUserConversation(userId, username, history) {
 
     for (const note of notes) {
       if (typeof note === 'string' && note.trim()) {
-        addUserNote(userId, note.trim());
-        addMemory(userId, note.trim(), 'auto-summary');
+        addUserNote(guildId, userId, note.trim());
+        addMemory(guildId, userId, note.trim(), 'auto-summary');
       }
     }
 
     // Record the time so we don't run again for 24h
-    setUserActivity(userId, { lastNoteSummary: new Date().toISOString() });
+    setUserActivity(guildId, userId, { lastNoteSummary: new Date().toISOString() });
     console.log(`[AutoNote] Saved ${notes.length} note(s) and memories for ${username}`);
   } catch (e) {
     console.warn('[AutoNote] Summarization failed:', e?.message || e);
@@ -101,7 +98,6 @@ const requiredEnv = [
   'CLIENT_NAME',
   'CLIENT_INSTRUCTIONS',
   'CLIENT_MODEL',
-  'CHANNEL_ID',
   'DISCORD_TOKEN',
   'GUILD_ID',
 ];
@@ -123,7 +119,6 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildPresences,
   ],
 });
 
@@ -157,16 +152,22 @@ client.once(Events.ClientReady, async () => {
     console.error('[API] Failed to start control API:', err?.message || err);
   }
 
-  const guild = client.guilds.cache.get(process.env.GUILD_ID);
-  if (!guild) {
-    console.error('Guild not found. Please check GUILD_ID in your environment variables.');
-    return;
-  }
-  try {
-    await guild.commands.set(commandDataArray);
-    console.log('Commands registered successfully.');
-  } catch (error) {
-    console.error('Error registering commands:', error);
+  // Register per-guild rather than globally: propagation is instant, and the
+  // commands stay out of any guild the bot happens to be in but isn't
+  // configured for. One guild failing must not stop the others registering.
+  for (const guildId of guildIds()) {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) {
+      console.error(`[Commands] Configured guild ${guildId} not found — is the bot a member?`);
+      continue;
+    }
+    try {
+      const commands = commandsForGuild(commandDataArray, guildId);
+      await guild.commands.set(commands);
+      console.log(`[Commands] Registered ${commands.length} command(s) in ${guild.name}.`);
+    } catch (error) {
+      console.error(`[Commands] Error registering in ${guild.name}:`, error);
+    }
   }
 
   // Clean up old temp files on startup (older than 1 hour)
@@ -190,48 +191,6 @@ client.once(Events.ClientReady, async () => {
     console.error('[Cleanup] Failed to clean temp directory:', err.message);
   }
 
-  // Proactive AI engagement - random messages every 45 minutes
-  setInterval(async () => {
-    try {
-      const channel = await client.channels.fetch(AI_CHANNEL_ID);
-      if (!channel || !channel.isTextBased()) return;
-      
-      // 1% chance to send a random engaging message
-      if (Math.random() < 0.01) {
-        // Fetch recent messages from the AI channel for context
-        const recentMessages = await channel.messages.fetch({ limit: 20 });
-        const conversationContext = [];
-        
-        for (const msg of recentMessages.filter(m => !m.author.bot || m.author.id === client.user.id).reverse().values()) {
-          let msgContent = msg.author.id === client.user.id ? msg.content : `${msg.author.username}: ${msg.content}`;
-          conversationContext.push({
-            role: msg.author.id === client.user.id ? 'assistant' : 'user',
-            content: msgContent
-          });
-        }
-
-        const conversationalPrompts = [
-          "Based on the recent conversation, share a relevant thought or continue the discussion in your chaotic style.",
-          "Comment on something that was just discussed or ask a follow-up question about recent topics.",
-          "Share your 'wisdom' about a topic that was mentioned recently, in your typical Mad King manner.",
-          "React to the ongoing conversation with a sarcastic or threatening observation.",
-          "Pick up on a theme from recent messages and elaborate on it chaotically."
-        ];
-        
-        const randomPrompt = conversationalPrompts[Math.floor(Math.random() * conversationalPrompts.length)];
-        
-        const aiMessage = await getAIResponseWithHistory([
-          ...conversationContext.slice(-10),
-          { role: 'user', content: randomPrompt }
-        ], 200);
-        
-        await channel.send(aiMessage);
-      }
-    } catch (e) {
-      console.error('Proactive AI engagement failed:', e?.message || e);
-    }
-  }, 45 * 60 * 1000); // 45 minutes
-
   // Memory monitoring - log every 30 minutes, clear old history if high
   setInterval(() => {
     const mem = process.memoryUsage();
@@ -242,9 +201,9 @@ client.once(Events.ClientReady, async () => {
     // If using >400MB, aggressively clear old conversation history
     if (heapUsedMB > 400) {
       let cleared = 0;
-      for (const [userId, history] of conversationHistory.entries()) {
+      for (const [key, history] of conversationHistory.entries()) {
         if (history.length > 10) {
-          conversationHistory.set(userId, history.slice(-10));
+          conversationHistory.set(key, history.slice(-10));
           cleared++;
         }
       }
@@ -261,8 +220,14 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   lastInteractionTime = Date.now();
 
+  // Everything below is guild-scoped. DMs and guilds absent from
+  // config/guilds.json are ignored outright rather than half-handled.
+  const guildId = message.guildId;
+  const config = getGuildConfig(guildId);
+  if (!config) return;
+
   // --- Text-image moderation (ASCII/Unicode sexualized art) ---
-  if (await isSexualizedTextImage(message.content)) {
+  if (hasFeature(guildId, 'textImageMod') && await isSexualizedTextImage(message.content)) {
     console.log(`[TextImageMod] Flagged message from ${message.author.username}: ${message.content.slice(0, 80)}`);
     try {
       await message.delete();
@@ -279,10 +244,14 @@ client.on('messageCreate', async (message) => {
   }
 
   // Track last chat time for this user
-  setUserActivity(message.author.id, { lastChat: new Date().toISOString() });
+  setUserActivity(guildId, message.author.id, { lastChat: new Date().toISOString() });
 
   // Instagram video downloader
-  await handleInstagramLinks(message);
+  if (hasFeature(guildId, 'instagram')) {
+    await handleInstagramLinks(message);
+  }
+
+  if (!hasFeature(guildId, 'ai')) return;
 
   if (
     message.content.includes(`<@!${client.user.id}>`) ||
@@ -294,12 +263,12 @@ client.on('messageCreate', async (message) => {
     askChatGPT(message);
     return; // Prevent conversational triggers from also firing
   }
-  
-  // Conversational triggers - only in AI channel, whole-word matches only
+
+  // Conversational triggers - any channel, whole-word matches only.
   // Skip if the message already contains a direct bot mention (handled above)
   const isMention = message.content.includes(`<@!${client.user.id}>`) ||
                     message.content.includes(`<@${client.user.id}>`);
-  if (!isMention && message.channelId === AI_CHANNEL_ID) {
+  if (!isMention) {
     const content = message.content.toLowerCase();
     const triggerPattern = /\b(sheogorath|mad king)\b/i;
     
@@ -318,6 +287,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const { pausePlayer, resumePlayer, skipSong, stopPlayer } = require('./music/player');
       const { removeTrackFromRadio } = require('./commands/radio');
       const guildId = interaction.guild.id;
+
+      // The now-playing card is visible to everyone, so its buttons need the
+      // same gate as the commands rather than trusting who can see them.
+      const denied = musicDenialReason(guildId, interaction.member);
+      if (denied) {
+        await interaction.reply({ content: denied, ephemeral: true });
+        return;
+      }
 
       switch (interaction.customId) {
         case 'music_pause':
@@ -372,6 +349,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!command) {
       console.error(`No command matching ${interaction.commandName} was found.`);
       return;
+    }
+
+    const denied = commandDenialReason(interaction.commandName, interaction.guildId, interaction.member);
+    if (denied) {
+      return interaction.reply({ content: denied, flags: 64 });
     }
 
     // Check cooldown
@@ -450,7 +432,7 @@ setInterval(async () => {
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   // Track when a user joins a voice channel (was not in one, now is)
   if (!oldState.channelId && newState.channelId && newState.member && !newState.member.user.bot) {
-    setUserActivity(newState.member.id, { lastVoiceJoin: new Date().toISOString() });
+    setUserActivity(newState.guild.id, newState.member.id, { lastVoiceJoin: new Date().toISOString() });
   }
 
   const voiceChannel = oldState.channel || newState.channel;
@@ -476,64 +458,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
 // Entrance announcements disabled.
 
-// --- UFC Stream Announcements ---
-const STREAM_ANNOUNCE_CHANNEL = process.env.ANNOUNCEMENTS_CHANNEL_ID || AI_CHANNEL_ID;
-const WATCHED_STREAMER_ID = '1464671421102952581';
-const streamAnnounceCooldown = new Map();
-
-async function announceStream(guild, userId, streamName) {
-  // Cooldown: 1 announcement per hour
-  const lastAnnounce = streamAnnounceCooldown.get(userId) || 0;
-  if (Date.now() - lastAnnounce < 60 * 60 * 1000) return;
-  streamAnnounceCooldown.set(userId, Date.now());
-
-  const isUFC = /\b(ufc|mma|fight\s*night|ppv)\b/i.test(streamName || '');
-
-  try {
-    const channel = await client.channels.fetch(STREAM_ANNOUNCE_CHANNEL);
-    if (!channel || !channel.isTextBased()) return;
-
-    const member = await guild.members.fetch(userId);
-    const displayName = member.displayName || member.user.username;
-
-    if (isUFC) {
-      const prompt = `Announce that ${displayName} is now streaming UFC/MMA live on Discord. Hype it up. Keep it under 200 characters.`;
-      const announcement = await getAIResponse(prompt);
-      await channel.send(`${announcement}\n\n<@${userId}> is live! <@&1269321898035249325>`);
-    } else {
-      await channel.send(`<@${userId}> is now streaming${streamName ? ` **${streamName}**` : ''}! <@&1269321898035249325>`);
-    }
-    console.log(`Stream announcement sent for ${displayName}`);
-  } catch (error) {
-    console.error('Stream announcement error:', error.message);
-  }
-}
-
-// Detect Rich Presence streaming (Twitch/YouTube linked streams)
-client.on('presenceUpdate', async (oldPresence, newPresence) => {
-  if (!newPresence || newPresence.userId !== WATCHED_STREAMER_ID) return;
-
-  const wasStreaming = oldPresence?.activities?.some(a => a.type === 1) || false;
-  const streaming = newPresence.activities.find(a => a.type === 1);
-
-  if (!streaming || wasStreaming) return;
-
-  const streamName = streaming.details || streaming.state || streaming.name || '';
-  await announceStream(newPresence.guild, newPresence.userId, streamName);
-});
-
-// Detect Go Live / screen share in voice channels
-client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-  if (newState.id !== WATCHED_STREAMER_ID) return;
-
-  // User started streaming (Go Live)
-  if (!oldState.streaming && newState.streaming) {
-    console.log(`Go Live detected for user ${newState.id} in ${newState.channel?.name}`);
-    const streamName = newState.channel?.name || '';
-    await announceStream(newState.guild, newState.id, streamName);
-  }
-});
-
 // Music reaction controls
 client.on('messageReactionAdd', async (reaction, user) => {
   if (user.bot) return;
@@ -558,6 +482,13 @@ client.on('messageReactionAdd', async (reaction, user) => {
   const { pausePlayer, resumePlayer, skipSong } = require('./music/player');
   const { removeTrackFromRadio } = require('./commands/radio');
   const guildId = message.guild.id;
+
+  // Same gate as the buttons — anyone can add a reaction to a visible message.
+  const member = await message.guild.members.fetch(user.id).catch(() => null);
+  if (musicDenialReason(guildId, member)) {
+    await reaction.users.remove(user.id).catch(() => {});
+    return;
+  }
 
   try {
     switch (reaction.emoji.name) {
@@ -631,8 +562,12 @@ async function askChatGPT(userMessage) {
   }, 8000);
   
   const userId = userMessage.author.id;
-  const history = conversationHistory.get(userId) || [];
-  
+  const guildId = userMessage.guildId;
+  // Keyed per guild so the same person talking in two servers gets two
+  // separate conversations rather than one bleeding into the other.
+  const historyKey = `${guildId}:${userId}`;
+  const history = conversationHistory.get(historyKey) || [];
+
   console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);
   
   try {
@@ -648,7 +583,7 @@ async function askChatGPT(userMessage) {
     }
     
     // Build notes context for this user
-    const userNotes = getUserNotes(userId);
+    const userNotes = getUserNotes(guildId, userId);
     const notesContext = userNotes.length > 0
       ? `[Notes about this user (${userMessage.author.username})]:\n` +
         userNotes.map((n, i) => `${i + 1}. ${n.text} (recorded ${n.addedAt})`).join('\n') + '\n'
@@ -656,7 +591,7 @@ async function askChatGPT(userMessage) {
 
     // Add long-term memories
     const { formatMemoriesForContext } = require('./storage/memory');
-    const memoriesContext = formatMemoriesForContext(userId);
+    const memoriesContext = formatMemoriesForContext(guildId, userId);
 
     const messages = [
       ...history.slice(-5),
@@ -674,7 +609,7 @@ async function askChatGPT(userMessage) {
     const { cleanResponse, actions } = parseActions(raw);
     if (actions.length > 0) {
       console.log(`[Actions] Detected ${actions.length} action(s):`, actions.map(a => `${a.type} for ${a.userId || 'N/A'}`));
-      await executeActions(actions, { guild: userMessage.guild, message: userMessage });
+      await executeActions(actions, { guild: userMessage.guild, message: userMessage, guildId });
     }
 
     // Final scrub — strip any remaining action tags regardless of parse result,
@@ -693,69 +628,28 @@ async function askChatGPT(userMessage) {
       { role: 'assistant', content: finalReply }
     );
     if (history.length > 30) history.splice(0, history.length - 30);
-    conversationHistory.set(userId, history);
+    conversationHistory.set(historyKey, history);
 
     // Background memory extraction — fire-and-forget, no blocking
     extractMemoryFromMessage(userMessage.author.username, cleanedContent).then(fact => {
       if (fact) {
-        addMemory(userId, fact);
+        addMemory(guildId, userId, fact);
         console.log(`[Memory] Auto-extracted for ${userMessage.author.username}: ${fact}`);
       }
     }).catch(() => {});
 
     // Schedule a post-conversation note summarization (resets on each message)
-    if (summarizeTimers.has(userId)) clearTimeout(summarizeTimers.get(userId));
+    if (summarizeTimers.has(historyKey)) clearTimeout(summarizeTimers.get(historyKey));
     const snapHistory = [...history];
     const snapUsername = userMessage.author.username;
-    summarizeTimers.set(userId, setTimeout(async () => {
-      summarizeTimers.delete(userId);
-      await summarizeUserConversation(userId, snapUsername, snapHistory);
+    summarizeTimers.set(historyKey, setTimeout(async () => {
+      summarizeTimers.delete(historyKey);
+      await summarizeUserConversation(guildId, userId, snapUsername, snapHistory);
     }, SUMMARIZE_DELAY_MS));
     
     clearInterval(typingInterval);
 
-    // Check if user is in voice — if so, join and speak
-    const member = userMessage.guild.members.cache.get(userId);
-    const voiceChannel = member?.voice?.channel;
-    
-    if (voiceChannel && process.env.ELEVENLABS_API_KEY) {
-      try {
-        console.log(`[Voice] User in voice channel, joining to speak response`);
-        
-        // Join voice channel
-        let connection = getVoiceConnection(userMessage.guild.id);
-        if (!connection || connection.joinConfig.channelId !== voiceChannel.id) {
-          connection = joinVoiceChannel({
-            channelId: voiceChannel.id,
-            guildId: userMessage.guild.id,
-            adapterCreator: userMessage.guild.voiceAdapterCreator,
-          });
-        }
-
-        // Generate TTS audio
-        const audioResource = await textToSpeech(finalReply);
-        
-        // Play audio
-        const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-        connection.subscribe(player);
-        player.play(audioResource);
-
-        // Also send text reply
-        await sendReply(userMessage.channel, finalReply);
-
-        // Start idle timer after audio finishes
-        player.once(AudioPlayerStatus.Idle, () => {
-          markVoiceActive(userMessage.guild.id);
-        });
-      } catch (voiceErr) {
-        console.error('[Voice] TTS failed:', voiceErr.message);
-        // Fall back to text-only
-        await sendReply(userMessage.channel, finalReply);
-      }
-    } else {
-      // Text-only reply
-      await sendReply(userMessage.channel, finalReply);
-    }
+    await sendReply(userMessage.channel, finalReply);
   } catch (error) {
     clearInterval(typingInterval);
     console.error('Error in askChatGPT:', error.message);

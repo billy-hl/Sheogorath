@@ -1,6 +1,6 @@
 'use strict';
 const { AutoModerationRuleTriggerType, AutoModerationActionType, AutoModerationRuleEventType } = require('discord.js');
-const { getState, setState } = require('../storage/state');
+const { getGuildState, setGuildState } = require('../storage/state');
 
 // Default blocked words list
 const DEFAULT_BLOCKED_WORDS = [
@@ -16,8 +16,7 @@ const DEFAULT_BLOCKED_WORDS = [
  * @param {string[]} [options.customWords] - Additional words to block
  */
 async function setupAutoMod(guild, options = {}) {
-  const state = getState();
-  const automodState = state.automod || {};
+  const automodState = getGuildState(guild.id).automod || {};
 
   try {
     // Fetch existing rules to avoid duplicates
@@ -95,7 +94,7 @@ async function setupAutoMod(guild, options = {}) {
       }
     }
 
-    setState({ automod: automodState });
+    setGuildState(guild.id, { automod: automodState });
     return automodState;
   } catch (error) {
     console.error('AutoMod setup error:', error.message);

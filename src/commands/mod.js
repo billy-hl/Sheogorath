@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { isAdmin } = require('../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -68,10 +69,7 @@ module.exports = {
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
     // Check permissions
-    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator) || 
-                   interaction.user.id === process.env.ADMIN_USER_ID;
-    
-    if (!isAdmin) {
+    if (!isAdmin(interaction.member)) {
       return await interaction.reply({
         content: '❌ You need Administrator permissions to use moderation commands!',
         flags: 64

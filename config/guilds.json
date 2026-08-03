@@ -1,0 +1,40 @@
+{
+  "380486886592086037": {
+    "name": "wabbajack",
+    "features": ["ai", "music", "moderation", "instagram", "textImageMod", "automod"],
+    "channels": {
+      "music": "534553333034123289",
+      "defaultVoice": "949392766453043260"
+    },
+    "roles": {
+      "admin": "602514337495646228"
+    },
+    "zomboid": null
+  },
+
+  "444601986160263189": {
+    "name": "zomboid",
+    "features": ["ai", "zomboid"],
+    "channels": {
+      "music": null,
+      "defaultVoice": null
+    },
+    "roles": {
+      "admin": null
+    },
+    "zomboid": {
+      "logDir": "/home/REPLACE/Zomboid/Logs",
+      "rcon": {
+        "host": "127.0.0.1",
+        "port": 27015,
+        "passwordEnv": "ZOMBOID_RCON_PASSWORD"
+      },
+      "channels": {
+        "chatRelay": null,
+        "events": null,
+        "modUpdates": null
+      },
+      "workshopPollMinutes": 15
+    }
+  }
+}

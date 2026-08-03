@@ -101,10 +101,11 @@ function parseActions(response) {
 /**
  * Execute parsed actions.
  * @param {Array} actions - From parseActions
- * @param {Object} context - { guild, message }
+ * @param {Object} context - { guild, message, guildId }
  */
 async function executeActions(actions, context) {
   const { guild, message } = context;
+  const guildId = context.guildId || guild?.id;
   const results = [];
 
   for (const action of actions) {
@@ -123,19 +124,19 @@ async function executeActions(actions, context) {
           break;
 
         case 'note':
-          addUserNote(action.userId, action.note);
+          addUserNote(guildId, action.userId, action.note);
           results.push({ ...action, success: true });
           console.log(`[AI Action] Added note for ${action.userId}: ${action.note}`);
           break;
 
         case 'clearnotes':
-          clearUserNotes(action.userId);
+          clearUserNotes(guildId, action.userId);
           results.push({ ...action, success: true });
           console.log(`[AI Action] Cleared notes for ${action.userId}`);
           break;
 
         case 'memory':
-          addMemory(action.userId, action.memory);
+          addMemory(guildId, action.userId, action.memory);
           results.push({ ...action, success: true });
           console.log(`[AI Action] Saved memory for ${action.userId}: ${action.memory}`);
           break;

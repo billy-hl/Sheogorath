@@ -19,11 +19,7 @@ const {
   fetchRelatedSong,
 } = require('./player');
 const { createNowPlayingEmbed } = require('./embeds');
-
-const MUSIC_CHANNEL_ID = process.env.MUSIC_CHANNEL_ID || '534553333034123289';
-// Voice channel the control app falls back to when the bot isn't already
-// connected. "Tapped In" on the primary guild.
-const DEFAULT_VOICE_CHANNEL_ID = process.env.DEFAULT_VOICE_CHANNEL_ID || '949392766453043260';
+const { channelId } = require('../config/guilds');
 
 // Track last now playing message to keep channel clean
 const lastNowPlayingMessages = new Map(); // guildId -> messageId
@@ -55,7 +51,9 @@ function buildControlRow() {
  * the channel stays a single live "player" rather than a scrolling log.
  */
 async function postNowPlaying(client, guildId, fallbackSong, addedBy) {
-  const channel = await client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
+  const musicChannelId = channelId(guildId, 'music');
+  if (!musicChannelId) return;
+  const channel = await client.channels.fetch(musicChannelId).catch(() => null);
   if (!channel) return;
 
   const queue = getQueue(guildId);
@@ -100,7 +98,10 @@ async function playNextInQueue(client, connection, guildId) {
         if (related) {
           console.log(`Autoplay: Queuing related song: ${related.title}`);
           addToQueue(guildId, related);
-          const channel = await client.channels.fetch(MUSIC_CHANNEL_ID).catch(() => null);
+          const musicChannelId = channelId(guildId, 'music');
+          const channel = musicChannelId
+            ? await client.channels.fetch(musicChannelId).catch(() => null)
+            : null;
           if (channel) {
             try {
               await channel.send(`🔄 **Autoplay:** Queuing **${related.title}**`);
@@ -166,7 +167,10 @@ async function ensureVoiceConnection(client, guildId) {
   const guild = await client.guilds.fetch(guildId).catch(() => null);
   if (!guild) throw new Error('Guild not found.');
 
-  const channel = await guild.channels.fetch(DEFAULT_VOICE_CHANNEL_ID).catch(() => null);
+  const voiceChannelId = channelId(guildId, 'defaultVoice');
+  if (!voiceChannelId) throw new Error('No default voice channel configured for this guild.');
+
+  const channel = await guild.channels.fetch(voiceChannelId).catch(() => null);
   if (!channel) throw new Error('Configured voice channel not found.');
   if (channel.type !== ChannelType.GuildVoice) {
     throw new Error('Configured channel is not a voice channel.');
@@ -176,8 +180,6 @@ async function ensureVoiceConnection(client, guildId) {
 }
 
 module.exports = {
-  MUSIC_CHANNEL_ID,
-  DEFAULT_VOICE_CHANNEL_ID,
   buildControlRow,
   postNowPlaying,
   playNextInQueue,

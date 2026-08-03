@@ -1,0 +1,110 @@
+'use strict';
+const { PermissionFlagsBits } = require('discord.js');
+const { getGuildConfig, hasFeature } = require('../config/guilds');
+
+/**
+ * Which feature each command belongs to. Commands absent from this map are
+ * unconditional and register everywhere.
+ *
+ * One map drives both halves of the policy — which commands a guild gets
+ * registered, and whether an invocation is allowed — so registration and the
+ * runtime gate can't drift apart.
+ */
+const COMMAND_FEATURES = {
+  play: 'music',
+  pause: 'music',
+  resume: 'music',
+  skip: 'music',
+  stop: 'music',
+  queue: 'music',
+  clear: 'music',
+  remove: 'music',
+  nowplaying: 'music',
+  playlist: 'music',
+  radio: 'music',
+  autoplay: 'music',
+
+  mod: 'moderation',
+  stats: 'moderation',
+  automod: 'automod',
+};
+
+/** Music additionally requires admin, not just the feature. */
+const MUSIC_COMMANDS = new Set(
+  Object.keys(COMMAND_FEATURES).filter((name) => COMMAND_FEATURES[name] === 'music')
+);
+
+/**
+ * Whether a member counts as an admin in their guild.
+ *
+ * Three independent grants, any of which is enough: Discord's own Administrator
+ * permission, the bot owner, or a per-guild role named in config/guilds.json.
+ * The configured role exists so a guild can hand out bot admin without handing
+ * out Administrator on the whole server — a guild whose admin roles already
+ * carry Administrator doesn't need to set it.
+ *
+ * @param {import('discord.js').GuildMember} member
+ * @returns {boolean}
+ */
+function isAdmin(member) {
+  if (!member || !member.guild) return false;
+
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  if (member.id === process.env.ADMIN_USER_ID) return true;
+
+  const adminRoleId = getGuildConfig(member.guild.id)?.roles.admin;
+  return !!adminRoleId && member.roles.cache.has(adminRoleId);
+}
+
+/**
+ * Gate for the music surfaces that aren't slash commands — the now-playing
+ * buttons and reactions, which anyone who can see the card can trigger.
+ * @returns {string|null} a refusal message, or null when allowed.
+ */
+function musicDenialReason(guildId, member) {
+  if (!hasFeature(guildId, 'music')) return '❌ Music is not enabled in this server.';
+  if (!isAdmin(member)) return '❌ Music controls are admin-only.';
+  return null;
+}
+
+/**
+ * Gate for slash commands. Filtering at registration should mean a disabled
+ * command is never invokable, so the feature branch here is defence in depth
+ * against a stale registration.
+ *
+ * @returns {string|null} a refusal message, or null when allowed.
+ */
+function commandDenialReason(commandName, guildId, member) {
+  const required = COMMAND_FEATURES[commandName];
+  if (required && !hasFeature(guildId, required)) {
+    return '❌ That command is not enabled in this server.';
+  }
+  if (MUSIC_COMMANDS.has(commandName) && !isAdmin(member)) {
+    return '❌ Music controls are admin-only.';
+  }
+  return null;
+}
+
+/**
+ * The command list a given guild should have registered. Feature-gated commands
+ * are withheld entirely from guilds without the feature, so they don't clutter
+ * the picker with entries that would only ever be refused.
+ *
+ * @param {Array<{name: string}>} allCommands
+ * @param {string} guildId
+ */
+function commandsForGuild(allCommands, guildId) {
+  return allCommands.filter((c) => {
+    const required = COMMAND_FEATURES[c.name];
+    return !required || hasFeature(guildId, required);
+  });
+}
+
+module.exports = {
+  isAdmin,
+  COMMAND_FEATURES,
+  MUSIC_COMMANDS,
+  musicDenialReason,
+  commandDenialReason,
+  commandsForGuild,
+};

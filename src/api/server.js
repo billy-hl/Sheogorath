@@ -6,6 +6,7 @@ const { WebSocketServer } = require('ws');
 const { requireGuest, requireAdmin, roleFor, authorizeSocket, getAdminToken, getGuestPassword } = require('./auth');
 const musicRoutes = require('./routes/music');
 const { musicEvents, getPlaybackState } = require('../music/player');
+const { primaryGuildId } = require('../config/guilds');
 
 const PORT = Number(process.env.CONTROL_API_PORT) || 3005;
 // Bind to the Tailscale interface by default, never 0.0.0.0 — the LAN and the
@@ -31,9 +32,11 @@ function startControlApi(client) {
     console.warn('[API] CONTROL_GUEST_PASSWORD not set — only the admin token will work.');
   }
 
-  const guildId = process.env.GUILD_ID;
+  // The companion app drives one guild. Which one is explicit via
+  // CONTROL_API_GUILD_ID, falling back to GUILD_ID for existing deployments.
+  const guildId = primaryGuildId();
   if (!guildId) {
-    console.warn('[API] GUILD_ID not set — control API disabled.');
+    console.warn('[API] No primary guild resolvable (set CONTROL_API_GUILD_ID or GUILD_ID) — control API disabled.');
     return null;
   }
 

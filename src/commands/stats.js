@@ -1,8 +1,5 @@
 'use strict';
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const { getState } = require('../storage/state');
-const fs = require('fs');
-const path = require('path');
 
 const startTime = Date.now();
 const commandStats = new Map();
@@ -24,16 +21,6 @@ function getUptime() {
   return `${minutes}m ${seconds}s`;
 }
 
-function getTTSUsage() {
-  const usageFile = path.join(__dirname, '..', '..', 'data', 'tts-usage.json');
-  try {
-    if (!fs.existsSync(usageFile)) return { chars: 0, month: new Date().getMonth() };
-    return JSON.parse(fs.readFileSync(usageFile, 'utf8'));
-  } catch {
-    return { chars: 0, month: new Date().getMonth() };
-  }
-}
-
 module.exports = {
   trackCommand,
   data: new SlashCommandBuilder()
@@ -43,16 +30,13 @@ module.exports = {
   
   async execute(interaction) {
     const mem = process.memoryUsage();
-    const ttsUsage = getTTSUsage();
-    const ttsLimit = parseInt(process.env.TTS_MONTHLY_LIMIT) || 40000;
-    
+
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle('📊 Bot Statistics')
       .addFields(
         { name: '⏱️ Uptime', value: getUptime(), inline: true },
         { name: '💾 Memory', value: `${Math.round(mem.heapUsed / 1024 / 1024)}MB / ${Math.round(mem.heapTotal / 1024 / 1024)}MB`, inline: true },
-        { name: '🔊 TTS Usage', value: `${ttsUsage.chars.toLocaleString()} / ${ttsLimit.toLocaleString()} chars`, inline: true },
         { name: '📝 Commands Used', value: Array.from(commandStats.entries())
           .sort((a, b) => b[1] - a[1])
           .slice(0, 10)

@@ -189,6 +189,8 @@ temp/
 !package.json
 !package-lock.json
 !tsconfig.json
+# Per-guild wiring (guild/channel/role IDs, not secrets). Must be deployable.
+!config/guilds.json
 data/
 src/data/
 *.data

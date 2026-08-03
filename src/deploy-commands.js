@@ -2,6 +2,8 @@ require('dotenv').config();
 const { REST, Routes } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const { guildIds } = require('./config/guilds');
+const { commandsForGuild } = require('./utils/permissions');
 
 const commands = [];
 const commandsPath = path.join(__dirname, 'commands');
@@ -23,18 +25,23 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
   try {
     console.log('Started refreshing application (/) commands.');
     
-    // Use guild commands for instant propagation (no 1-hour delay)
-    await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-      { body: commands },
-    );
-    
+    // Use guild commands for instant propagation (no 1-hour delay), one call
+    // per configured guild.
+    for (const guildId of guildIds()) {
+      const body = commandsForGuild(commands, guildId);
+      await rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
+        { body },
+      );
+      console.log(`Registered ${body.length} command(s) in guild ${guildId}.`);
+    }
+
     // Clear any old global commands to avoid duplicates
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
       { body: [] },
     );
-    
+
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
     console.error(error);

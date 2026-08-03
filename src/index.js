@@ -47,7 +47,7 @@ const { checkRequest, readServerConfig } = require('./services/zomboid/modCheck'
  */
 async function handleModRequest(message, zomboid) {
   if (!zomboid?.serverIni) return;
-  const server = readServerConfig(zomboid.serverIni, zomboid.gameBuild || 42);
+  const server = readServerConfig(zomboid.serverIni, zomboid.gameBuild || 42, zomboid.logDir);
 
   await message.channel.sendTyping().catch(() => {});
   const reply = await checkRequest(message.content, server);

@@ -27,6 +27,73 @@ function parseWorkshopIds(text) {
   return [...ids];
 }
 
+/**
+ * Recent Workshop comments for an item.
+ *
+ * Steam has no documented comments API; the community site renders them through
+ * this endpoint, which needs no auth. It returns an HTML blob, so entries are
+ * recovered by stripping tags — brittle by nature, hence the try/catch and the
+ * empty-array fallback. Comments are advisory only; nothing blocks on them.
+ *
+ * @returns {Promise<Array<{author:string, date:string, text:string}>>} newest first
+ */
+async function fetchComments(creatorId, fileId, count = 20) {
+  if (!creatorId || !fileId) return [];
+  const url = `https://steamcommunity.com/comment/PublishedFile_Public/render/${creatorId}/${fileId}/`;
+  try {
+    const { data } = await axios.get(url, { params: { start: 0, count }, timeout: 15000 });
+    if (!data?.comments_html) return [];
+
+    const text = data.comments_html
+      .replace(/<[^>]+>/g, '\n')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ');
+
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    // The render is a flat author / date / body repetition. Dates are the only
+    // reliably-shaped token, so they anchor each entry.
+    const dateRe = /^[A-Z][a-z]{2} \d{1,2}(, \d{4})? @ \d{1,2}:\d{2}[ap]m$/;
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!dateRe.test(lines[i])) continue;
+      const author = lines[i - 1] || 'unknown';
+      const body = [];
+      for (let j = i + 1; j < lines.length && !dateRe.test(lines[j]); j++) {
+        if (lines[j + 1] && dateRe.test(lines[j + 1])) break; // next author
+        body.push(lines[j]);
+      }
+      if (body.length) out.push({ author, date: lines[i], text: body.join(' ').slice(0, 300) });
+    }
+    return out;
+  } catch (err) {
+    console.warn('[Zomboid] Could not fetch Workshop comments:', err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * The build the server is actually running, read from its own logs rather than
+ * assumed, e.g. "42.20.0". Returns null when it can't be determined.
+ */
+function detectServerVersion(logDir) {
+  const fs = require('fs');
+  const path = require('path');
+  try {
+    const debug = fs.readdirSync(logDir)
+      .filter((n) => n.endsWith('_DebugLog-server.txt'))
+      .sort()
+      .reverse()[0];
+    if (!debug) return null;
+    const head = fs.readFileSync(path.join(logDir, debug), 'utf8').slice(0, 200000);
+    const m = /version=(\d+\.\d+(?:\.\d+)?)/i.exec(head);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 /** @returns {Promise<object[]>} raw Workshop records, in request order. */
 async function fetchWorkshopItems(ids) {
   const form = new URLSearchParams();
@@ -114,28 +181,66 @@ function assess(item, server) {
 
 const SYSTEM_PROMPT =
   'You advise the staff of a Project Zomboid multiplayer server on whether a ' +
-  'requested Workshop mod can be used. You are given verified metadata and a ' +
-  'mod description. In ONE or TWO short sentences, note only what the metadata ' +
-  'does not already say: required dependency mods named in the description, ' +
-  'whether it sounds client-side or single-player only, and any likely clash ' +
-  'with the installed mods listed. If the description reveals nothing useful, ' +
-  'say so briefly. Do not repeat the build tag, subscriber count or dates. Do ' +
-  'not invent requirements. Plain and factual, no roleplay, no emoji.';
+  'requested Workshop mod can be used. You are given verified metadata, the ' +
+  'mod description, and recent Workshop comments from other players.\n\n' +
+  'Report, in at most three short sentences:\n' +
+  '1. Dependency mods named in the description.\n' +
+  '2. Whether it sounds client-side or single-player only.\n' +
+  '3. MOST IMPORTANTLY: whether commenters report it BROKEN, and if so whether ' +
+  'they mention multiplayer/servers or the server\'s build version. Say how ' +
+  'many commenters and roughly when.\n\n' +
+  'Rules: rely only on what is actually written. One vague complaint is not ' +
+  'evidence a mod is broken - say it is a single unconfirmed report. Comments ' +
+  'asking for features, or about unrelated games, are not breakage. If nothing ' +
+  'notable appears, say so in one short sentence. Do not repeat the build tag, ' +
+  'subscriber count or dates from the metadata. Do not invent anything. Plain ' +
+  'and factual, no roleplay, no emoji.';
+
+// Deterministic breakage signal, so the headline verdict reflects the comments
+// rather than depending on the model's prose. Deliberately crude: it only ever
+// downgrades YES to MAYBE and never blocks, because a keyword match is a reason
+// to look, not a conclusion.
+const BREAKAGE_RE = /\b(does\s?n[o']?t work|doesn'?t work|not working|broken|unusable|crash(es|ing|ed)?|stopped working|no longer works?|does\s?n[o']?t (show|appear|spawn)|doesn'?t (show|appear|spawn)|not (showing|appearing|spawning))\b/i;
+const MP_RE = /\b(multiplayer|server|mp|dedicated|coop|co-op)\b/i;
+
+function applyCommentSignal(check, comments, server) {
+  const broken = comments.filter((c) => BREAKAGE_RE.test(c.text));
+  if (!broken.length) return;
+
+  const mpRelated = broken.filter((c) => MP_RE.test(c.text)).length;
+  const major = String(server.gameBuild);
+  const buildRelated = broken.filter((c) => new RegExp(`\\b${major}(\\.\\d+)*\\b`).test(c.text)).length;
+
+  let msg = `${broken.length} of ${comments.length} recent comments report problems`;
+  const qualifiers = [];
+  if (mpRelated) qualifiers.push(`${mpRelated} mentioning multiplayer or servers`);
+  if (buildRelated) qualifiers.push(`${buildRelated} mentioning build ${major}`);
+  msg += qualifiers.length ? ` (${qualifiers.join(', ')}).` : '.';
+
+  check.warnings.push(msg);
+  if (check.verdict === 'YES') check.verdict = 'MAYBE';
+}
 
 /** Short model note on the things metadata can't answer. */
-async function describeCaveats(check, server) {
+async function describeCaveats(check, server, comments = []) {
   const f = check.facts;
+  const commentBlock = comments.length
+    ? comments.slice(0, 15).map((c) => `[${c.date}] ${c.author}: ${c.text}`).join('\n')
+    : '(no comments on the Workshop page)';
   try {
     const note = await getAIResponse(
       [
-        `Server runs Project Zomboid Build ${server.gameBuild}, multiplayer, ${server.installedMods.length} mods installed.`,
+        `Server runs Project Zomboid ${server.version || `Build ${server.gameBuild}`}, multiplayer, ${server.installedMods.length} mods installed.`,
         `Installed mods: ${server.installedMods.join(', ') || 'none'}`,
         '',
         `Requested mod: ${f.title}`,
         `Tags: ${f.tags.join(', ') || 'none'}`,
-        `Description:\n${f.description.slice(0, 1500) || '(empty)'}`,
+        `Description:\n${f.description.slice(0, 1200) || '(empty)'}`,
+        '',
+        `Recent Workshop comments (${comments.length} fetched):`,
+        commentBlock,
       ].join('\n'),
-      { rawSystemPrompt: SYSTEM_PROMPT, maxTokens: 160 }
+      { rawSystemPrompt: SYSTEM_PROMPT, maxTokens: 220 }
     );
     return (note || '').trim();
   } catch (err) {
@@ -158,6 +263,7 @@ function formatReply(check, note) {
   if (f.updated) meta.push(`updated ${f.updated}`);
   if (f.subs !== null) meta.push(`${f.subs} subscribers`);
   if (f.sizeMb !== null) meta.push(`${f.sizeMb} MB`);
+  if (f.commentCount) meta.push(`${f.commentCount} comments read`);
   if (meta.length) lines.push(meta.join(' | '));
 
   if (f.modIds.length) lines.push(`Mod ID: \`${f.modIds.join('`, `')}\``);
@@ -182,8 +288,14 @@ async function checkRequest(text, server, { maxItems = 3 } = {}) {
   const blocks = [];
   for (const item of items) {
     const check = assess(item, server);
-    // Blocked items are already fully explained by metadata; skip the model call.
-    const note = check.ok ? await describeCaveats(check, server) : '';
+    // Blocked items are already fully explained by metadata; skip the extra work.
+    let note = '';
+    if (check.ok) {
+      const comments = await fetchComments(item.creator, item.publishedfileid);
+      check.facts.commentCount = comments.length;
+      applyCommentSignal(check, comments, server);
+      note = await describeCaveats(check, server, comments);
+    }
     blocks.push(formatReply(check, note));
   }
   return blocks.join('\n\n');
@@ -196,9 +308,14 @@ async function checkRequest(text, server, { maxItems = 3 } = {}) {
  * @param {string} iniPath
  * @param {number} gameBuild
  */
-function readServerConfig(iniPath, gameBuild) {
+function readServerConfig(iniPath, gameBuild, logDir = null) {
   const fs = require('fs');
-  const out = { gameBuild, installedWorkshopIds: [], installedMods: [] };
+  const out = {
+    gameBuild,
+    version: logDir ? detectServerVersion(logDir) : null,
+    installedWorkshopIds: [],
+    installedMods: [],
+  };
   let text;
   try {
     text = fs.readFileSync(iniPath, 'utf8');
@@ -223,4 +340,6 @@ module.exports = {
   checkRequest,
   formatReply,
   readServerConfig,
+  fetchComments,
+  detectServerVersion,
 };

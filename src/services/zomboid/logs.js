@@ -31,8 +31,13 @@ function parseStamp(line) {
   const m = STAMP.exec(line);
   if (!m) return null;
   const [, dd, mm, yy, hh, mi, ss] = m;
+  // These stamps are UTC. The compose file mounts America/Chicago over the
+  // container's /etc/localtime, but PZ writes UTC regardless — verified against
+  // the host clock, the logs run exactly UTC ahead of it. Reading them as local
+  // time pushed every event into the future, which truncated the chronicle's
+  // 24h window and let stale incidents past the raid watcher's watermark.
   // Two-digit year; PZ has no year-2100 problem worth worrying about.
-  return new Date(2000 + +yy, +mm - 1, +dd, +hh, +mi, +ss).getTime();
+  return Date.UTC(2000 + +yy, +mm - 1, +dd, +hh, +mi, +ss);
 }
 
 /**

@@ -21,7 +21,7 @@
  * distinguish a rage-quit from a crash. Messages say so, on purpose.
  */
 const { getGuildConfig } = require('../../config/guilds');
-const { linesSince, parseStamp } = require('./logs');
+const { linesSince } = require('./logs');
 
 // `Combat: "A" (x,y,z) hit "B" (x,y,z) weapon="Crowbar (Bloody)" damage=0.02.`
 // Weapon names contain their own brackets, so the quotes do the delimiting.

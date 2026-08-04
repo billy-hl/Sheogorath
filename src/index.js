@@ -39,24 +39,7 @@ const { getGuildConfig, guildIds, hasFeature } = require('./config/guilds');
 const { musicDenialReason, commandDenialReason, commandsForGuild } = require('./utils/permissions');
 const { scheduleStoryTime } = require('./services/zomboid/storyTime');
 const { scheduleRaidWatch } = require('./services/zomboid/raidWatch');
-const { checkRequest, readServerConfig } = require('./services/zomboid/modCheck');
-
-/**
- * Reply to a Workshop link in the mod-requests channel with whether the server
- * can actually run it. Silent when the message contains no link, so ordinary
- * discussion in the channel isn't interrupted.
- */
-async function handleModRequest(message, zomboid) {
-  if (!zomboid?.serverIni) return;
-  const server = readServerConfig(zomboid.serverIni, zomboid.gameBuild || 42, zomboid.logDir);
-
-  await message.channel.sendTyping().catch(() => {});
-  const reply = await checkRequest(message.content, server);
-  if (!reply) return;
-
-  await message.reply({ content: reply, allowedMentions: { repliedUser: false } });
-  console.log(`[Zomboid] Vetted mod request from ${message.author.username}`);
-}
+const { handleThreadCreate } = require('./services/forums/handler');
 
 let lastInteractionTime = Date.now();
 const conversationHistory = new Map();
@@ -287,11 +270,9 @@ client.on('messageCreate', async (message) => {
     await handleInstagramLinks(message);
   }
 
-  // Vet Workshop links posted in the mod-requests channel.
-  if (hasFeature(guildId, 'zomboid') && message.channelId === config.zomboid?.channels?.modRequests) {
-    await handleModRequest(message, config.zomboid).catch(err =>
-      console.error('[Zomboid] Mod request check failed:', err?.message || err));
-  }
+  // Mod requests used to be vetted here, on every message in the text channel.
+  // They now arrive as forum posts and are handled by the threadCreate
+  // listener below, which fires once per request rather than once per link.
 
   if (!hasFeature(guildId, 'ai')) return;
 
@@ -318,6 +299,21 @@ client.on('messageCreate', async (message) => {
       askChatGPT(message);
     }
   }
+});
+
+/**
+ * New forum post in #suggestions or #mod-requests.
+ *
+ * `newlyCreated` separates a genuine new post from the thread objects the
+ * gateway replays when the bot gains access to an existing one — without it,
+ * a reconnect would re-vet and re-tag the whole forum.
+ */
+client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
+  if (!newlyCreated) return;
+  lastInteractionTime = Date.now();
+
+  await handleThreadCreate(thread).catch(err =>
+    console.error('[Forums] Thread handling failed:', err?.message || err));
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

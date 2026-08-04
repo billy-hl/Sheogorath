@@ -35,6 +35,7 @@ const FEATURES = [
   'textImageMod', // Ollama-backed ASCII/Unicode explicit-art filter
   'automod',      // Discord native AutoMod rule management, /automod
   'zomboid',      // Project Zomboid server integration
+  'forums',       // suggestion / mod-request forum channels, /forums
 ];
 
 let cache = null;
@@ -54,6 +55,10 @@ function normalizeGuild(id, raw) {
       // Voice channel the companion app joins when the bot isn't already
       // connected. Unused by the slash commands, which follow the caller.
       defaultVoice: channels.defaultVoice || null,
+      // Forum channel for general server suggestions. Guild-level rather than
+      // under `zomboid` because nothing about it is game-specific — only the
+      // mod-request forum needs Workshop knowledge.
+      suggestions: channels.suggestions || null,
     },
     roles: {
       // Grants bot admin without granting Discord Administrator.
@@ -178,6 +183,50 @@ function reload() {
   return load();
 }
 
+/** Plain-object deep merge. Arrays and scalars in `patch` replace wholesale. */
+function merge(base, patch) {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    out[k] = v && typeof v === 'object' && !Array.isArray(v)
+      ? merge(out[k] && typeof out[k] === 'object' && !Array.isArray(out[k]) ? out[k] : {}, v)
+      : v;
+  }
+  return out;
+}
+
+/**
+ * Persist a patch into one guild's entry in config/guilds.json.
+ *
+ * Written against the raw file rather than the normalized cache so that keys
+ * this module doesn't know about — and the placeholder entries the file keeps
+ * on purpose — survive the round-trip. Used by the forum setup routine to
+ * record the channel IDs it creates, which otherwise would have to be
+ * copy-pasted in by hand.
+ *
+ * @param {string} guildId
+ * @param {object} patch deep-merged into the existing entry
+ * @throws if the file cannot be read or written — callers report it rather
+ *   than silently leaving created channels unwired.
+ */
+function updateGuildConfig(guildId, patch) {
+  if (!SNOWFLAKE.test(guildId)) throw new Error(`"${guildId}" is not a guild ID.`);
+
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw new Error(`Could not read ${CONFIG_FILE}: ${err.message}`);
+    raw = {};
+  }
+
+  raw[guildId] = merge(raw[guildId] || {}, patch);
+
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n', 'utf8');
+  reload();
+  return getGuildConfig(guildId);
+}
+
 module.exports = {
   FEATURES,
   CONFIG_FILE,
@@ -187,4 +236,5 @@ module.exports = {
   channelId,
   primaryGuildId,
   reload,
+  updateGuildConfig,
 };

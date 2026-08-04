@@ -274,17 +274,35 @@ function formatReply(check, note) {
   return lines.join('\n').slice(0, 1900);
 }
 
+/** Worst verdict wins, so one unusable mod in a post isn't hidden by a good one. */
+const VERDICT_RANK = { YES: 0, MAYBE: 1, NO: 2 };
+
+function worstVerdict(checks) {
+  return checks.reduce(
+    (worst, c) => (VERDICT_RANK[c.verdict] > VERDICT_RANK[worst] ? c.verdict : worst),
+    'YES'
+  );
+}
+
 /**
- * Full pipeline for one message's worth of links.
- * @returns {Promise<string|null>} reply text, or null when there was nothing to check
+ * Full pipeline for one message's worth of links, with the assessments kept.
+ *
+ * The forum handler needs the verdict as data — it drives which status tag
+ * gets applied to the post — so the structured results are returned alongside
+ * the rendered text rather than being thrown away after formatting.
+ *
+ * @returns {Promise<{text: string, checks: object[], verdict: string,
+ *   alreadyInstalled: boolean, ids: string[]}|null>} null when there was
+ *   nothing to check
  */
-async function checkRequest(text, server, { maxItems = 3 } = {}) {
+async function checkRequestDetailed(text, server, { maxItems = 3 } = {}) {
   const ids = parseWorkshopIds(text).slice(0, maxItems);
   if (!ids.length) return null;
 
   const items = await fetchWorkshopItems(ids);
   if (!items.length) return null;
 
+  const checks = [];
   const blocks = [];
   for (const item of items) {
     const check = assess(item, server);
@@ -296,9 +314,26 @@ async function checkRequest(text, server, { maxItems = 3 } = {}) {
       applyCommentSignal(check, comments, server);
       note = await describeCaveats(check, server, comments);
     }
+    checks.push(check);
     blocks.push(formatReply(check, note));
   }
-  return blocks.join('\n\n');
+
+  return {
+    text: blocks.join('\n\n'),
+    checks,
+    verdict: worstVerdict(checks),
+    alreadyInstalled: checks.some((c) => c.facts.alreadyInstalled),
+    ids,
+  };
+}
+
+/**
+ * Full pipeline for one message's worth of links.
+ * @returns {Promise<string|null>} reply text, or null when there was nothing to check
+ */
+async function checkRequest(text, server, opts = {}) {
+  const result = await checkRequestDetailed(text, server, opts);
+  return result ? result.text : null;
 }
 
 /**
@@ -338,6 +373,7 @@ module.exports = {
   fetchWorkshopItems,
   assess,
   checkRequest,
+  checkRequestDetailed,
   formatReply,
   readServerConfig,
   fetchComments,

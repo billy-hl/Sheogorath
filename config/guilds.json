@@ -1,23 +1,35 @@
 {
   "380486886592086037": {
     "name": "wabbajack",
-    "features": ["ai", "music", "moderation", "instagram", "textImageMod", "automod"],
+    "features": [
+      "ai",
+      "music",
+      "moderation",
+      "instagram",
+      "textImageMod",
+      "automod"
+    ],
     "channels": {
       "music": "534553333034123289",
-      "defaultVoice": "949392766453043260"
+      "defaultVoice": "949392766453043260",
+      "suggestions": null
     },
     "roles": {
       "admin": "602514337495646228"
     },
     "zomboid": null
   },
-
   "444601986160263189": {
     "name": "zomboid",
-    "features": ["ai", "zomboid"],
+    "features": [
+      "ai",
+      "zomboid",
+      "forums"
+    ],
     "channels": {
       "music": null,
-      "defaultVoice": null
+      "defaultVoice": null,
+      "suggestions": "1534255127278649446"
     },
     "roles": {
       "admin": null
@@ -34,7 +46,7 @@
       "channels": {
         "storyTime": "1533322742407888896",
         "chatRelay": "1533903291405172810",
-        "modRequests": "1533306181362385017",
+        "modRequests": "1534255128339677205",
         "raidAlerts": "1533945700814033047",
         "events": null,
         "modUpdates": null
@@ -47,7 +59,10 @@
         "clusterWindowSeconds": 180,
         "minLeavers": 2,
         "soloFastLeaveSeconds": 60,
-        "ignoreWeapons": ["zombie", "vehicle"]
+        "ignoreWeapons": [
+          "zombie",
+          "vehicle"
+        ]
       }
     }
   }

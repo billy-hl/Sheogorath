@@ -11,14 +11,19 @@ const { getAIResponse } = require('../../ai/grok');
 const { getGuildConfig } = require('../../config/guilds');
 const { collectEvents } = require('./logs');
 
-const DEFAULT_HOUR = 21; // 9pm, server local time
+const DEFAULT_HOUR = 22; // 10pm, server local time
 const DISCORD_LIMIT = 2000;
 
 // This is a busy public server: a day can see 100+ names and 70+ deaths.
-// Feeding all of them produces a shapeless list, so the brief keeps the
-// headline figures and names only the most prominent handful.
-const MAX_NAMED_SURVIVORS = 12;
-const MAX_NAMED_DEATHS = 8;
+// Feeding all of them still produces a shapeless list, but the chronicle is
+// meant to name the room rather than a headline cast, so the brief carries a
+// generous slice and lets the model choose from it.
+const MAX_NAMED_SURVIVORS = 20;
+const MAX_NAMED_DEATHS = 14;
+// Leaderboards worth a sentence each — deep enough that quiet regulars and
+// one-day arrivals both surface.
+const MAX_NAMED_VETERANS = 8;
+const MAX_NAMED_BUILDERS = 8;
 
 /** Turn collected events into a compact brief for the model. */
 function buildBrief(events, chat = []) {
@@ -60,7 +65,7 @@ function buildBrief(events, chat = []) {
   const survivors = [...events.players.entries()]
     .filter(([, r]) => r.hoursSurvived !== null)
     .sort((a, b) => b[1].hoursSurvived - a[1].hoursSurvived)
-    .slice(0, 5);
+    .slice(0, MAX_NAMED_VETERANS);
   if (survivors.length) {
     lines.push('Longest-running characters (hours survived):');
     for (const [name, r] of survivors) lines.push(`  - ${name}: ${r.hoursSurvived}h`);
@@ -68,7 +73,7 @@ function buildBrief(events, chat = []) {
 
   const builders = [...events.builders.entries()]
     .sort((a, b) => (b[1].added + b[1].removed) - (a[1].added + a[1].removed))
-    .slice(0, 5);
+    .slice(0, MAX_NAMED_BUILDERS);
   if (builders.length) {
     lines.push('Construction and demolition:');
     for (const [name, r] of builders) {
@@ -90,19 +95,79 @@ function buildBrief(events, chat = []) {
 
 const SYSTEM_PROMPT =
   'You are the chronicler of a Project Zomboid multiplayer server set in the ' +
-  'Knox County outbreak. Write a short daily entry, past tense, in the voice ' +
-  'of a survivor keeping a journal by candlelight.\n\n' +
-  'Pick the TWO OR THREE most interesting threads from the brief and tell ' +
-  'those as a story. Ignore the rest. Do NOT walk through the brief in order, ' +
-  'do NOT recite every name, and do NOT quote counts unless one is genuinely ' +
-  'striking. A journal keeper writes about what struck them, not a tally.\n\n' +
-  'Never invent survivors, places, causes of death, or events that are not in ' +
-  'the brief — but you may write about how the day FELT. Two or three short ' +
-  'paragraphs, under 200 words. Dry gallows humour; never zany.';
+  'Knox County outbreak. Write the daily entry, past tense, in the voice of a ' +
+  'survivor keeping a journal by candlelight.\n\n' +
+  'FORMAT. The first line must be exactly "TITLE: <title>" — a wry title for ' +
+  'the day, eight words at most. Then one blank line, then the entry itself: ' +
+  'four or five short paragraphs, around 300 words.\n\n' +
+  'WHO TO WRITE ABOUT. Name as many survivors as the brief will carry — aim ' +
+  'for eight or more. The busiest, the unluckiest and the longest-lived each ' +
+  'deserve their own line. Someone who died five times, someone who tore down ' +
+  'half a house, someone a thousand hours in and someone on their first ' +
+  'afternoon all belong in the same entry. Do not shrink the day down to two ' +
+  'or three people, and do not simply walk the brief in order.\n\n' +
+  'TONE. Funny. Dry, deadpan gallows humour — the comedy of people making ' +
+  'terrible decisions in a collapsing world and recording them as though ' +
+  'nothing were unusual. Understatement lands harder than jokes. Be genuinely ' +
+  'amusing; never zany, no memes, no emoji.\n\n' +
+  'TRUTH. Never invent survivors, places, causes of death, or events absent ' +
+  'from the brief. Counts are facts — do not change them, though you need not ' +
+  'recite them all. You may invent how the day FELT: the weather, the smell of ' +
+  'the kitchen, what the chronicler privately thinks of these people.';
+
+/**
+ * Split the model's `TITLE:` line off the body and render it as a Discord
+ * heading.
+ *
+ * The marker is asked for explicitly rather than inferred from the shape of
+ * the first line, so a model that ignores the instruction degrades to an
+ * untitled entry instead of losing its opening sentence to a bad guess.
+ */
+function formatTitle(text) {
+  const m = /^\s*TITLE:\s*(.+?)\s*(?:\n|$)([\s\S]*)$/.exec(text);
+  if (!m) return text.trim();
+  const title = m[1].replace(/^["'*#\s]+|["'*\s]+$/g, '');
+  const body = m[2].trim();
+  if (!title) return body;
+  return body ? `## ${title}\n\n${body}` : `## ${title}`;
+}
+
+/**
+ * Break the chronicle into Discord-sized messages on paragraph boundaries.
+ *
+ * The entry is long enough now that a busy day can run past the 2000-char
+ * limit, and a second message reads better than a sentence cut in half.
+ */
+function splitForDiscord(text, limit = DISCORD_LIMIT) {
+  const chunks = [];
+  let current = '';
+
+  for (const para of text.split('\n\n')) {
+    const candidate = current ? `${current}\n\n${para}` : para;
+    if (candidate.length <= limit) {
+      current = candidate;
+      continue;
+    }
+    if (current) chunks.push(current);
+    // A single paragraph over the limit is pathological, but hard-split it
+    // rather than dropping it on the floor.
+    let rest = para;
+    while (rest.length > limit) {
+      chunks.push(rest.slice(0, limit));
+      rest = rest.slice(limit);
+    }
+    current = rest;
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
 
 /**
  * Generate the chronicle text. Returns null when the day had no activity worth
  * narrating, so a dead server doesn't post an empty daily message.
+ *
+ * The text may exceed Discord's per-message limit — `postStory` splits it.
  *
  * @returns {Promise<string|null>}
  */
@@ -118,12 +183,12 @@ async function generateStory(cfg, windowMs = 24 * 60 * 60 * 1000, client = null)
   const brief = buildBrief(events, chat);
   const story = await getAIResponse(
     `Here is today's activity on the server. Write the chronicle.\n\n${brief}`,
-    { rawSystemPrompt: SYSTEM_PROMPT, maxTokens: 500 }
+    { rawSystemPrompt: SYSTEM_PROMPT, maxTokens: 900 }
   );
 
   const text = (story || '').trim();
   if (!text) return null;
-  return text.length > DISCORD_LIMIT ? `${text.slice(0, DISCORD_LIMIT - 1)}…` : text;
+  return formatTitle(text);
 }
 
 /** Resolve the zomboid story-time config for a guild, or null if incomplete. */
@@ -201,8 +266,12 @@ async function postStory(client, guildId) {
     return null;
   }
 
-  await channel.send(story);
-  console.log(`[Zomboid] Posted story time to ${cfg.channelId} (${story.length} chars).`);
+  const parts = splitForDiscord(story);
+  for (const part of parts) await channel.send(part);
+  console.log(
+    `[Zomboid] Posted story time to ${cfg.channelId} ` +
+    `(${story.length} chars in ${parts.length} message${parts.length === 1 ? '' : 's'}).`
+  );
   return story;
 }
 
@@ -255,4 +324,6 @@ module.exports = {
   collectChat,
   storyConfig,
   msUntilNext,
+  formatTitle,
+  splitForDiscord,
 };

@@ -37,6 +37,7 @@
     "zomboid": {
       "logDir": "/home/allisteras/gameservers/zomboid/data/Logs",
       "serverIni": "/home/allisteras/gameservers/zomboid/data/Server/wabbajack.ini",
+      "workshopDir": "/home/allisteras/gameservers/zomboid/gamefiles/steamapps/workshop/content/108600",
       "gameBuild": 42,
       "rcon": {
         "host": "127.0.0.1",

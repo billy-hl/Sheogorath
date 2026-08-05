@@ -117,7 +117,14 @@ async function handleModRequest(thread, starter, config) {
   }
 
   await thread.sendTyping().catch(() => {});
-  const server = readServerConfig(zomboid.serverIni, zomboid.gameBuild || 42, zomboid.logDir);
+  const server = readServerConfig(
+    zomboid.serverIni,
+    zomboid.gameBuild || 42,
+    zomboid.logDir,
+    // Optional: lets the check read real `require=` lines out of mod.info for
+    // anything already downloaded, instead of inferring deps from prose.
+    zomboid.workshopDir || null
+  );
   const result = await checkRequestDetailed(text, server);
 
   // Index regardless of the verdict — a request that failed vetting is still a

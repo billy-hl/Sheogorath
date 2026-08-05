@@ -105,10 +105,92 @@ async function fetchWorkshopItems(ids) {
 }
 
 /**
+ * Every mod.info shipped inside a downloaded Workshop item.
+ *
+ * `require=` is the field PZ actually enforces at load, and the Workshop API
+ * does not return it — GetPublishedFileDetails carries tags and description and
+ * nothing else. So a mod whose dependency is declared only there passes vetting
+ * clean and then takes the server down at boot. When the item happens to be on
+ * disk already we can read the truth instead of guessing.
+ *
+ * @returns {Array<{id:string, name:string, require:string[]}>} empty when not downloaded
+ */
+function readModInfo(workshopDir, fileId) {
+  const fs = require('fs');
+  const path = require('path');
+  const found = [];
+
+  const walk = (dir, depth = 0) => {
+    if (depth > 5) return; // mods nest a few levels; deeper is someone else's problem
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full, depth + 1);
+      else if (e.name === 'mod.info') found.push(full);
+    }
+  };
+  walk(path.join(workshopDir, String(fileId)));
+
+  const out = [];
+  for (const file of found) {
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    const rec = { id: '', name: '', require: [] };
+    // Split on \r?\n, not \n: many mod.info files are CRLF, and in a JS regex
+    // \r is a line terminator — `.` will not cross it and `$` will not match
+    // before it, so an anchored pattern silently fails on every CRLF file.
+    for (const line of text.split(/\r?\n/)) {
+      const m = /^\s*(id|name|require)\s*=\s*(.*)$/i.exec(line);
+      if (!m) continue;
+      const key = m[1].toLowerCase();
+      const val = m[2].trim();
+      // `require=\ModA,\ModB` — the leading backslashes are decorative.
+      if (key === 'require') {
+        rec.require = val.split(',').map((s) => s.trim().replace(/^\\+/, '')).filter(Boolean);
+      } else {
+        rec[key] = val;
+      }
+    }
+    if (rec.id) out.push(rec);
+  }
+  return out;
+}
+
+// Prose dependency claims, for the usual case where the mod is not on disk yet.
+// Deliberately narrow: it only fires on an explicit "requires <Name>", because a
+// loose match turns every "requires a server restart" into a phantom dependency.
+const DESC_REQUIRE_RE =
+  /\b(?:requires|required|depends\s+on)\s*:?\s*(?:the\s+)?([A-Za-z][A-Za-z0-9_'. -]{1,38}?)(?=\s*(?:,|\.|\band\b|\bto\b|\bfor\b|\bmod\b|$))/gi;
+const DESC_REQUIRE_NOISE =
+  /^(a|an|the|server|restart|game|build|version|this|that|it|you|admin|admins|sandbox|option|options|player|players)$/i;
+
+/** @returns {string[]} dependency names claimed in prose. Advisory, not schema. */
+function requiresFromDescription(desc) {
+  const out = new Set();
+  for (const m of String(desc || '').matchAll(DESC_REQUIRE_RE)) {
+    const name = m[1].trim().replace(/\s+/g, ' ');
+    if (!name || DESC_REQUIRE_NOISE.test(name)) continue;
+    if (/\brestart\b|\bversion\b|\bbuild\b/i.test(name)) continue;
+    out.add(name);
+  }
+  return [...out];
+}
+
+/**
  * Deterministic verdict from Workshop metadata alone.
  *
  * @param {object} item raw Workshop record
- * @param {{gameBuild:number, installedWorkshopIds:string[], installedMods:string[]}} server
+ * @param {{gameBuild:number, installedWorkshopIds:string[], installedMods:string[],
+ *          workshopDir?:string}} server
  * @returns {{ok:boolean, verdict:string, blockers:string[], warnings:string[], facts:object}}
  */
 function assess(item, server) {
@@ -160,6 +242,28 @@ function assess(item, server) {
     warnings.push('Already installed on this server.');
   }
 
+  // Dependencies. Prefer mod.info when the item is on disk, since that is what
+  // PZ enforces; otherwise fall back to the description, flagged as unverified
+  // so nobody mistakes prose for schema.
+  const onDisk = server.workshopDir
+    ? readModInfo(server.workshopDir, item.publishedfileid)
+    : [];
+  const declared = [...new Set(onDisk.flatMap((r) => r.require))];
+  const requires = declared.length ? declared : requiresFromDescription(desc);
+  const requiresVerified = declared.length > 0;
+
+  for (const dep of requires) {
+    if (server.installedMods.includes(dep)) continue;
+    if (requiresVerified) {
+      blockers.push(`Requires "${dep}" (mod.info), which this server does not load.`);
+    } else {
+      warnings.push(
+        `The description says it requires "${dep}" — not installed here. ` +
+        'Unverified: the Workshop API does not expose dependencies, so confirm against mod.info.'
+      );
+    }
+  }
+
   return {
     ok: blockers.length === 0,
     verdict: blockers.length ? 'NO' : warnings.length ? 'MAYBE' : 'YES',
@@ -175,6 +279,8 @@ function assess(item, server) {
       sizeMb: item.file_size ? Math.round(Number(item.file_size) / 1048576 * 10) / 10 : null,
       description: desc,
       alreadyInstalled: alreadyItem || alreadyMod,
+      requires,
+      requiresVerified,
     },
   };
 }
@@ -342,14 +448,19 @@ async function checkRequest(text, server, opts = {}) {
  *
  * @param {string} iniPath
  * @param {number} gameBuild
+ * @param {string|null} logDir
+ * @param {string|null} workshopDir Steam workshop content dir for app 108600.
+ *   Optional — when set, `assess` reads real `require=` lines out of mod.info
+ *   for items already downloaded instead of guessing from the description.
  */
-function readServerConfig(iniPath, gameBuild, logDir = null) {
+function readServerConfig(iniPath, gameBuild, logDir = null, workshopDir = null) {
   const fs = require('fs');
   const out = {
     gameBuild,
     version: logDir ? detectServerVersion(logDir) : null,
     installedWorkshopIds: [],
     installedMods: [],
+    workshopDir,
   };
   let text;
   try {
@@ -378,4 +489,6 @@ module.exports = {
   readServerConfig,
   fetchComments,
   detectServerVersion,
+  readModInfo,
+  requiresFromDescription,
 };

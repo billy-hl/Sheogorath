@@ -29,7 +29,9 @@
     "channels": {
       "music": null,
       "defaultVoice": null,
-      "suggestions": "1534255127278649446"
+      "suggestions": "1534255127278649446",
+      "trading": "1534552667597307904",
+      "safehouseClaims": "1535064872956461076"
     },
     "roles": {
       "admin": null
@@ -37,12 +39,12 @@
     "zomboid": {
       "logDir": "/home/allisteras/gameservers/zomboid/data/Logs",
       "serverIni": "/home/allisteras/gameservers/zomboid/data/Server/wabbajack.ini",
-      "workshopDir": "/home/allisteras/gameservers/zomboid/gamefiles/steamapps/workshop/content/108600",
       "gameBuild": 42,
       "rcon": {
-        "host": "127.0.0.1",
+        "host": "192.168.50.100",
         "port": 27015,
-        "passwordEnv": "ZOMBOID_RCON_PASSWORD"
+        "passwordEnv": "ZOMBOID_RCON_PASSWORD",
+        "client": "/usr/local/bin/pzrcon.py"
       },
       "channels": {
         "storyTime": "1533322742407888896",
@@ -50,10 +52,11 @@
         "modRequests": "1534255128339677205",
         "raidAlerts": "1533945700814033047",
         "events": null,
-        "modUpdates": null
+        "modUpdates": "1533305942089924769",
+        "eulogies": "1535092551646847016"
       },
       "storyTimeHour": 22,
-      "workshopPollMinutes": 15,
+      "workshopPollMinutes": 3,
       "raidWatch": {
         "pollMinutes": 2,
         "contactWindowSeconds": 300,
@@ -64,7 +67,15 @@
           "zombie",
           "vehicle"
         ]
-      }
+      },
+      "workshopDir": "/home/allisteras/gameservers/zomboid/gamefiles/steamapps/workshop/content/108600",
+      "modUpdates": {
+        "autoRestart": true,
+        "settleMinutes": 2,
+        "minMinutesBetweenRestarts": 15,
+        "deferToNightlyMinutes": 15
+      },
+      "playersDb": "/home/allisteras/gameservers/zomboid/data/Saves/Multiplayer/wabbajack/players.db"
     }
   }
 }

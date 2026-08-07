@@ -44,8 +44,12 @@ function parseStamp(line) {
  * Every log file of a given kind, newest directory first. Rotation moves whole
  * files, so a basename appears once — but dedupe anyway in case we read
  * mid-rotation.
+ *
+ * `maxRotatedDirs` bounds how far back the walk goes. The default suits the
+ * 24-hour consumers; the leaderboard passes a much larger number because it
+ * reports all-time records and wants every rotated directory on disk.
  */
-function logFiles(logDir, kind) {
+function logFiles(logDir, kind, maxRotatedDirs = 3) {
   const seen = new Set();
   const out = [];
 
@@ -71,14 +75,13 @@ function logFiles(logDir, kind) {
       .sort()
       .reverse();
   } catch { /* no rotated dirs yet */ }
-  // Two days back is plenty for a 24h window and keeps the read cheap.
-  for (const dir of rotated.slice(0, 3)) collect(path.join(logDir, dir));
+  for (const dir of rotated.slice(0, maxRotatedDirs)) collect(path.join(logDir, dir));
 
   return out;
 }
 
-function* linesSince(logDir, kind, sinceMs) {
-  for (const file of logFiles(logDir, kind)) {
+function* linesSince(logDir, kind, sinceMs, maxRotatedDirs) {
+  for (const file of logFiles(logDir, kind, maxRotatedDirs)) {
     let content;
     try {
       content = fs.readFileSync(file, 'utf8');

@@ -25,6 +25,9 @@ const TAG = {
   INSTALLED: 'Installed',
   IMPLEMENTED: 'Implemented',
   DUPLICATE: 'Duplicate',
+  PENDING: 'Pending',
+  COMPLETED: 'Completed',
+  EXPIRED: 'Expired',
 };
 
 const t = (name, emoji, moderated = true) => ({ name, emoji: { id: null, name: emoji }, moderated });
@@ -91,9 +94,104 @@ const MOD_REQUESTS = {
   defaultTag: TAG.OPEN,
 };
 
-const FORUMS = [SUGGESTIONS, MOD_REQUESTS];
+/**
+ * In-character trading board.
+ *
+ * Unlike the two request forums, nothing here is vetted and no votes are
+ * added — a trade offer is not a proposal to be judged, and up/down reactions
+ * on someone's asking price would just be noise. The bot's whole job is
+ * bookkeeping: mark new offers Open, and sweep dead ones off the board so what
+ * remains is what's actually available.
+ */
+const TRADING = {
+  key: 'trading',
+  name: 'trading',
+  topic:
+    'In-character trading. One offer per post — tag it WTS (selling), WTB (buying) ' +
+    'or WTT (trading), and say where the handover happens. ' +
+    'Mark it Completed when the deal is done.',
+  guidelines:
+    'Post an offer, haggle in its thread, and tag it Completed when done. ' +
+    'Offers with no activity go stale and get swept off the board automatically.',
+  tags: [
+    // Status — bot and staff only, so a seller can't quietly un-expire a post.
+    t(TAG.OPEN, '🕓'),
+    t(TAG.PENDING, '🤝'),
+    t(TAG.COMPLETED, '✅'),
+    t(TAG.EXPIRED, '⌛'),
+    // What kind of offer — the poster's to set.
+    t('WTS', '💰', false),
+    t('WTB', '🛒', false),
+    t('WTT', '🔄', false),
+    // What it's about, so the board can be filtered.
+    t('Weapons', '🔫', false),
+    t('Food & Meds', '💊', false),
+    t('Vehicles', '🚗', false),
+    t('Building Mats', '🧱', false),
+    t('Services', '🔧', false),
+  ],
+  defaultTag: TAG.OPEN,
+  // Offers idle this long are swept. Overridable per guild via
+  // channels-adjacent config; see tradeSweep.js.
+  staleDays: 7,
+};
+
+/**
+ * Safehouse claims. Shaped like MOD_REQUESTS — one request per post, staff set
+ * a status tag — but with one hard rule the old text channel lacked.
+ *
+ * That channel's topic asked claimants to "post the building address or map
+ * coordinates". On 2026-08-06 someone did, and other players immediately
+ * pointed out they had just published their own base ("edit your xy out cuz you
+ * exposing yourself"). A public claims board cannot ask for locations: anyone
+ * reading it learns where the loot is. So the location goes to staff privately
+ * and the post carries only what is safe to read.
+ */
+const SAFEHOUSE_CLAIMS = {
+  key: 'safehouseClaims',
+  name: 'safehouse-claims',
+  topic:
+    'Claim a player-built safehouse. DO NOT post coordinates, addresses or map ' +
+    'locations — this channel is public and that tells raiders where you live. ' +
+    'Staff will ask for the location privately. One claim per post.',
+  guidelines:
+    'Post the in-game name of the claim and who should be on it. Leave the ' +
+    'location out — staff will ask you for it in private, or read it off your ' +
+    'in-game ticket. Staff set the status tag as the claim is processed.',
+  tags: [
+    t(TAG.OPEN, '🕓'),
+    t(TAG.UNDER_REVIEW, '🔍'),
+    t(TAG.APPROVED, '✅'),
+    t(TAG.DENIED, '⛔'),
+    t(TAG.DUPLICATE, '♻️'),
+    t(TAG.EXPIRED, '⌛'),
+    // What kind of claim — the poster's to set.
+    t('New Claim', '🏠', false),
+    t('Add Member', '👥', false),
+    t('Transfer', '🤝', false),
+    t('Release', '📤', false),
+  ],
+  defaultTag: TAG.OPEN,
+};
+
+const FORUMS = [SUGGESTIONS, MOD_REQUESTS, TRADING, SAFEHOUSE_CLAIMS];
+
+/**
+ * Forums whose new posts get up/down reactions. Trading is deliberately
+ * excluded — see the note on TRADING.
+ */
+const VOTE_FORUM_KEYS = new Set([SUGGESTIONS.key, MOD_REQUESTS.key]);
 
 /** Up/down reactions added to every new post so staff can read interest. */
 const VOTE_EMOJI = ['👍', '👎'];
 
-module.exports = { TAG, SUGGESTIONS, MOD_REQUESTS, FORUMS, VOTE_EMOJI };
+module.exports = {
+  TAG,
+  SUGGESTIONS,
+  MOD_REQUESTS,
+  TRADING,
+  SAFEHOUSE_CLAIMS,
+  FORUMS,
+  VOTE_EMOJI,
+  VOTE_FORUM_KEYS,
+};

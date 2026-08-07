@@ -1,7 +1,6 @@
 'use strict';
 const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { getAIResponse } = require('../ai/grok');
-const { generateImage } = require('../ai/krea');
+const { getAIResponse, generateImage } = require('../ai/grok');
 
 module.exports = {
   data: new SlashCommandBuilder()

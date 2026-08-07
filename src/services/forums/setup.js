@@ -38,17 +38,22 @@ function missingPermissions(guild) {
   return REQUIRED.filter(([, flag]) => !me.permissions.has(flag)).map(([name]) => name);
 }
 
-/** Where in the guild config a given forum's channel ID lives. */
+/**
+ * Where in the guild config a given forum's channel ID lives.
+ *
+ * Only mod requests sit under `zomboid` — that forum is the one that needs
+ * Workshop and server-ini knowledge. The rest are ordinary guild channels.
+ */
 function configuredId(config, spec) {
   return spec.key === 'modRequests'
     ? config?.zomboid?.channels?.modRequests || null
-    : config?.channels?.suggestions || null;
+    : config?.channels?.[spec.key] || null;
 }
 
 function configPatch(spec, id) {
   return spec.key === 'modRequests'
     ? { zomboid: { channels: { modRequests: id } } }
-    : { channels: { suggestions: id } };
+    : { channels: { [spec.key]: id } };
 }
 
 /**
@@ -163,7 +168,7 @@ async function createForum(guild, spec, parentId, reason) {
  * sorts away from the live forum. Deliberately not deleted — the request
  * history is the reason the channel existed.
  */
-async function archiveTextChannel(channel, reason) {
+async function archiveTextChannel(channel, forum, reason) {
   const suffix = '-archive';
   const name = channel.name.endsWith(suffix) ? channel.name : `${channel.name}${suffix}`.slice(0, 100);
   await channel.permissionOverwrites.edit(
@@ -172,6 +177,18 @@ async function archiveTextChannel(channel, reason) {
     { reason }
   );
   await channel.setName(name, reason);
+  // The old topic is still live instructions. safehouse-claims asked people to
+  // "post the building address or map coordinates", which is exactly what the
+  // replacement forum exists to stop — leaving it up would keep teaching the
+  // habit from a read-only channel nobody is moderating.
+  try {
+    await channel.setTopic(
+      forum ? `Archived — read only. Use <#${forum.id}> instead.` : 'Archived — read only.',
+      reason
+    );
+  } catch {
+    /* topic is cosmetic; a failure here must not fail the retire */
+  }
   return name;
 }
 
@@ -217,7 +234,7 @@ async function apply(guild, config) {
 
     if (channel) {
       try {
-        const renamed = await archiveTextChannel(channel, reason);
+        const renamed = await archiveTextChannel(channel, forum, reason);
         results.push(`Locked #${renamed} to read-only — its history is preserved.`);
       } catch (err) {
         warnings.push(`Created the forum, but could not archive #${channel.name}: ${err.message}`);

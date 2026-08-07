@@ -14,7 +14,15 @@
  */
 const { ChannelType } = require('discord.js');
 const { getGuildConfig, hasFeature } = require('../../config/guilds');
-const { TAG, SUGGESTIONS, MOD_REQUESTS, VOTE_EMOJI } = require('./spec');
+const {
+  TAG,
+  SUGGESTIONS,
+  MOD_REQUESTS,
+  TRADING,
+  SAFEHOUSE_CLAIMS,
+  VOTE_EMOJI,
+  VOTE_FORUM_KEYS,
+} = require('./spec');
 const { findWorkshopDuplicates, findSimilarSuggestions, indexPost } = require('./duplicates');
 const { checkRequestDetailed, parseWorkshopIds, readServerConfig } = require('../zomboid/modCheck');
 
@@ -171,6 +179,40 @@ async function handleSuggestion(thread) {
 }
 
 /**
+ * A pair or triple of map-sized numbers — `1107,12862,0`, `8614 8830` — which
+ * is how PZ reports a position and how people paste one in.
+ *
+ * Both numbers must be 3-5 digits, which is the range the Knox County map
+ * actually spans. That keeps ordinary prose ("all 12 of us") out of it while
+ * still catching the copy-paste from the in-game ticket that caused the leak
+ * this forum was created to prevent.
+ *
+ * The gap between them is any run of up to three non-digits, so `1107,12862`,
+ * `8614 8830` and `x=3564 y=10901` all match while "1200 planks and 3000 nails"
+ * (a five-character gap) does not.
+ */
+const COORDS = /(?<!\d)\d{3,5}\D{0,3}\d{3,5}(?:\D{0,3}-?\d{1,2})?(?!\d)/;
+
+/**
+ * Tell a claimant to edit their location out.
+ *
+ * Deliberately a nudge and not a deletion: removing someone's post costs them
+ * the claim, and the damage from a leak is already done the moment it is
+ * posted. Saying so quickly is what the players themselves did by hand.
+ */
+async function warnIfLocationLeaked(thread, starter) {
+  const body = `${thread.name}\n${starter?.content || ''}`;
+  if (!COORDS.test(body)) return;
+
+  await thread.send(
+    '⚠️ This post looks like it contains **map coordinates**. This forum is public — ' +
+    'anyone reading it can find your base. Please edit them out; staff will ask you ' +
+    'for the location privately if they need it.'
+  );
+  console.log(`[Forums] Warned about a possible location leak in "${thread.name}".`);
+}
+
+/**
  * Entry point for the threadCreate event.
  *
  * Silent for anything that isn't a post in one of the two configured forums,
@@ -196,17 +238,31 @@ async function handleThreadCreate(thread) {
   if (!config) return;
 
   const parentId = thread.parentId;
-  const isSuggestions = parentId === config.channels?.suggestions;
-  const isModRequests = parentId === config.zomboid?.channels?.modRequests;
-  if (!isSuggestions && !isModRequests) return;
+  const spec =
+    parentId === config.zomboid?.channels?.modRequests ? MOD_REQUESTS
+      : parentId === config.channels?.suggestions ? SUGGESTIONS
+        : parentId === config.channels?.trading ? TRADING
+          : parentId === config.channels?.safehouseClaims ? SAFEHOUSE_CLAIMS
+            : null;
+  if (!spec) return;
 
   const starter = await fetchStarter(thread);
-  await addVoteReactions(starter);
+  if (VOTE_FORUM_KEYS.has(spec.key)) await addVoteReactions(starter);
 
-  if (isModRequests) {
+  if (spec === MOD_REQUESTS) {
     await handleModRequest(thread, starter, config);
-  } else {
+  } else if (spec === SUGGESTIONS) {
     await handleSuggestion(thread);
+  } else if (spec === SAFEHOUSE_CLAIMS) {
+    // Claims are staff work, not a vote, and there is nothing to vet
+    // automatically. Mark it Open and warn if the poster published a location
+    // despite the channel topic.
+    await applyStatusTag(thread, SAFEHOUSE_CLAIMS, TAG.OPEN);
+    await warnIfLocationLeaked(thread, starter);
+  } else {
+    // Trading: bookkeeping only. No vetting, no duplicate check — two people
+    // selling the same rifle are not duplicates, they're competition.
+    await applyStatusTag(thread, TRADING, TAG.OPEN);
   }
 }
 

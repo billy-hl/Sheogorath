@@ -199,10 +199,29 @@ async function extractMemoryFromMessage(username, message) {
   }
 }
 
+function httpsGetBuffer(url, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, res => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`Image download failed: ${res.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error('timeout')); });
+    req.on('error', reject);
+  });
+}
+
 /**
  * Generate an image from a text prompt using Grok Imagine.
+ * xAI hands back a temporary URL, so the bytes are pulled down here and
+ * uploaded to Discord as an attachment rather than hotlinked.
  * @param {string} prompt - Text description of the image
- * @returns {Promise<string>} - URL of the generated image
+ * @returns {Promise<Buffer>} - PNG bytes of the generated image
  */
 async function generateImage(prompt) {
   const response = await httpsPost(
@@ -219,7 +238,12 @@ async function generateImage(prompt) {
   if (response.status !== 200) {
     throw new Error(`Image generation failed: ${response.status} - ${JSON.stringify(response.data)}`);
   }
-  return response.data.data[0].url;
+  const url = response.data?.data?.[0]?.url;
+  if (!url) {
+    throw new Error(`Image generation returned no URL: ${JSON.stringify(response.data)}`);
+  }
+  console.log('[Grok Imagine] Image ready, downloading');
+  return await httpsGetBuffer(url);
 }
 
 module.exports = { getAIResponse, getAIResponseWithHistory, getGrokUsage, extractMemoryFromMessage, generateImage };

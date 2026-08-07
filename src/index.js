@@ -36,10 +36,19 @@ const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature } = require('./config/guilds');
-const { musicDenialReason, commandDenialReason, commandsForGuild } = require('./utils/permissions');
-const { scheduleStoryTime } = require('./services/zomboid/storyTime');
+const {
+  musicDenialReason,
+  commandDenialReason,
+  commandsForGuild,
+  isAdmin,
+  STAFF_COMMANDS,
+} = require('./utils/permissions');
+const { logCommand, setClient: setAuditClient } = require('./utils/auditLog');
 const { scheduleRaidWatch } = require('./services/zomboid/raidWatch');
+const { scheduleModUpdates } = require('./services/zomboid/modUpdates');
+const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { handleThreadCreate } = require('./services/forums/handler');
+const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
 
 let lastInteractionTime = Date.now();
 const conversationHistory = new Map();
@@ -145,6 +154,7 @@ for (const file of commandFiles) {
 
 client.once(Events.ClientReady, async () => {
   setClient(client); // Enable error notifications
+  setAuditClient(client); // Enable the command-log channel mirror
 
   // Control API for the companion app. Started after ready so it never reports
   // healthy before the client can actually act on a request. Failure here must
@@ -173,13 +183,10 @@ client.once(Events.ClientReady, async () => {
     }
   }
 
-  // Daily Project Zomboid chronicle. Isolated so a bad log path can't take
-  // the bot down with it.
-  try {
-    scheduleStoryTime(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule story time:', err?.message || err);
-  }
+  // The daily Project Zomboid chronicle is no longer scheduled here. It runs as
+  // a Claude Code scheduled task instead, which reads the same logs over SSH and
+  // posts to the same channel. `services/zomboid/storyTime.js` is kept because
+  // that task reuses its log collection and Discord splitting.
 
   // Watch for players quitting mid-fight to seal their safehouse. Isolated for
   // the same reason as above.
@@ -187,6 +194,29 @@ client.once(Events.ClientReady, async () => {
     scheduleRaidWatch(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule raid watch:', err?.message || err);
+  }
+
+  // Watch the Workshop for updates to the mods the server runs. Isolated too —
+  // this one can trigger a server restart, so a fault in it must not cascade.
+  try {
+    scheduleModUpdates(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule mod update watch:', err?.message || err);
+  }
+
+  // Say goodbye to characters who die. Isolated like the rest — this one calls
+  // out to the model, so a provider outage must not take the bot down.
+  try {
+    scheduleEulogies(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule eulogies:', err?.message || err);
+  }
+
+  // Sweep stale offers off the trading board.
+  try {
+    scheduleTradeSweep(client);
+  } catch (err) {
+    console.error('[Trading] Failed to schedule stale sweep:', err?.message || err);
   }
 
   // Clean up old temp files on startup (older than 1 hour)
@@ -380,6 +410,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    // Autocomplete arrives as its own interaction type and must be answered
+    // within 3s with respond() — it has no reply()/deferReply(), so it is routed
+    // before the chat-command path and skips the denial, cooldown and audit
+    // steps below, none of which can express themselves in a picker.
+    if (interaction.isAutocomplete()) {
+      const command = interaction.client.commands.get(interaction.commandName);
+      if (command?.autocomplete) {
+        try {
+          await command.autocomplete(interaction);
+        } catch (error) {
+          console.error(`Autocomplete for /${interaction.commandName} failed:`, error);
+        }
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const command = interaction.client.commands.get(interaction.commandName);
@@ -389,8 +435,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    // Privileged commands are mirrored to the guild's log channel; everything
+    // is written to logs/commands.jsonl either way.
+    const privileged = STAFF_COMMANDS.has(interaction.commandName) || isAdmin(interaction.member);
+
     const denied = commandDenialReason(interaction.commandName, interaction.guildId, interaction.member);
     if (denied) {
+      // Refused attempts are the ones most worth having a record of.
+      logCommand(interaction, { status: 'denied', detail: denied, privileged });
       return interaction.reply({ content: denied, flags: 64 });
     }
 
@@ -409,7 +461,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Track command usage
     trackCommand(interaction.commandName);
 
-    await command.execute(interaction);
+    try {
+      await command.execute(interaction);
+      logCommand(interaction, { privileged });
+    } catch (error) {
+      // Logged here, where the arguments are still to hand, then rethrown so
+      // the outer handler still owns telling the user.
+      logCommand(interaction, {
+        status: 'error',
+        detail: error?.message || String(error),
+        privileged,
+      });
+      throw error;
+    }
 
   } catch (error) {
     console.error('Interaction error:', error);

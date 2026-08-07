@@ -31,10 +31,14 @@
       "defaultVoice": null,
       "suggestions": "1534255127278649446",
       "trading": "1534552667597307904",
-      "safehouseClaims": "1535064872956461076"
+      "safehouseClaims": "1535064872956461076",
+      "commandLog": null
     },
     "roles": {
-      "admin": null
+      "admin": "1408619717438210139",
+      "staff": "1535382513999151124",
+      "veteran": "1408620624724758558",
+      "member": "1408621241132122112"
     },
     "zomboid": {
       "logDir": "/home/allisteras/gameservers/zomboid/data/Logs",
@@ -75,7 +79,8 @@
         "minMinutesBetweenRestarts": 15,
         "deferToNightlyMinutes": 15
       },
-      "playersDb": "/home/allisteras/gameservers/zomboid/data/Saves/Multiplayer/wabbajack/players.db"
+      "playersDb": "/home/allisteras/gameservers/zomboid/data/Saves/Multiplayer/wabbajack/players.db",
+      "gameDir": "/home/allisteras/gameservers/zomboid/gamefiles"
     }
   }
 }

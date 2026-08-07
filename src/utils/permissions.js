@@ -27,12 +27,21 @@ const COMMAND_FEATURES = {
   mod: 'moderation',
   stats: 'moderation',
   automod: 'automod',
+
+  leaderboard: 'zomboid',
+  pz: 'zomboid',
 };
 
 /** Music additionally requires admin, not just the feature. */
 const MUSIC_COMMANDS = new Set(
   Object.keys(COMMAND_FEATURES).filter((name) => COMMAND_FEATURES[name] === 'music')
 );
+
+/**
+ * Commands that need the in-game staff tier (Sheriff) rather than full bot
+ * admin. Admins pass these too — isStaff() subsumes isAdmin().
+ */
+const STAFF_COMMANDS = new Set(['pz']);
 
 /**
  * Whether a member counts as an admin in their guild.
@@ -54,6 +63,26 @@ function isAdmin(member) {
 
   const adminRoleId = getGuildConfig(member.guild.id)?.roles.admin;
   return !!adminRoleId && member.roles.cache.has(adminRoleId);
+}
+
+/**
+ * Whether a member holds the in-game staff tier — the rung between admin and
+ * VIP that carries the Project Zomboid admin commands.
+ *
+ * Admins are staff by definition, so the ladder stays a ladder: anything a
+ * Sheriff can do, an Overseer can do. Kept separate from isAdmin() because the
+ * grants are different in kind — a Sheriff is trusted with the game server, not
+ * with the bot's moderation and automod surfaces.
+ *
+ * @param {import('discord.js').GuildMember} member
+ * @returns {boolean}
+ */
+function isStaff(member) {
+  if (isAdmin(member)) return true;
+  if (!member || !member.guild) return false;
+
+  const staffRoleId = getGuildConfig(member.guild.id)?.roles.staff;
+  return !!staffRoleId && member.roles.cache.has(staffRoleId);
 }
 
 /**
@@ -82,6 +111,9 @@ function commandDenialReason(commandName, guildId, member) {
   if (MUSIC_COMMANDS.has(commandName) && !isAdmin(member)) {
     return '❌ Music controls are admin-only.';
   }
+  if (STAFF_COMMANDS.has(commandName) && !isStaff(member)) {
+    return '❌ Server admin commands are limited to Sheriffs and Overseers.';
+  }
   return null;
 }
 
@@ -102,8 +134,10 @@ function commandsForGuild(allCommands, guildId) {
 
 module.exports = {
   isAdmin,
+  isStaff,
   COMMAND_FEATURES,
   MUSIC_COMMANDS,
+  STAFF_COMMANDS,
   musicDenialReason,
   commandDenialReason,
   commandsForGuild,

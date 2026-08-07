@@ -59,10 +59,29 @@ function normalizeGuild(id, raw) {
       // under `zomboid` because nothing about it is game-specific — only the
       // mod-request forum needs Workshop knowledge.
       suggestions: channels.suggestions || null,
+      // Forum channel for in-character trading offers.
+      trading: channels.trading || null,
+      // Forum channel for safehouse claims.
+      safehouseClaims: channels.safehouseClaims || null,
+      // Where privileged command invocations are mirrored, so admins can see
+      // what staff did without reading logs/commands.jsonl on the host. Every
+      // command is recorded to that file regardless of this setting.
+      commandLog: channels.commandLog || null,
     },
     roles: {
+      // The guild's role ladder, highest first. Only `admin` and `staff` gate
+      // anything; `veteran` and `member` are recorded so the rename tooling and
+      // any future perk checks have one place to look rather than re-deriving
+      // IDs from role names, which people rename.
+
       // Grants bot admin without granting Discord Administrator.
       admin: roles.admin || null,
+      // One rung below admin: the in-game staff tier (Sheriff). Carries the
+      // Project Zomboid admin commands — /pz — and nothing else, so a game
+      // moderator doesn't also get music, automod and the moderation suite.
+      staff: roles.staff || null,
+      veteran: roles.veteran || null,
+      member: roles.member || null,
     },
     zomboid: raw.zomboid || null,
   };

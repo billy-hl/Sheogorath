@@ -64,11 +64,17 @@ const DEFAULTS = {
   // warning (see WARN_MINUTES in zomboid-nightly-restart.sh) without changing
   // what the nightly timer does. Same script, same backup and rollback.
   restartService: 'zomboid-modrestart.service',
-  // Both units run the same script against the same container, so "is a
-  // restart already in progress" has to consider either of them. Checking only
+  // Every one of these runs the same script against the same container, so "is
+  // a restart already in progress" has to consider all of them. Checking only
   // our own would let a mod update fire on top of a running nightly, which
-  // stops the container mid-backup.
-  conflictingServices: ['zomboid-restart.service', 'zomboid-modrestart.service'],
+  // stops the container mid-backup. zomboid-adminrestart is the transient unit
+  // behind /pz restart — named rather than auto-generated precisely so it is
+  // visible here.
+  conflictingServices: [
+    'zomboid-restart.service',
+    'zomboid-modrestart.service',
+    'zomboid-adminrestart.service',
+  ],
   nightlyTimer: 'zomboid-restart.timer',
   // Where the restart script logs what it applied. World-readable, so this
   // needs no privilege of its own.

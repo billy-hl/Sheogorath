@@ -32,7 +32,7 @@
       "suggestions": "1534255127278649446",
       "trading": "1534552667597307904",
       "safehouseClaims": "1535064872956461076",
-      "commandLog": null
+      "commandLog": "1535750358905651294"
     },
     "roles": {
       "admin": "1408619717438210139",
@@ -57,7 +57,8 @@
         "raidAlerts": "1533945700814033047",
         "events": null,
         "modUpdates": "1533305942089924769",
-        "eulogies": "1535092551646847016"
+        "eulogies": "1535092551646847016",
+        "announcements": "1533305942089924769"
       },
       "storyTimeHour": 22,
       "workshopPollMinutes": 3,

@@ -21,6 +21,7 @@ const admin = require('../services/zomboid/admin');
 const items = require('../services/zomboid/items');
 const { characterName, playersDbPath } = require('../services/zomboid/players');
 const { collectPlayers, isAlive, knownSkills } = require('../services/zomboid/leaderboard');
+const restarts = require('../services/zomboid/restart');
 
 const COLOR = 0x8b1a1a;
 
@@ -70,6 +71,28 @@ function skillNames(logDir) {
 function label(dbPath, username) {
   const character = characterName(dbPath, { username });
   return character && character !== username ? `${character} (${username})` : username;
+}
+
+/**
+ * Where server-wide announcements go. Falls back through the channels a guild
+ * is likely to already have, so a restart is never announced into the void.
+ */
+function announceChannelId(cfg) {
+  return cfg.channels?.announcements || cfg.channels?.modUpdates || cfg.channels?.chatRelay || null;
+}
+
+/** "in 25 minutes" / "in 2h 10m" */
+function humanDelay(minutes) {
+  if (minutes <= 0) return 'now';
+  if (minutes < 60) return `in ${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `in ${h}h${m ? ` ${m}m` : ''}`;
+}
+
+/** Wall-clock label in the host's zone — the same clock the nightly timer uses. */
+function clockLabel(date) {
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 const toggleOption = (o) =>
@@ -165,7 +188,25 @@ module.exports = {
         .setName('say')
         .setDescription('Broadcast a message to everyone in-game')
         .addStringOption((o) =>
-          o.setName('message').setDescription('What to broadcast').setRequired(true))),
+          o.setName('message').setDescription('What to broadcast').setRequired(true)))
+    .addSubcommand((s) =>
+      s
+        .setName('restart')
+        .setDescription('Restart the server, announced in Discord and in-game')
+        .addStringOption((o) =>
+          o
+            .setName('when')
+            .setDescription('e.g. 20, 20m, 1h30m, 22:00, 10:30pm, now — default 5 minutes')
+            .setRequired(false))
+        .addStringOption((o) =>
+          o
+            .setName('reason')
+            .setDescription('Told to players, e.g. "for scheduled maintenance"')
+            .setRequired(false)))
+    .addSubcommand((s) =>
+      s.setName('restart-cancel').setDescription('Cancel a scheduled restart'))
+    .addSubcommand((s) =>
+      s.setName('restart-status').setDescription('Is a restart running or scheduled?')),
 
   /**
    * Autocomplete for the player / item / skill options.
@@ -225,7 +266,7 @@ module.exports = {
     // Public for the read-only views, quiet for the actions — the actions are
     // already recorded in the command log channel, so echoing them here too
     // would just be noise in whatever channel the Sheriff happened to use.
-    const quiet = !['players', 'info'].includes(sub);
+    const quiet = !['players', 'info', 'restart-status'].includes(sub);
     await interaction.deferReply(quiet ? { flags: 64 } : {});
 
     try {
@@ -375,19 +416,129 @@ module.exports = {
           return;
         }
 
+        case 'restart': {
+          const parsed = restarts.parseWhen(interaction.options.getString('when'));
+          if (parsed.error) {
+            await interaction.editReply(`❌ ${parsed.error}`);
+            return;
+          }
+
+          const reason = interaction.options.getString('reason');
+          const result = await restarts.startRestart(guildId, parsed.minutes, reason);
+          const when = result.minutes <= 0
+            ? 'now'
+            : `${humanDelay(result.minutes)} (${clockLabel(result.at)})`;
+          const because = result.reason ? ` — ${result.reason}` : '';
+
+          // In-game immediately. For a scheduled restart the script's own
+          // countdown doesn't start for a while, so without this players get no
+          // notice until ten minutes before.
+          await serverMessage(
+            guildId,
+            `SERVER RESTART ${result.minutes <= 0 ? 'STARTING NOW' : `${when}`}${because}`,
+          ).catch((err) => console.warn('[PZ] In-game restart notice failed:', err?.message || err));
+
+          // And in Discord, where the people who aren't logged in will see it.
+          const targetId = announceChannelId(cfg);
+          let announcedTo = null;
+          if (targetId) {
+            try {
+              const channel = await interaction.client.channels.fetch(targetId);
+              if (channel?.isTextBased()) {
+                await channel.send({
+                  embeds: [
+                    new EmbedBuilder()
+                      .setColor(COLOR)
+                      .setTitle('🔄 Server restart')
+                      .setDescription(
+                        result.minutes <= 0
+                          ? 'The server is restarting now.'
+                          : `The server will restart **${when}**.`,
+                      )
+                      .addFields(
+                        ...(result.reason
+                          ? [{ name: 'Reason', value: result.reason, inline: false }]
+                          : []),
+                        { name: 'Called by', value: `<@${interaction.user.id}>`, inline: true },
+                        {
+                          name: 'In-game warning',
+                          value: `${result.warnMinutes} min before`,
+                          inline: true,
+                        },
+                      )
+                      .setTimestamp(),
+                  ],
+                  allowedMentions: { parse: [] },
+                });
+                announcedTo = channel.id;
+              }
+            } catch (err) {
+              console.warn('[PZ] Restart announcement failed:', err?.message || err);
+            }
+          }
+
+          await interaction.editReply(
+            `✅ Restart ${result.scheduled ? 'scheduled' : 'starting'} ${when}${because}.\n` +
+              (result.scheduled
+                ? `Players get a ${result.warnMinutes}-minute in-game countdown. ` +
+                  'Cancel with `/pz restart-cancel`.\n'
+                : '') +
+              (announcedTo
+                ? `Announced in <#${announcedTo}> and in-game.`
+                : '⚠️ Announced in-game only — no announcement channel is configured.'),
+          );
+          return;
+        }
+
+        case 'restart-cancel': {
+          const cancelled = await restarts.cancelRestart();
+          if (!cancelled) {
+            await interaction.editReply(
+              'Nothing to cancel — no restart is scheduled. ' +
+                'A restart already counting down cannot be called off from here.',
+            );
+            return;
+          }
+          await serverMessage(guildId, 'The scheduled server restart has been called off.').catch(
+            () => {},
+          );
+          await interaction.editReply('✅ Scheduled restart cancelled, and players told in-game.');
+          return;
+        }
+
+        case 'restart-status': {
+          const [running, pending] = await Promise.all([
+            restarts.activeRestart(),
+            restarts.pendingRestart(),
+          ]);
+          const embed = new EmbedBuilder().setColor(COLOR).setTitle('🔄 Restart status');
+          if (running) {
+            embed.setDescription(`A restart is **in progress** right now (\`${running}\`).`);
+          } else if (pending) {
+            embed.setDescription(
+              pending.at
+                ? `A restart is **scheduled** for **${clockLabel(pending.at)}**.`
+                : 'A restart is **scheduled**.',
+            );
+          } else {
+            embed.setDescription('No restart running or scheduled. The nightly one still applies.');
+          }
+          await interaction.editReply({ embeds: [embed] });
+          return;
+        }
+
         default:
           await interaction.editReply('Unknown subcommand.');
       }
     } catch (err) {
-      // admin.js flags a missing player specifically; that's user error and
-      // gets the plain message, while anything else is worth the logs.
-      if (!err.notFound) {
+      // A missing player and a restart already in flight are both operator
+      // error with a message worth showing verbatim; anything else is ours.
+      const expected = err.notFound || err.alreadyRunning;
+      if (!expected) {
         console.error(`[PZ] /pz ${sub} failed:`, err?.message || err);
       }
       await interaction.editReply(
-        err.notFound
-          ? `❌ ${err.message}`
-          : `❌ That didn't work — the server may be down or restarting.`,
+        expected ? `❌ ${err.message}` : `❌ That didn't work — the server may be down or restarting.`,
       );
     }
   },

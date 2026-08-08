@@ -70,7 +70,7 @@ function isAdmin(member) {
  * VIP that carries the Project Zomboid admin commands.
  *
  * Admins are staff by definition, so the ladder stays a ladder: anything a
- * Sheriff can do, an Overseer can do. Kept separate from isAdmin() because the
+ * Sheriff can do, an Owner can do. Kept separate from isAdmin() because the
  * grants are different in kind — a Sheriff is trusted with the game server, not
  * with the bot's moderation and automod surfaces.
  *
@@ -112,7 +112,7 @@ function commandDenialReason(commandName, guildId, member) {
     return '❌ Music controls are admin-only.';
   }
   if (STAFF_COMMANDS.has(commandName) && !isStaff(member)) {
-    return '❌ Server admin commands are limited to Sheriffs and Overseers.';
+    return '❌ Server admin commands are limited to Sheriffs and Owners.';
   }
   return null;
 }

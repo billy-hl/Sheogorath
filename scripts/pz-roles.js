@@ -2,12 +2,16 @@
 'use strict';
 /**
  * Rename the guild's role ladder to the Project Zomboid theme and add the
- * Sheriff tier between it and the Overseers.
+ * Sheriff tier below the Owners.
  *
- *   Owner  -> Overseer   full bot admin (unchanged grants)
+ *   Owner                stays Owner — full bot admin, unchanged grants
  *   (new)  -> Sheriff    the PZ admin commands, /pz
  *   vip    -> Veteran    unchanged grants
  *   member -> Survivor   unchanged grants
+ *
+ * Owner keeps its name by choice. It also sits above the bot in the role list,
+ * so the bot could not rename it anyway — Discord refuses edits to roles at or
+ * above its own highest. Its ID is still recorded as roles.admin.
  *
  * Sheriff is created with **no Discord permissions of its own**. That's the
  * point of it: the bot recognises the role by ID (roles.staff in
@@ -50,9 +54,12 @@ const GUILD_ID = process.argv.find((a) => /^\d{17,20}$/.test(a)) || '44460198616
 // the new ladder legible at a glance in the member list.
 const SHERIFF_COLOR = 0xb8860b;
 
-/** oldName -> { to, configKey } — configKey is where the ID is recorded. */
+/**
+ * oldName -> { to, configKey } — configKey is where the ID is recorded.
+ * `to` equal to `from` means "record the ID, leave the name alone".
+ */
 const RENAMES = [
-  { from: 'owner', to: 'Overseer', configKey: 'admin' },
+  { from: 'owner', to: 'Owner', configKey: 'admin' },
   { from: 'vip', to: 'Veteran', configKey: 'veteran' },
   { from: 'member', to: 'Survivor', configKey: 'member' },
 ];

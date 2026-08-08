@@ -14,7 +14,7 @@
  *     final write (power loss mid-append) costs one record instead of the file.
  *
  *   a Discord channel — privileged commands only. The point of mirroring is that
- *     Overseers can see what Sheriffs did without shelling into the box, and
+ *     Owners can see what Sheriffs did without shelling into the box, and
  *     that stops being true if the channel is buried under `/play` spam.
  *
  * Failures to log are swallowed. An unwritable disk should not take down the

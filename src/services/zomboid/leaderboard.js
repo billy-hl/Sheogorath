@@ -8,11 +8,15 @@
  *   [06-08-26 20:49:23.288] [7656…][Chus115][1107,12862,0][Login][Hours Survived: 906].
  *   [06-08-26 20:49:23.288] [7656…][Chus115][1107,12862,0][Cooking=0, Fitness=7, …][Hours Survived: 906].
  *
- * That is the whole of the server-side progression record. There is deliberately
- * no kill leaderboard here: no PZ log writes a kill counter (checked every log
- * kind the server produces), and the only other copy lives inside the serialized
- * player blobs in players.db, whose field offsets shift between saves and cannot
- * be read reliably. A wrong number on a leaderboard is worse than a missing one.
+ * That is the whole of the server-side progression record. No kill counts live
+ * here: **zombie** kills are not written to any log the server produces, and the
+ * only copy lives inside the serialized player blobs in players.db, whose field
+ * offsets shift between saves and cannot be read reliably. A wrong number on a
+ * leaderboard is worse than a missing one.
+ *
+ * **Player** kills are a different story — the pvp log attributes those to a
+ * killer by name, and kills.js builds the board from it. The two are kept apart
+ * on purpose: these records are keyed by Steam ID, the pvp log has none.
  *
  * Players are keyed by **Steam ID**, never by name: names change, admins can
  * rename characters, and two characters can share a name. The most recently seen

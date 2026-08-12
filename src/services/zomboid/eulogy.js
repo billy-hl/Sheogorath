@@ -22,7 +22,7 @@
  */
 const { getAIResponse } = require('../../ai/grok');
 const { getGuildConfig } = require('../../config/guilds');
-const { linesSince } = require('./logs');
+const { linesSince, CHAT } = require('./logs');
 const { characterName } = require('./players');
 
 // `[7656…][Name][x,y,z][Died][Hours Survived: 133].`
@@ -30,10 +30,6 @@ const DIED = /^\[.+?\] \[(\d+)\]\[(.+?)\]\[([^\]]*)\]\[Died\]\[Hours Survived: (
 // `[7656…][Name][x,y,z][Cooking=0, Fitness=7, …][Hours Survived: 906].`
 const SKILL_DUMP =
   /^\[.+?\] \[(\d+)\]\[(.+?)\]\[[^\]]*\]\[([A-Za-z]\w*=-?\d+(?:,\s*[A-Za-z]\w*=-?\d+)*)\]\[Hours Survived: (\d+)\]/;
-// `Got message:ChatMessage{chat=General, author='Renny', text='whats aup'}.`
-// The `Message … sent to chat` line is the same message logged a second time, so
-// only this form is read.
-const CHAT = /Got message:ChatMessage\{chat=([^,]+), author='(.*?)', text='([\s\S]*)'\}\.?\s*$/;
 // `user Johnny Getwell died at (10734,9757,0) (non pvp).`
 const USER_DIED = /^\[.+?\] user (.+?) died at \((-?\d+),(-?\d+),(-?\d+)\) \((.+?)\)\.?$/;
 
@@ -112,7 +108,10 @@ function skillsAtDeath(logDir, steamid, deathAt, lookbackMs) {
       const [k, v] = pair.split('=');
       if (k && v !== undefined) skills[k.trim()] = Number(v);
     }
-    best = { skills, at };
+    // Hours come off the same line. The eulogy reads them from the death line
+    // instead, but a living character has no death line — the newest login dump
+    // is the only place a character sheet can get them.
+    best = { skills, at, hours: Number(m[4]) };
   }
   return best;
 }
@@ -305,29 +304,49 @@ async function checkOnce(client, guildId, now = Date.now()) {
       username: death.name,
     }) || death.name;
 
-    let result;
+    // A character sheet outlives its author by however long this loop takes, so
+    // the URL of the eulogy — if there is one — is carried down to the retire
+    // step and the sheet is retired either way. A life too short to earn a
+    // eulogy still has to stop claiming its owner is alive.
+    let eulogyUrl = null;
     try {
-      result = await generateEulogy(cfg, death, displayName);
-    } catch (err) {
-      console.error(`[Zomboid] Eulogy generation failed for ${death.name}:`, err?.message || err);
-      continue;
-    }
-    if (!result) {
-      console.log(`[Zomboid] Skipped eulogy for ${death.name} (${death.hours}h, no words).`);
-      continue;
-    }
+      let result;
+      try {
+        result = await generateEulogy(cfg, death, displayName);
+      } catch (err) {
+        console.error(`[Zomboid] Eulogy generation failed for ${death.name}:`, err?.message || err);
+        continue;
+      }
+      if (!result) {
+        console.log(`[Zomboid] Skipped eulogy for ${death.name} (${death.hours}h, no words).`);
+        continue;
+      }
 
-    const days = Math.floor(death.hours / 24);
-    // Death coordinates are deliberately not published: they point straight at
-    // the body, its loot, and usually the base it was near.
-    await channel.send(
-      `🕯️ **${displayName}** — survived ${death.hours} hours (${days} days)\n\n${result.text}`,
-    );
-    posted.push({ ...death, ...result, displayName });
-    console.log(
-      `[Zomboid] Eulogy posted for ${displayName} (${death.name}) ` +
-      `(${death.hours}h, ${result.quotes} quote(s), ${result.skills} skill(s)).`,
-    );
+      const days = Math.floor(death.hours / 24);
+      // Death coordinates are deliberately not published: they point straight at
+      // the body, its loot, and usually the base it was near.
+      const sent = await channel.send(
+        `🕯️ **${displayName}** — survived ${death.hours} hours (${days} days)\n\n${result.text}`,
+      );
+      eulogyUrl = sent?.url || null;
+      posted.push({ ...death, ...result, displayName, eulogyUrl });
+      console.log(
+        `[Zomboid] Eulogy posted for ${displayName} (${death.name}) ` +
+        `(${death.hours}h, ${result.quotes} quote(s), ${result.skills} skill(s)).`,
+      );
+    } finally {
+      // Required lazily: characterSheet reads this module's skill and death
+      // helpers, so requiring it at the top would be a cycle and would leave
+      // those helpers undefined at load time.
+      const { retireOnDeath } = require('./characterSheet');
+      await retireOnDeath(client, guildId, {
+        steamid: death.steamid,
+        displayName,
+        diedAt: death.at,
+        eulogyUrl,
+      }).catch((err) =>
+        console.warn('[Zomboid] Could not retire a character sheet:', err?.message || err));
+    }
   }
 
   watermark.set(guildId, Math.max(floor, ...fresh.map((d) => d.at + 1)));
@@ -362,6 +381,7 @@ module.exports = {
   lifeStart,
   wasPvp,
   buildBrief,
+  countDeaths,
   generateEulogy,
   eulogyConfig,
   checkOnce,

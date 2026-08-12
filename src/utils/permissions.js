@@ -30,6 +30,7 @@ const COMMAND_FEATURES = {
 
   leaderboard: 'zomboid',
   pz: 'zomboid',
+  character: 'zomboid',
 };
 
 /** Music additionally requires admin, not just the feature. */
@@ -42,6 +43,18 @@ const MUSIC_COMMANDS = new Set(
  * admin. Admins pass these too — isStaff() subsumes isAdmin().
  */
 const STAFF_COMMANDS = new Set(['pz']);
+
+/**
+ * Subcommands that need full admin even though their parent command doesn't.
+ *
+ * `/pz access` hands out in-game power rather than using it: a Sheriff who could
+ * run it could make themselves `admin`, which would turn the whole staff tier
+ * into a formality. Everything else under `/pz` is bounded — a Sheriff can
+ * teleport a player, not change who is allowed to.
+ */
+const ADMIN_SUBCOMMANDS = {
+  pz: new Set(['access']),
+};
 
 /**
  * Whether a member counts as an admin in their guild.
@@ -101,9 +114,12 @@ function musicDenialReason(guildId, member) {
  * command is never invokable, so the feature branch here is defence in depth
  * against a stale registration.
  *
+ * @param {string|null} [subcommand] the invoked subcommand, for the entries in
+ *   ADMIN_SUBCOMMANDS. Checked here rather than inside the command so a refusal
+ *   is still recorded as one in the audit log.
  * @returns {string|null} a refusal message, or null when allowed.
  */
-function commandDenialReason(commandName, guildId, member) {
+function commandDenialReason(commandName, guildId, member, subcommand = null) {
   const required = COMMAND_FEATURES[commandName];
   if (required && !hasFeature(guildId, required)) {
     return '❌ That command is not enabled in this server.';
@@ -113,6 +129,9 @@ function commandDenialReason(commandName, guildId, member) {
   }
   if (STAFF_COMMANDS.has(commandName) && !isStaff(member)) {
     return '❌ Server admin commands are limited to Sheriffs and Owners.';
+  }
+  if (subcommand && ADMIN_SUBCOMMANDS[commandName]?.has(subcommand) && !isAdmin(member)) {
+    return `❌ \`/${commandName} ${subcommand}\` is Owners-only — it grants in-game power rather than using it.`;
   }
   return null;
 }
@@ -138,6 +157,7 @@ module.exports = {
   COMMAND_FEATURES,
   MUSIC_COMMANDS,
   STAFF_COMMANDS,
+  ADMIN_SUBCOMMANDS,
   musicDenialReason,
   commandDenialReason,
   commandsForGuild,

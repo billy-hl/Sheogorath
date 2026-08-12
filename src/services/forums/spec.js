@@ -28,6 +28,9 @@ const TAG = {
   PENDING: 'Pending',
   COMPLETED: 'Completed',
   EXPIRED: 'Expired',
+  ALIVE: 'Alive',
+  DECEASED: 'Deceased',
+  MISSING: 'Missing',
 };
 
 const t = (name, emoji, moderated = true) => ({ name, emoji: { id: null, name: emoji }, moderated });
@@ -174,7 +177,59 @@ const SAFEHOUSE_CLAIMS = {
   defaultTag: TAG.OPEN,
 };
 
-const FORUMS = [SUGGESTIONS, MOD_REQUESTS, TRADING, SAFEHOUSE_CLAIMS];
+/**
+ * Character sheets — one thread per character, opened by `/character sheet`
+ * rather than by hand.
+ *
+ * The starter post is written by the bot for a reason. Half of a sheet is the
+ * player's: who this person was before the outbreak, how they carry themselves,
+ * how to approach them in the world. The other half is the server's: the name
+ * the save holds, hours survived, the skills the PerkLog recorded. Owning the
+ * post is what keeps those two halves from drifting — a character can't be
+ * written up as a surgeon while the log says Doctor 0.
+ *
+ * Alive/Deceased are moderated because the bot sets them off the save's own
+ * `isDead` flag; a character's death is a fact, not a mood. Everything else is
+ * the player's to file.
+ */
+const CHARACTERS = {
+  key: 'characters',
+  name: 'characters',
+  topic:
+    'Who your survivor is. One thread per character — run /character sheet to open ' +
+    'or edit yours. Survival stats come from the server and update themselves. ' +
+    'In-character questions in the thread; keep out-of-character chatter out.',
+  guidelines:
+    'Link your Discord to your game account with /character link, then /character ' +
+    'sheet writes your thread here. When your character dies the sheet is marked ' +
+    'Deceased and kept as a record — write a new one for your next life.',
+  tags: [
+    t(TAG.ALIVE, '🫀'),
+    t(TAG.DECEASED, '⚰️'),
+    // Staff-set: a character who has not logged in for a long stretch, so the
+    // board reads as who is actually out there.
+    t(TAG.MISSING, '❓'),
+    // What they do — the poster's to set, and what makes the board searchable
+    // when someone needs a doctor or a mechanic.
+    t('Medic', '💉', false),
+    t('Builder', '🔨', false),
+    t('Farmer', '🌾', false),
+    t('Mechanic', '🔧', false),
+    t('Fighter', '🔪', false),
+    t('Scavenger', '🧭', false),
+    t('Cook', '🍳', false),
+    t('Trader', '💰', false),
+    // How they play, which is what most people actually want to know before
+    // walking up to a stranger.
+    t('Group', '👥', false),
+    t('Loner', '🚶', false),
+    t('Friendly', '🤝', false),
+    t('Hostile', '☠️', false),
+  ],
+  defaultTag: TAG.ALIVE,
+};
+
+const FORUMS = [SUGGESTIONS, MOD_REQUESTS, TRADING, SAFEHOUSE_CLAIMS, CHARACTERS];
 
 /**
  * Forums whose new posts get up/down reactions. Trading is deliberately
@@ -191,6 +246,7 @@ module.exports = {
   MOD_REQUESTS,
   TRADING,
   SAFEHOUSE_CLAIMS,
+  CHARACTERS,
   FORUMS,
   VOTE_EMOJI,
   VOTE_FORUM_KEYS,

@@ -1,7 +1,16 @@
 const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { addToQueue, getQueue } = require('../music/player');
+const {
+  addToQueue,
+  getQueue,
+  getNextSong,
+  beginPlayback,
+  endPlayback,
+  connectToChannel,
+  getConnection,
+} = require('../music/player');
+const { startPlayback } = require('../music/session');
 
 const PLAYLISTS_DIR = path.join(__dirname, '..', '..', 'data', 'playlists');
 
@@ -127,7 +136,33 @@ module.exports = {
           added++;
         }
 
-        return interaction.editReply(`✅ Added **${added}** songs from playlist **${playlistName}** to queue`);
+        const addedMsg = `✅ Added **${added}** songs from playlist **${playlistName}** to queue`;
+
+        // Loading used to stop here, so a playlist loaded while the bot was
+        // idle just sat in the queue until some other command happened to kick
+        // playback off. Start it now if nothing is playing.
+        if (!beginPlayback(guildId)) return interaction.editReply(addedMsg);
+
+        let connection = getConnection(interaction.guild);
+        const voiceChannel = interaction.member?.voice?.channel;
+        if (!connection && voiceChannel) connection = connectToChannel(voiceChannel);
+        if (!connection) {
+          endPlayback(guildId);
+          return interaction.editReply(
+            `${addedMsg}.\n🔇 Join a voice channel and use \`/play\` to start them.`
+          );
+        }
+
+        const first = getNextSong(guildId);
+        if (!first) {
+          endPlayback(guildId);
+          return interaction.editReply(addedMsg);
+        }
+
+        await startPlayback(interaction.client, connection, guildId, first);
+        return interaction.editReply(
+          `${addedMsg}.\n🎵 Now playing: **${first.title || first.query}**`
+        );
       }
 
       case 'list': {

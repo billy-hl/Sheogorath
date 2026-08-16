@@ -20,6 +20,7 @@ const {
   MOD_REQUESTS,
   TRADING,
   SAFEHOUSE_CLAIMS,
+  CHARACTERS,
   VOTE_EMOJI,
   VOTE_FORUM_KEYS,
 } = require('./spec');
@@ -243,7 +244,8 @@ async function handleThreadCreate(thread) {
       : parentId === config.channels?.suggestions ? SUGGESTIONS
         : parentId === config.channels?.trading ? TRADING
           : parentId === config.channels?.safehouseClaims ? SAFEHOUSE_CLAIMS
-            : null;
+            : parentId === config.channels?.characters ? CHARACTERS
+              : null;
   if (!spec) return;
 
   const starter = await fetchStarter(thread);
@@ -259,6 +261,17 @@ async function handleThreadCreate(thread) {
     // despite the channel topic.
     await applyStatusTag(thread, SAFEHOUSE_CLAIMS, TAG.OPEN);
     await warnIfLocationLeaked(thread, starter);
+  } else if (spec === CHARACTERS) {
+    // Sheets are opened by the bot through `/character sheet`, which is what
+    // attaches the survival stats and keeps them current. A thread opened by
+    // hand has none of that, so point the author at the command — the post is
+    // left alone rather than removed.
+    if (thread.ownerId === thread.client.user?.id) return;
+    await thread.send(
+      'Character sheets are written with `/character sheet` — that version carries your ' +
+      'survival time and skills straight from the server, and updates itself. ' +
+      'Run `/character link` first if you have not linked your game account yet.',
+    );
   } else {
     // Trading: bookkeeping only. No vetting, no duplicate check — two people
     // selling the same rifle are not duplicates, they're competition.

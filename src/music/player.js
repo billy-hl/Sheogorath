@@ -62,6 +62,15 @@ function getQueue(guildId) {
       songs: [],
       nowPlaying: null,
       isPlaying: false,
+      // Set while a track is being resolved but is not yet audible. isPlaying
+      // alone leaves a multi-second hole between one song ending and the next
+      // starting, during which a second caller would think nothing was playing
+      // and start its own track on top of ours.
+      isStarting: false,
+      // Bumped by stop/clear. A resolve in flight compares the epoch it started
+      // with against this before it plays, so a track that was still loading
+      // when someone hit stop doesn't come blasting out afterwards.
+      epoch: 0,
       autoplay: true,
       lastVideoId: null,
       playedHistory: new Set()
@@ -82,6 +91,8 @@ function clearQueue(guildId) {
   queue.songs = [];
   queue.nowPlaying = null;
   queue.isPlaying = false;
+  queue.isStarting = false;
+  queue.epoch += 1;
   queue.lastVideoId = null;
   queue.playedHistory = new Set();
   emitState(guildId);
@@ -115,6 +126,37 @@ function moveInQueue(guildId, fromIndex, toIndex) {
 function getNextSong(guildId) {
   const queue = getQueue(guildId);
   return queue.songs.shift();
+}
+
+/**
+ * Claim the right to start playback for a guild, returning false if a track is
+ * already playing or is mid-resolve.
+ *
+ * /play, /radio and the control API all used to test `queue.isPlaying` and set
+ * it themselves. Resolving a track takes a yt-dlp round trip, and for that whole
+ * window the flag reads false — so two callers could both decide nothing was
+ * playing, and the second `player.play()` would swap out the first one's
+ * resource with no Idle event, silently eating a song. The check and the set
+ * have to happen together, here.
+ */
+function beginPlayback(guildId) {
+  const queue = getQueue(guildId);
+  if (queue.isPlaying || queue.isStarting) return false;
+  queue.isStarting = true;
+  return true;
+}
+
+/** Release a claim from beginPlayback. Safe to call more than once. */
+function endPlayback(guildId) {
+  getQueue(guildId).isStarting = false;
+}
+
+/**
+ * The guild's current playback generation. Capture it before an await and
+ * re-check it after; a change means stop/clear ran and the work is stale.
+ */
+function playbackEpoch(guildId) {
+  return getQueue(guildId).epoch;
 }
 
 /**
@@ -330,12 +372,19 @@ async function play(connection, url, guildId, onFinish) {
     const queue = getQueue(guildId);
     queue.isPlaying = false;
     queue.nowPlaying = null;
+    // Keep the guild claimed while onFinish resolves the next track, so a
+    // /play landing in that gap queues up instead of starting a rival stream.
+    // playNextInQueue releases this on every one of its exit paths.
+    if (onFinish) queue.isStarting = true;
     resources.delete(guildId);
     emitState(guildId);
 
     if (onFinish) onFinish();
   });
 
+  // No queue advance here on purpose: @discordjs/voice emits 'error' and then
+  // drops the player to Idle, so the Idle handler above already moves us on.
+  // Advancing here too would skip a song for every stream error.
   player.on('error', error => {
     console.error('Audio player error:', error);
     const queue = getQueue(guildId);
@@ -354,6 +403,27 @@ async function play(connection, url, guildId, onFinish) {
 
   emitState(guildId);
   return player;
+}
+
+/**
+ * Tear down a track that only became audible after a stop/clear made it stale:
+ * silence the player and kill its yt-dlp/ffmpeg pair, leaving the queue and the
+ * voice connection alone — whoever invalidated us already dealt with those.
+ */
+function abandonPlayback(guildId) {
+  const player = players.get(guildId);
+  if (player) {
+    // Drop the Idle handler first, or tearing this down would advance the queue.
+    player.removeAllListeners(AudioPlayerStatus.Idle);
+    player.stop(true);
+    players.delete(guildId);
+  }
+  killProcesses(guildId);
+  resources.delete(guildId);
+  const queue = getQueue(guildId);
+  queue.isPlaying = false;
+  queue.nowPlaying = null;
+  emitState(guildId);
 }
 
 function stopPlaying(guildId) {
@@ -572,6 +642,10 @@ module.exports = {
   removeFromQueue,
   moveInQueue,
   getNextSong,
+  beginPlayback,
+  endPlayback,
+  playbackEpoch,
+  abandonPlayback,
   stopPlaying,
   pausePlaying,
   resumePlaying,

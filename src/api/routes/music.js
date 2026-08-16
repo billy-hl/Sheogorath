@@ -6,6 +6,9 @@ const {
   clearQueue,
   removeFromQueue,
   moveInQueue,
+  getNextSong,
+  beginPlayback,
+  endPlayback,
   resolveVideoUrl,
   pausePlaying,
   resumePlaying,
@@ -63,10 +66,10 @@ module.exports = function musicRoutes(client, guildId) {
       for (const song of playlist.songs) {
         addToQueue(guildId, { query: song.query, title: song.title, addedBy });
       }
-      if (!queue.isPlaying) {
-        queue.isPlaying = true;
-        const first = queue.songs.shift();
+      if (beginPlayback(guildId)) {
+        const first = getNextSong(guildId);
         if (first) await startPlayback(client, connection, guildId, first);
+        else endPlayback(guildId);
       }
       return res.json({
         ok: true,
@@ -78,25 +81,42 @@ module.exports = function musicRoutes(client, guildId) {
       });
     }
 
-    if (queue.isPlaying) {
-      // Resolve first so the queue entry carries a real title rather than the
-      // raw search phrase — the app renders these directly.
-      let title = query;
-      try {
-        ({ title } = await resolveVideoUrl(query));
-      } catch {
-        /* keep the raw query as the display title */
-      }
-      const position = addToQueue(guildId, { query, title, addedBy });
+    // Resolve first so the queue entry carries a real title and the exact
+    // resolved URL rather than the raw search phrase — the app renders the
+    // title directly, and re-searching at playback time could pick a different
+    // video than the one we reported here.
+    let title = query;
+    let resolvedQuery = query;
+    try {
+      const resolved = await resolveVideoUrl(query);
+      title = resolved.title;
+      resolvedQuery = resolved.url;
+    } catch {
+      /* keep the raw query as the display title and as the thing we play */
+    }
+    const entry = { query: resolvedQuery, title, addedBy };
+    addToQueue(guildId, entry);
+
+    if (!beginPlayback(guildId)) {
       return res.json({
-        ok: true, kind: 'queued', title, position, state: getPlaybackState(guildId),
+        ok: true,
+        kind: 'queued',
+        title,
+        position: queue.songs.indexOf(entry) + 1,
+        state: getPlaybackState(guildId),
       });
     }
 
-    queue.isPlaying = true;
-    await startPlayback(client, connection, guildId, { query, addedBy });
+    // Start from the head of the queue, so anything already waiting there is
+    // not jumped by this request.
+    const first = getNextSong(guildId);
+    if (!first) {
+      endPlayback(guildId);
+      return res.status(409).json({ error: 'Nothing in the queue to play.' });
+    }
+    await startPlayback(client, connection, guildId, first);
     return res.json({
-      ok: true, kind: 'playing', state: getPlaybackState(guildId),
+      ok: true, kind: 'playing', title: first.title || first.query, state: getPlaybackState(guildId),
     });
   }));
 

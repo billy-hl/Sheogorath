@@ -63,6 +63,10 @@ function normalizeGuild(id, raw) {
       trading: channels.trading || null,
       // Forum channel for safehouse claims.
       safehouseClaims: channels.safehouseClaims || null,
+      // Forum channel holding one roleplay character sheet per thread. Guild
+      // level like the rest — the sheets are written in Discord; only the stats
+      // on them come from the game.
+      characters: channels.characters || null,
       // Where privileged command invocations are mirrored, so admins can see
       // what staff did without reading logs/commands.jsonl on the host. Every
       // command is recorded to that file regardless of this setting.

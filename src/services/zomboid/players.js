@@ -101,6 +101,35 @@ function characterName(dbPath, { steamid, username } = {}) {
   return entry?.name || username || null;
 }
 
+/**
+ * The whole `networkPlayers` row for a player, rather than just their character
+ * name.
+ *
+ * Character sheets need more than the name: `isDead` decides whether a sheet is
+ * still current, and the Steam ID is what a sheet is filed under, since it is
+ * the only identifier that survives a rename.
+ *
+ * @param {string|null} dbPath
+ * @param {{steamid?: string, username?: string}} who
+ * @returns {{steamid: string, username: string|null, name: string|null, isDead: boolean}|null}
+ */
+function lookupPlayer(dbPath, { steamid, username } = {}) {
+  if (!dbPath) return null;
+  let index;
+  try {
+    index = load(dbPath);
+  } catch (err) {
+    console.warn('[Zomboid] Could not read players.db:', err?.message || err);
+    return null;
+  }
+
+  return (
+    (steamid && index.bySteamId.get(String(steamid))) ||
+    (username && index.byUsername.get(username)) ||
+    null
+  );
+}
+
 /** Path to the save's players.db for a guild, or null when not configured. */
 function playersDbPath(guildId) {
   return getGuildConfig(guildId)?.zomboid?.playersDb || null;
@@ -111,4 +140,4 @@ function clearCache() {
   cache.clear();
 }
 
-module.exports = { characterName, playersDbPath, clearCache };
+module.exports = { characterName, lookupPlayer, playersDbPath, clearCache };

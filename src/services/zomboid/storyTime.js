@@ -19,7 +19,9 @@ const DISCORD_LIMIT = 2000;
 // meant to name the room rather than a headline cast, so the brief carries a
 // generous slice and lets the model choose from it.
 const MAX_NAMED_SURVIVORS = 20;
-const MAX_NAMED_DEATHS = 14;
+// Repeat deaths are what the running joke is built from, so carry a few more
+// than the entry will use and let the model pick the funniest.
+const MAX_NAMED_DEATHS = 18;
 // Leaderboards worth a sentence each — deep enough that quiet regulars and
 // one-day arrivals both surface.
 const MAX_NAMED_VETERANS = 8;
@@ -93,27 +95,48 @@ function buildBrief(events, chat = []) {
   return lines.join('\n');
 }
 
+// NOT the prompt used for the nightly chronicle. That moved out of the bot to a
+// Claude Code scheduled task, whose prompt lives in
+// `~/.claude/scheduled-tasks/zomboid-story-time/SKILL.md` — edit that one to
+// change what gets posted. This is kept in step with it so the in-bot path
+// (`generateStory`, currently uncalled) still produces something comparable if
+// it is ever revived. See the note in src/index.js.
 const SYSTEM_PROMPT =
   'You are the chronicler of a Project Zomboid multiplayer server set in the ' +
   'Knox County outbreak. Write the daily entry, past tense, in the voice of a ' +
   'survivor keeping a journal by candlelight.\n\n' +
   'FORMAT. The first line must be exactly "TITLE: <title>" — a wry title for ' +
   'the day, eight words at most. Then one blank line, then the entry itself: ' +
-  'four or five short paragraphs, around 300 words.\n\n' +
+  'seven to nine paragraphs, 700 to 900 words. Vary their length — follow a ' +
+  'long paragraph with a two-sentence one. Land paragraphs on the short ' +
+  'sentence rather than the explanation.\n\n' +
   'WHO TO WRITE ABOUT. Name as many survivors as the brief will carry — aim ' +
-  'for eight or more. The busiest, the unluckiest and the longest-lived each ' +
+  'for twelve or more. The busiest, the unluckiest and the longest-lived each ' +
   'deserve their own line. Someone who died five times, someone who tore down ' +
   'half a house, someone a thousand hours in and someone on their first ' +
   'afternoon all belong in the same entry. Do not shrink the day down to two ' +
-  'or three people, and do not simply walk the brief in order.\n\n' +
+  'or three people, and do not simply walk the brief in order — cut between ' +
+  'them the way a good anecdote does.\n\n' +
+  'USE THE RADIO CHATTER. The brief ends with things survivors actually said. ' +
+  'This is your best material and most entries waste it. Quote them verbatim, ' +
+  'in quotation marks, attributed by name, at least four or five times across ' +
+  'the entry. Trim a long line if you must, but never rewrite one to be ' +
+  'funnier — they are funnier than you are. Let people incriminate themselves ' +
+  'in their own words, and set what someone said against what the facts say ' +
+  'actually happened to them.\n\n' +
   'TONE. Funny. Dry, deadpan gallows humour — the comedy of people making ' +
   'terrible decisions in a collapsing world and recording them as though ' +
-  'nothing were unusual. Understatement lands harder than jokes. Be genuinely ' +
-  'amusing; never zany, no memes, no emoji.\n\n' +
+  'nothing were unusual. Understatement lands harder than jokes. Treat ' +
+  'catastrophe as paperwork and minor inconvenience as tragedy. Specific ' +
+  'detail beats summary: not "several deaths", but the man who died three ' +
+  'times to the same fence. When a name keeps recurring, let it become a ' +
+  'running joke and pay it off in the closing paragraph. Be genuinely ' +
+  'amusing; never zany, no memes, no emoji, no exclamation marks.\n\n' +
   'TRUTH. Never invent survivors, places, causes of death, or events absent ' +
   'from the brief. Counts are facts — do not change them, though you need not ' +
-  'recite them all. You may invent how the day FELT: the weather, the smell of ' +
-  'the kitchen, what the chronicler privately thinks of these people.';
+  'recite them all. Quotes must be real. You may invent how the day FELT: the ' +
+  'weather, the smell of the kitchen, what the chronicler privately thinks of ' +
+  'these people.';
 
 /**
  * Split the model's `TITLE:` line off the body and render it as a Discord
@@ -183,7 +206,10 @@ async function generateStory(cfg, windowMs = 24 * 60 * 60 * 1000, client = null)
   const brief = buildBrief(events, chat);
   const story = await getAIResponse(
     `Here is today's activity on the server. Write the chronicle.\n\n${brief}`,
-    { rawSystemPrompt: SYSTEM_PROMPT, maxTokens: 900 }
+    // ~900 words of prose plus the title needs well over 1200 tokens; the
+    // ceiling is deliberately loose because a truncated chronicle reads as a
+    // bug, while an under-run costs nothing.
+    { rawSystemPrompt: SYSTEM_PROMPT, maxTokens: 2000 }
   );
 
   const text = (story || '').trim();
@@ -207,8 +233,11 @@ function storyConfig(guildId) {
   };
 }
 
-const MAX_CHAT_FETCH = 300;   // ~3 API pages; a busy day rarely exceeds this
-const MAX_CHAT_IN_BRIEF = 60; // keep the prompt manageable
+const MAX_CHAT_FETCH = 300;    // ~3 API pages; a busy day rarely exceeds this
+// The chronicle now quotes survivors directly, so this sample is the material
+// the entry is built from rather than background colour — a thin one forces the
+// model back onto the same handful of lines every night.
+const MAX_CHAT_IN_BRIEF = 120;
 
 /**
  * Pull relayed in-game chat out of the bridge channel for the window.

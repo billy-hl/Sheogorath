@@ -1,68 +1,28 @@
 
 # Sheogorath Discord Bot
 
-Sheogorath is a full-featured Discord bot that combines AI chat### 🎲 Games & Fun
-- `/dice [sides] [count]` - Roll dice with Sheogorath's chaotic luck (default: 1d6)
-- `/coinflip [choice]` - Flip a coin - let fate decide!
-- `/rps <choice>` - Play Rock Paper Scissors with Sheogorath
-- `/guess [max]` - Play a number guessing game (default: 1-100)
+Sheogorath is a multi-guild Discord bot built around an Elder Scrolls Mad God persona. It combines AI chat and image generation (Grok/xAI), a YouTube music player with a companion web app, and a deep Project Zomboid server integration.
 
-### 🎣 Fishing Game
-- `/fish [location]` - Cast your line and try to catch fish! (5 locations with different rarities)
-- `/shop <action>` - Visit the fishing shop to buy equipment or sell fish
-- `/inventory [view]` - Check your fishing inventory, equipment, and stats
-- `/leaderboard [category]` - View fishing leaderboard rankings
-
-#### 🏪 Fishing Shop Features:
-- **Equipment:** 4 tiers of rods, bait, and hooks with increasing bonuses
-- **Market:** Dynamic fish prices based on rarity and size
-- **Trading:** Buy equipment upgrades and sell caught fish
-- **Progression:** Level up system with experience and achievements
-
-#### 🎯 Fishing Locations:
-- 🏞️ **River** - Balanced fishing with common fish
-- 🌊 **Ocean** - Better for uncommon fish
-- 🏔️ **Mountain Lake** - Excellent for rare catches
-- 🌌 **Mystic Pond** - High chance for legendary fish
-- 🔥 **Lava Lake** - Best for event and legendary fish (hardest)
-
-#### 🐟 Fish Types & Rarity:
-- 🐟 **Common** (60%) - Basic fish like minnows, perch
-- 🐠 **Uncommon** (25%) - Better fish like trout, salmon
-- 🦈 **Rare** (10%) - Valuable fish like golden fish
-- 🐋 **Legendary** (4%) - Epic catches like dragon fish
-- 🎏 **Event** (1%) - Special festival and lunar fishic streaming, and livestream notifications for your community. Powered by Grok (xAI) and modern Discord libraries, it brings together:
+Each Discord server the bot serves gets its own entry in `config/guilds.json`, with a `features` list deciding what actually runs there — so the music guild and the game-server guild share one process without sharing surfaces.
 
 ## What does it do?
 
-- **AI Chat**: Talk to Sheogorath, an AI persona based on the Elder Scrolls character, using Grok (xAI). The bot responds in-character, answers questions, and can be customized for your server.
-- **Music Streaming**: Play YouTube music directly in your Discord voice channels. Supports both direct YouTube URLs and search terms, with robust error handling and queue management.
-- **Livestream Alerts**: Automatically detects when specified YouTube or Kick channels go live and posts announcements in your chosen Discord channel. Also announces new YouTube uploads.
-- **Multi-Channel Monitoring**: Monitors multiple Kick channels (main channel, EokaFish, Allisteras) with rich embeds and interactive buttons
-- **Rich Notifications**: Beautiful Discord embeds with stream thumbnails, viewer counts, game categories, and direct "Watch Live" buttons
-- **Health Monitoring**: Built-in health check command to monitor API status and bot performance
-- **Performance Optimized**: Caching system reduces API calls, rate limiting prevents abuse
-- **Slash Commands**: Includes commands for AI chat, music control, live status checks, and more. All commands are registered as Discord slash commands for easy use.
-- **Customizable**: Configure which channels to monitor, which Discord channel to post alerts, and the bot's persona via environment variables.
-
-## Key Features
-
-- **AI-powered chat and persona** with Grok (xAI) integration
-- **Multi-channel Kick monitoring** (main, EokaFish, Allisteras) with rich embeds
-- **YouTube livestream and upload detection** with notifications
-- **Advanced music system** with YouTube playback and queue management
-- **Interactive features**: Polls, giveaways, reminders, weather info
-- **Comprehensive moderation tools** for server administrators
-- **Rich Discord notifications** with thumbnails, viewer counts, and buttons
-- **Health monitoring** and performance optimization
-- **Fun commands**: Jokes, facts, and entertainment features
-- **Server management**: User info, server stats, announcements
+- **AI Chat**: Talk to Sheogorath in character using Grok (xAI). The persona keeps per-user notes and long-term memories across conversations, and can act on the server through embedded action tags (warn, timeout, delete, remember).
+- **Image Generation**: `/imagine` conjures images through Grok, with the Mad God riffing on your prompt first.
+- **Music Streaming**: Play YouTube music in voice channels — URL or search phrase — with a queue, saved playlists, autoplay, and a radio list loaded from `radio.csv`.
+- **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
+- **Project Zomboid Integration**: Leaderboards, roleplay character sheets, and RCON server admin from Discord, plus log watchers that post kills, raids, deaths, mod updates and story-time recaps.
+- **Community Forums**: Managed suggestion and mod-request forums with vote reactions, duplicate detection, and automatic Steam Workshop vetting of requested mods.
+- **Moderation**: Discord native AutoMod rules, plus an Ollama-backed filter for sexual ASCII/Unicode text art that keyword rules can't catch.
+- **Instagram Mirroring**: Reels posted in chat are downloaded and re-uploaded natively, compressed to the guild's boost-tier attachment limit.
 
 ## Getting Started
 
 ### Dependencies
 
 - Node.js (v18+ recommended)
+- Ollama, if the `textImageMod` feature is enabled
+- A Project Zomboid server with RCON, if the `zomboid` feature is enabled
 
 ### Setup
 
@@ -70,25 +30,7 @@ Sheogorath is a full-featured Discord bot that combines AI chat### 🎲 Games & 
 	```sh
 	npm install
 	```
-2. Create a `.env` file in the root directory with your secrets and config:
-	```
-	GROK_API_KEY=your_grok_api_key
-	CHANNEL_ID=discord_channel_id_for_announcements
-	POLLING_RETRIES=10
-	POLLING_TIMEOUT=3
-	CLIENT_NAME=Sheogorath
-	CLIENT_INSTRUCTIONS=Your custom AI instructions
-	CLIENT_MODEL=grok-code-fast-1
-	DISCORD_TOKEN=your_discord_token
-	CLIENT_ID=your_discord_bot_id
-	GUILD_ID=your_discord_guild_id
-	KICK_CHANNEL_URL=https://kick.com/yourkickchannel
-	ALLISTERAS_KICK_URL=https://kick.com/allisteras
-	YT_CHANNEL_URL=https://www.youtube.com/channel/yourchannelid
-	DEFAULT_IMAGE_URL=https://example.com/default-image.jpg
-	GIPHY_API_KEY=your_giphy_key
-	WEATHER_API_KEY=your_openweather_api_key
-	```
+2. Copy `.env.example` to `.env` and fill in your credentials. `.env` holds **credentials only** — guild, channel and role IDs live in `config/guilds.json`.
 3. Start the bot:
 	```sh
 	npm run start
@@ -96,45 +38,91 @@ Sheogorath is a full-featured Discord bot that combines AI chat### 🎲 Games & 
 
 ## Available Commands
 
-### 🎵 Music Commands
-- `/play <url>` - Play music from YouTube URL or search term
-- `/pause` - Pause current music playback
-- `/resume` - Resume paused music
-- `/stop` - Stop music and disconnect from voice channel
-- `/lofi` - Play lofi music
-- `/synth` - Generate synthesizer sounds
+Commands are loaded from `src/commands/*.js`. Two things decide whether a command is usable in a given guild, both driven by `src/utils/permissions.js`:
+
+- **Feature gate** — commands mapped in `COMMAND_FEATURES` are only *registered* in guilds whose `config/guilds.json` entry lists that feature. Unmapped commands register everywhere.
+- **Permission tier** — Owner (bot admin), Sheriff (in-game staff), or Discord's own Administrator permission. Admins pass every staff check.
 
 ### 🤖 AI & Chat
-- `/ai <message>` - Chat with the AI assistant
-- `/news` - Get latest news articles
+- `/ai <prompt>` - Chat with the AI bot
+- `/ask <question>` - Ask a real question and get a straight answer (no Sheogorath persona)
+- `/imagine <prompt>` - Command the Mad God to conjure an image from the chaos of your imagination
+- `/fact-check [messages]` - Fact-check the last few messages in this channel (default: 5, max: 20)
 
-### 📊 Information & Utility
-- `/livecheck` - Check current livestream status for configured channels
+### 🎵 Music
+*Requires the `music` feature, and bot admin — music controls are admin-only, including the now-playing buttons.*
+
+- `/play <query>` - Play a YouTube song by URL or search phrase
+- `/pause` - Pause the current song
+- `/resume` - Resume the paused song
+- `/skip` - Skip the current song
+- `/stop` - Stop music playback and clear the queue
+- `/queue` - View the current music queue
+- `/nowplaying` - Show what's currently playing
+- `/clear` - Clear all songs from the queue (keeps the current song playing)
+- `/remove <position>` - Remove a song from the queue
+- `/autoplay` - Toggle autoplay — automatically play similar songs when the queue is empty
+- `/radio [filter] [limit]` - Queue songs from the radio playlist (default: 25, max: 100)
+- `/playlist save|load|list|delete <name>` - Manage custom playlists (`list` takes no name)
+
+### 🧟 Project Zomboid
+*Requires the `zomboid` feature.*
+
+- `/leaderboard [board] [skill]` - Server records — kills, skills, survival and deaths. Boards: overall, kills, hunted, champions, survival, deaths. Passing `skill` shows the top 10 for one skill and overrides `board`.
+- `/character link` - Link your Discord to your in-game account
+- `/character sheet` - Write or edit your character sheet
+- `/character refresh` - Update your sheet with your latest survival stats
+- `/character view <name>` - Look up someone's character (autocompletes)
+- `/character whois <member>` - Which character a Discord member plays
+- `/character unlink [member]` - Unlink a game account — yours by default; unlinking someone else needs Sheriff+
+
+#### `/pz` — server admin (Sheriff+)
+Every subcommand is limited to Sheriffs and Owners. Invocations — including refused ones — are mirrored to the guild's private `commandLog` channel.
+
+- `/pz players` - Who's online right now
+- `/pz info <player>` - Look up a player — character, survival time, deaths, skills
+- `/pz teleport <player> <target>` - Teleport one player to another
+- `/pz kick <player> [reason]` - Kick a player from the server
+- `/pz giveitem <player> <item> [count]` - Give an item to a player (item autocompletes)
+- `/pz addxp <player> <skill> <amount>` - Grant XP in one skill
+- `/pz setlevel <player> <skill> <level>` - Raise a skill to a level, working out the XP for you
+- `/pz godmode <player> <state>` - Make a player invincible
+- `/pz invisible <player> <state>` - Hide a player from zombies
+- `/pz noclip <player> <state>` - Let a player walk through walls
+- `/pz say <message>` - Broadcast a message to everyone in-game
+- `/pz restart [when] [reason]` - Restart the server, announced in Discord and in-game (`when` accepts `20`, `20m`, `1h30m`, `22:00`, `10:30pm`, `now` — default 5 minutes)
+- `/pz restart-cancel` - Cancel a scheduled restart
+- `/pz restart-status` - Is a restart running or scheduled?
+- `/pz access <player> <level>` - **Owners only.** Set a player's in-game access level. Held above the Sheriff tier because it hands out in-game power rather than using it — a Sheriff who could run it could promote themselves.
+
+### 🛡️ Moderation
+- `/mod warn|kick|ban|timeout <user> ...` - Moderation actions *(requires the `moderation` feature and Administrator)*
+- `/stats` - Show bot statistics *(requires the `moderation` feature and Administrator)*
+- `/automod status` - View current AutoMod status *(requires the `automod` feature and Administrator)*
+- `/automod words <on|off>` - Toggle the blocked words filter
+- `/automod antispam <on|off>` - Toggle the mention spam filter
+
+### 📊 Utility
 - `/health` - Check bot health and service status
-- `/userinfo [user]` - Get information about a user
-- `/serverinfo` - Get detailed information about the server
-- `/weather <location>` - Get weather information for a location
-- `/remind <message> <minutes>` - Set a personal reminder
 
-### � Games & Fun
-- `/dice [sides] [count]` - Roll dice with Sheogorath's chaotic luck (default: 1d6)
-- `/coinflip [choice]` - Flip a coin - let fate decide!
-- `/rps <choice>` - Play Rock Paper Scissors with Sheogorath
-- `/guess [max]` - Play a number guessing game (default: 1-100)
+#### `/forums` — manage the suggestion and mod-request forums
+*Bot admin only.*
 
-### 👑 Administration (Admin Only)
-- `/admin stats` - Show bot statistics
-- `/admin clear <amount>` - Clear messages from channel
-- `/admin announce <message>` - Make server announcements
-- `/giveaway <prize> <duration>` - Create giveaways
-- `/mod warn/kick/ban/timeout <user>` - Moderation commands
+- `/forums preview` - Show what setup would create or change, without touching anything
+- `/forums apply <confirm>` - Create or repair the forum channels and their tags. `confirm` is required — this creates channels and locks the old one read-only
+- `/forums status` - Show how the forums are currently wired
 
-## Configuration Options
+## Configuration
 
-- **KICK_CHANNEL_URL**: Main Kick channel to monitor
-- **ALLISTERAS_KICK_URL**: Additional Kick channel (Allisteras) to monitor
-- **YT_CHANNEL_URL**: YouTube channel to monitor for uploads and live streams
-- **DEFAULT_IMAGE_URL**: Fallback image for embeds when thumbnails aren't available
+### Credentials — `.env`
+
+See `.env.example` for the annotated list. In short: `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` and `ADMIN_USER_ID` for Discord; `GROK_API_KEY` plus `CLIENT_NAME`, `CLIENT_INSTRUCTIONS` and `CLIENT_MODEL` for the AI persona; `OLLAMA_URL` / `OLLAMA_MOD_MODEL` for the text-image filter; `CONTROL_API_*` and `CONTROL_GUEST_PASSWORD` for the companion app; `ERROR_CHANNEL_ID` and `LOG_LEVEL` optionally.
+
+### Per-guild settings — `config/guilds.json`
+
+One entry per Discord server, holding that guild's `features` list, channel IDs, role IDs (`admin`, `staff`, and so on), and — where the `zomboid` feature is enabled — the game server's log paths, ini path and RCON settings. Copy the placeholder entry to onboard a second guild.
+
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `zomboid`, `forums`.
 
 ## Contributing
 

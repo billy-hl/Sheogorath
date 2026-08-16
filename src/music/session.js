@@ -17,6 +17,9 @@ const {
   connectToChannel,
   getConnection,
   fetchRelatedSong,
+  endPlayback,
+  playbackEpoch,
+  abandonPlayback,
 } = require('./player');
 const { createNowPlayingEmbed } = require('./embeds');
 const { channelId } = require('../config/guilds');
@@ -83,62 +86,111 @@ async function postNowPlaying(client, guildId, fallbackSong, addedBy) {
   }
 }
 
+// How many tracks in a row may fail to start before we give up and tell the
+// channel. Previously a failure recursed into the next song with no limit, so
+// one yt-dlp outage would chew through a 100-song queue in seconds, silently.
+const MAX_CONSECUTIVE_FAILURES = 3;
+
+/** Post a one-off notice to the guild's music channel, if one is configured. */
+async function sendToMusicChannel(client, guildId, content) {
+  const musicChannelId = channelId(guildId, 'music');
+  if (!musicChannelId) return;
+  const channel = await client.channels.fetch(musicChannelId).catch(() => null);
+  if (!channel) return;
+  try {
+    await channel.send(content);
+  } catch (e) {
+    console.error('Could not send music channel message:', e);
+  }
+}
+
 /**
  * Advance to the next queued track, falling back to autoplay when the queue
  * empties. Uses channel.send rather than interaction.followUp because an
  * interaction token expires after 15 minutes and playback outlives that.
+ *
+ * The caller (the Idle handler, or a claim from beginPlayback) hands this the
+ * guild already claimed; releasing that claim on every exit path is this
+ * function's job.
  */
 async function playNextInQueue(client, connection, guildId) {
   const queue = getQueue(guildId);
+  const epoch = playbackEpoch(guildId);
+  let failures = 0;
 
-  if (queue.songs.length === 0) {
-    if (queue.autoplay && queue.lastVideoId) {
-      try {
-        const related = await fetchRelatedSong(guildId);
-        if (related) {
-          console.log(`Autoplay: Queuing related song: ${related.title}`);
-          addToQueue(guildId, related);
-          const musicChannelId = channelId(guildId, 'music');
-          const channel = musicChannelId
-            ? await client.channels.fetch(musicChannelId).catch(() => null)
-            : null;
-          if (channel) {
-            try {
-              await channel.send(`🔄 **Autoplay:** Queuing **${related.title}**`);
-            } catch (e) {
-              console.error('Could not send autoplay message:', e);
-            }
-          }
-        } else {
+  try {
+    // Loops rather than recursing so a run of dead tracks can't blow the stack
+    // or drain the queue unbounded.
+    while (true) {
+      // stop/clear ran while we were resolving — the queue we were draining is
+      // gone, and playing now would be resurrecting it.
+      if (playbackEpoch(guildId) !== epoch) return;
+
+      if (queue.songs.length === 0) {
+        if (!queue.autoplay || !queue.lastVideoId) {
           queue.isPlaying = false;
           queue.nowPlaying = null;
           return;
         }
-      } catch (err) {
-        console.error('Autoplay error:', err);
+        let related = null;
+        try {
+          related = await fetchRelatedSong(guildId);
+        } catch (err) {
+          console.error('Autoplay error:', err);
+        }
+        if (playbackEpoch(guildId) !== epoch) return;
+        if (!related) {
+          queue.isPlaying = false;
+          queue.nowPlaying = null;
+          return;
+        }
+        console.log(`Autoplay: Queuing related song: ${related.title}`);
+        addToQueue(guildId, related);
+        await sendToMusicChannel(client, guildId, `🔄 **Autoplay:** Queuing **${related.title}**`);
+        if (playbackEpoch(guildId) !== epoch) return;
+      }
+
+      const nextSong = getNextSong(guildId);
+      if (!nextSong) {
         queue.isPlaying = false;
         queue.nowPlaying = null;
         return;
       }
-    } else {
-      queue.isPlaying = false;
-      queue.nowPlaying = null;
-      return;
+
+      try {
+        const player = await play(connection, nextSong.query, guildId, async () => {
+          await playNextInQueue(client, connection, guildId);
+        });
+        // A stop that landed mid-resolve wins: drop what we just started.
+        if (playbackEpoch(guildId) !== epoch) {
+          abandonPlayback(guildId);
+          return;
+        }
+        players.set(guildId, player);
+        await postNowPlaying(client, guildId, nextSong, nextSong.addedBy);
+        return;
+      } catch (err) {
+        console.error('Error playing next song in queue:', err);
+        failures += 1;
+        const label = nextSong.title || nextSong.query;
+        if (failures >= MAX_CONSECUTIVE_FAILURES) {
+          queue.isPlaying = false;
+          queue.nowPlaying = null;
+          await sendToMusicChannel(
+            client,
+            guildId,
+            `⚠️ Gave up after ${failures} tracks failed to start (last: **${label}**). ` +
+              `${queue.songs.length} still queued — \`/play\` anything to pick the queue back up.`
+          );
+          return;
+        }
+        await sendToMusicChannel(client, guildId, `⚠️ Skipping **${label}** — it failed to start.`);
+      }
     }
-  }
-
-  const nextSong = getNextSong(guildId);
-  if (!nextSong) return;
-
-  try {
-    const player = await play(connection, nextSong.query, guildId, async () => {
-      await playNextInQueue(client, connection, guildId);
-    });
-    players.set(guildId, player);
-    await postNowPlaying(client, guildId, nextSong, nextSong.addedBy);
-  } catch (err) {
-    console.error('Error playing next song in queue:', err);
-    await playNextInQueue(client, connection, guildId);
+  } finally {
+    // Whatever happened, the guild is no longer mid-start: either a track is
+    // playing (isPlaying carries it from here) or we stopped.
+    endPlayback(guildId);
   }
 }
 
@@ -147,12 +199,24 @@ async function playNextInQueue(client, connection, guildId) {
  * queue draining.
  */
 async function startPlayback(client, connection, guildId, song) {
-  const player = await play(connection, song.query, guildId, async () => {
-    await playNextInQueue(client, connection, guildId);
-  });
-  players.set(guildId, player);
-  await postNowPlaying(client, guildId, song, song.addedBy);
-  return player;
+  const epoch = playbackEpoch(guildId);
+  try {
+    const player = await play(connection, song.query, guildId, async () => {
+      await playNextInQueue(client, connection, guildId);
+    });
+    // Someone hit stop while this was resolving; don't undo them.
+    if (playbackEpoch(guildId) !== epoch) {
+      abandonPlayback(guildId);
+      return null;
+    }
+    players.set(guildId, player);
+    await postNowPlaying(client, guildId, song, song.addedBy);
+    return player;
+  } finally {
+    // Releases the claim taken by the caller's beginPlayback(). On success
+    // play() has already set isPlaying, so the guild stays covered.
+    endPlayback(guildId);
+  }
 }
 
 /**

@@ -1,5 +1,16 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { connectToChannel, getConnection, getQueue, addToQueue, resolveVideoUrl, expandPlaylist } = require('../music/player');
+const {
+  connectToChannel,
+  getConnection,
+  getQueue,
+  addToQueue,
+  getNextSong,
+  beginPlayback,
+  endPlayback,
+  emitState,
+  resolveVideoUrl,
+  expandPlaylist,
+} = require('../music/player');
 const { playNextInQueue, startPlayback } = require('../music/session');
 
 module.exports = {
@@ -81,15 +92,18 @@ module.exports = {
         const cappedMsg = playlist.totalCount > 100 ? ` (capped at 100 of ${playlist.totalCount})` : '';
         await interaction.editReply(`📋 Added **${songsToAdd.length}** songs from **${playlist.title}**${cappedMsg}`);
         
-        // Start playing if nothing is playing
-        if (!queue.isPlaying) {
-          queue.isPlaying = true;
-          const firstSong = queue.songs.shift();
+        // Start playing if nothing is playing. beginPlayback covers the gap
+        // between one track ending and the next becoming audible, which a bare
+        // isPlaying check does not.
+        if (beginPlayback(guildId)) {
+          const firstSong = getNextSong(guildId);
           if (firstSong) {
             await startPlayback(interaction.client, connection, guildId, {
               ...firstSong,
               addedBy: firstSong.addedBy || interaction.user.tag,
             });
+          } else {
+            endPlayback(guildId);
           }
         }
 
@@ -108,33 +122,56 @@ module.exports = {
         await interaction.editReply(`🔍 Searching YouTube for: **${query}**`);
       }
       
-      // If something is already playing, add to queue
-      if (queue.isPlaying) {
-        const position = addToQueue(guildId, { query, addedBy: interaction.user.tag });
-        
-        // Resolve video info for better queue display
-        try {
-          const { title } = await resolveVideoUrl(query);
-          await interaction.editReply(`➕ Added to queue (position ${position}): **${title}**`);
-        } catch (err) {
-          await interaction.editReply(`➕ Added to queue (position ${position}): **${query}**`);
-        }
+      // Queue first, resolve second, and mutate the entry in place: entries
+      // keep the order the commands arrived in, and the resolved video sticks
+      // to the entry rather than being thrown away with the reply text.
+      const entry = { query, addedBy: interaction.user.tag };
+      addToQueue(guildId, entry);
+
+      let title = query;
+      try {
+        const resolved = await resolveVideoUrl(query);
+        title = resolved.title;
+        // Pin the exact video we're about to name. Leaving the raw search
+        // phrase here meant playback re-ran ytsearch1 minutes later and could
+        // land on a different video than the one announced.
+        entry.query = resolved.url;
+        entry.title = resolved.title;
+        emitState(guildId);
+      } catch (err) {
+        console.error('Could not resolve queued track:', err?.message || err);
+      }
+
+      // Something is already playing, or is mid-start: leave it queued.
+      if (!beginPlayback(guildId)) {
+        const position = queue.songs.indexOf(entry) + 1;
+        await interaction.editReply(`➕ Added to queue (position ${position}): **${title}**`);
         return;
       }
-      
-      // Nothing playing, start playing immediately
-      queue.isPlaying = true;
-      await startPlayback(interaction.client, connection, guildId, {
-        query,
-        addedBy: interaction.user.tag,
-      });
 
-      // Update with success message
-      const nowPlaying = queue.nowPlaying?.title || query;
-      if (!isUrl) {
-        await interaction.editReply(`🎵 Now playing first result for: **${query}**\nTitle: **${nowPlaying}**`);
+      // Nothing playing — start from the head of the queue, not from this
+      // request. If earlier songs were sitting there unplayed they go first.
+      const first = getNextSong(guildId);
+      if (!first) {
+        endPlayback(guildId);
+        await interaction.editReply('❌ Nothing in the queue to play.');
+        return;
+      }
+
+      await startPlayback(interaction.client, connection, guildId, first);
+
+      const startedTitle = queue.nowPlaying?.title || first.title || first.query;
+      if (first === entry) {
+        if (!isUrl) {
+          await interaction.editReply(`🎵 Now playing first result for: **${query}**\nTitle: **${startedTitle}**`);
+        } else {
+          await interaction.editReply(`🎵 Now playing: **${startedTitle}**`);
+        }
       } else {
-        await interaction.editReply(`🎵 Now playing: **${nowPlaying}**`);
+        const position = queue.songs.indexOf(entry) + 1;
+        await interaction.editReply(
+          `▶️ Restarted the queue with **${startedTitle}**.\n➕ **${title}** is queued at position ${position}.`
+        );
       }
     } catch (err) {
       console.error('Error playing music:', err);

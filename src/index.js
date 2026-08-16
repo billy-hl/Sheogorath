@@ -46,7 +46,10 @@ const {
 const { logCommand, setClient: setAuditClient } = require('./utils/auditLog');
 const { scheduleRaidWatch } = require('./services/zomboid/raidWatch');
 const { scheduleModUpdates } = require('./services/zomboid/modUpdates');
+const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
+const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
+const { schedulePlayerCount } = require('./services/zomboid/playerCount');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
 
@@ -204,12 +207,34 @@ client.once(Events.ClientReady, async () => {
     console.error('[Zomboid] Failed to schedule mod update watch:', err?.message || err);
   }
 
+  // Ping staff when PZ trips its own overload guard — the point at which it
+  // starts dropping vehicle physics and refusing logins.
+  try {
+    scheduleBusyWatch(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule overload watch:', err?.message || err);
+  }
+
   // Say goodbye to characters who die. Isolated like the rest — this one calls
   // out to the model, so a provider outage must not take the bot down.
   try {
     scheduleEulogies(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule eulogies:', err?.message || err);
+  }
+
+  // Watch the game's chat log for `/character link` verification codes.
+  try {
+    scheduleLinkWatch(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule character link watch:', err?.message || err);
+  }
+
+  // Keep the live player count in the channel list up to date.
+  try {
+    schedulePlayerCount(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule player count:', err?.message || err);
   }
 
   // Sweep stale offers off the trading board.
@@ -426,6 +451,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    // Modal submits arrive as their own interaction type and carry no command
+    // name, so they are routed by the namespace on their customId. Like
+    // autocomplete above, this skips the denial and cooldown steps — the modal
+    // was only reachable through a command that already passed both.
+    if (interaction.isModalSubmit()) {
+      const [namespace] = interaction.customId.split(':');
+      const command = interaction.client.commands.get(namespace);
+      if (command?.handleModal) {
+        try {
+          await command.handleModal(interaction);
+        } catch (error) {
+          console.error(`Modal ${interaction.customId} failed:`, error);
+        }
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const command = interaction.client.commands.get(interaction.commandName);
@@ -439,7 +481,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // is written to logs/commands.jsonl either way.
     const privileged = STAFF_COMMANDS.has(interaction.commandName) || isAdmin(interaction.member);
 
-    const denied = commandDenialReason(interaction.commandName, interaction.guildId, interaction.member);
+    const denied = commandDenialReason(
+      interaction.commandName,
+      interaction.guildId,
+      interaction.member,
+      interaction.options?.getSubcommand?.(false) || null,
+    );
     if (denied) {
       // Refused attempts are the ones most worth having a record of.
       logCommand(interaction, { status: 'denied', detail: denied, privileged });

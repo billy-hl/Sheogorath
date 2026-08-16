@@ -2,7 +2,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { connectToChannel, getConnection, getQueue, addToQueue } = require('../music/player');
+const { connectToChannel, getConnection, getQueue, addToQueue, getNextSong, beginPlayback, endPlayback } = require('../music/player');
 const { playNextInQueue, startPlayback } = require('../music/session');
 
 const CSV_PATH = path.join(__dirname, '../../radio.csv');
@@ -125,14 +125,15 @@ module.exports = {
     const filterNote = filter ? ` matching **${filter}**` : '';
     await interaction.editReply(`📻 Queued **${selected.length}** random tracks${filterNote} from the radio playlist!`);
 
-    if (!queue.isPlaying) {
-      queue.isPlaying = true;
-      const first = queue.songs.shift();
+    if (beginPlayback(guildId)) {
+      const first = getNextSong(guildId);
       if (first) {
         await startPlayback(interaction.client, connection, guildId, {
           ...first,
           addedBy: first.addedBy || 'Radio',
         });
+      } else {
+        endPlayback(guildId);
       }
     }
   },

@@ -25,6 +25,11 @@ const JOINED = /^\[.+?\] (\d+) "(.+?)" fully connected/;
 const PERK_LOGIN = /^\[.+?\] \[(\d+)\]\[(.+?)\]\[.*?\]\[Login\]\[Hours Survived: (\d+)\]/;
 // `76561198021390957 "Allisteras" removed IsoObject (fixtures_stairs_01_14) at 3775,12269,0.`
 const MAP_CHANGE = /^\[.+?\] (\d+) "(.+?)" (added|removed) (.+?) at /;
+// `Got message:ChatMessage{chat=General, author='Renny', text='whats aup'}.`
+// The `Message … sent to chat` line is the same message logged a second time, so
+// only this form is read. Author is the *account* username, never the character
+// name — the chat log carries no Steam ID at all.
+const CHAT = /Got message:ChatMessage\{chat=([^,]+), author='(.*?)', text='([\s\S]*)'\}\.?\s*$/;
 
 /** @returns {number|null} epoch ms, or null when the line has no timestamp. */
 function parseStamp(line) {
@@ -154,4 +159,4 @@ function collectEvents(logDir, windowMs = 24 * 60 * 60 * 1000) {
   return { since, until, deaths, players, builders };
 }
 
-module.exports = { collectEvents, parseStamp, logFiles, linesSince };
+module.exports = { collectEvents, parseStamp, logFiles, linesSince, CHAT };

@@ -1,0 +1,5 @@
+name=Wabbajack Siege Events
+id=WabbajackSiege
+description=Server-side siege events: stocks a survivor house with loot and rings it with zombies, then cleans itself up. Server-only - places vanilla items and vanilla zombies, so clients need nothing.
+poster=
+require=

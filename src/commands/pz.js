@@ -28,6 +28,7 @@ const { collectPlayers, isAlive, knownSkills } = require('../services/zomboid/le
 const restarts = require('../services/zomboid/restart');
 const xp = require('../services/zomboid/xp');
 const raid = require('../services/zomboid/raid');
+const siege = require('../services/zomboid/siege');
 
 const COLOR = 0x8b1a1a;
 
@@ -309,7 +310,32 @@ module.exports = {
           o
             .setName('preview')
             .setDescription('Work out the spawns and report them without spawning anything')
-            .setRequired(false))),
+            .setRequired(false)))
+    .addSubcommand((s) =>
+      s
+        .setName('siege')
+        .setDescription('Stock a random survivor house with loot and ring it with zombies')
+        .addStringOption((o) =>
+          o
+            .setName('town')
+            .setDescription('Restrict to one town (default: anywhere)')
+            .setRequired(false)
+            .setAutocomplete(true))
+        .addIntegerOption((o) =>
+          o
+            .setName('zombies')
+            .setDescription('How many surround it (default 200)')
+            .setMinValue(10)
+            .setMaxValue(500)
+            .setRequired(false))
+        .addStringOption((o) =>
+          o
+            .setName('loot')
+            .setDescription('Loot tier (default high)')
+            .setRequired(false)
+            .addChoices({ name: 'standard', value: 'standard' }, { name: 'high', value: 'high' })))
+    .addSubcommand((s) =>
+      s.setName('siege-status').setDescription('How the current siege is going')),
 
   /**
    * Autocomplete for the player / item / skill options.
@@ -324,7 +350,16 @@ module.exports = {
     let choices = [];
 
     try {
-      if (focused.name === 'player' && sub === 'access') {
+      if (focused.name === 'town') {
+        // Towns that actually have candidate houses in the map's spawnpoints —
+        // offering one with none would arm a siege that can never place loot.
+        const query = focused.value.toLowerCase();
+        choices = siege
+          .towns(guildId)
+          .filter((t) => t.toLowerCase().includes(query))
+          .slice(0, 25)
+          .map((t) => ({ name: t.slice(0, 100), value: t.slice(0, 100) }));
+      } else if (focused.name === 'player' && sub === 'access') {
         // The only subcommand that reaches players who aren't logged in:
         // promoting someone when they ask, rather than waiting for them to be
         // online, is the normal case. Their current level rides along in the
@@ -748,6 +783,91 @@ module.exports = {
             });
           }
           await interaction.followUp({ embeds: [embed], flags: 64 });
+          return;
+        }
+
+        case 'siege': {
+          if (!siege.modEnabled(guildId)) {
+            await interaction.editReply(
+              '❌ The `WabbajackSiege` server mod is not enabled — a siege would do nothing.\n' +
+                'Add it to `MOD_IDS` in the server `.env` and restart.',
+            );
+            return;
+          }
+          const town = interaction.options.getString('town');
+          const zombies = interaction.options.getInteger('zombies') ?? 200;
+          const loot = interaction.options.getString('loot') ?? 'high';
+
+          let ev;
+          try {
+            ev = siege.arm(guildId, { town, zombies, loot });
+          } catch (err) {
+            await interaction.editReply(`❌ ${err.message}`);
+            return;
+          }
+
+          // Announced in the open: the coordinates ARE the event. Travelling
+          // there through the world is the first half of the risk, and a siege
+          // nobody is told about is just a horde nobody finds.
+          const where = `**${ev.x}, ${ev.y}** (${ev.town.replace(/, KY$/, '')})`;
+          await serverMessage(
+            guildId,
+            `SURVIVOR HOLDOUT FOUND at ${ev.x},${ev.y} — supplies inside, and it is surrounded. ` +
+              'Whatever is left in five minutes rots.',
+          ).catch((err) => console.warn('[PZ] siege in-game notice failed:', err?.message || err));
+
+          const announceId = announceChannelId(cfg);
+          if (announceId) {
+            const ch = await interaction.client.channels.fetch(announceId).catch(() => null);
+            if (ch) {
+              await ch.send({
+                embeds: [new EmbedBuilder()
+                  .setColor(COLOR)
+                  .setTitle('A survivor holdout has been found')
+                  .setDescription(
+                    `Somebody was holed up at ${where} — and did not make it.\n\n` +
+                      'There are supplies still inside. There are also **' + ev.zombies +
+                      '** of them around it.\n\n' +
+                      '**Five minutes** from the moment the first person steps through the door, ' +
+                      'whatever has not been carried out is gone.',
+                  )
+                  .setTimestamp()],
+              }).catch(() => null);
+            }
+          }
+
+          await interaction.editReply(
+            `🏚️ Armed siege \`${ev.id}\` at **${ev.x},${ev.y}** (${ev.town}) — ` +
+              `${ev.zombies} zombies, ${ev.loot} loot.\n` +
+              '_The mod places it the moment the area streams in — before anyone can see it. ' +
+              'Track it with `/pz siege-status`._',
+          );
+          return;
+        }
+
+        case 'siege-status': {
+          const st = siege.status(guildId);
+          if (!st) {
+            await interaction.editReply('No siege has reported yet.');
+            return;
+          }
+          const phase = {
+            armed: '⏳ Armed — waiting for someone to get close enough to load the area',
+            active: '🔥 Active — loot and horde are placed',
+            broken: '🩸 Broken — the horde is beaten, cleanup pending',
+            done: '✅ Done — site cleaned up',
+          }[st.phase] || st.phase;
+          const embed = new EmbedBuilder()
+            .setColor(COLOR)
+            .setTitle('Siege status')
+            .setDescription(phase)
+            .addFields(
+              { name: 'Location', value: `${st.x}, ${st.y}`, inline: true },
+              { name: 'Spawned', value: `${st.spawned || 0}`, inline: true },
+              { name: 'Still alive', value: `${st.alive || 0}`, inline: true },
+            )
+            .setTimestamp();
+          await interaction.editReply({ embeds: [embed] });
           return;
         }
 

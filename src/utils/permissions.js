@@ -59,13 +59,14 @@ const STAFF_COMMANDS = new Set(['pz']);
  * irreversible.
  */
 const ADMIN_SUBCOMMANDS = {
-  pz: new Set(['access', 'raid']),
+  pz: new Set(['access', 'raid', 'siege']),
 };
 
 /** Why each entry above is restricted, shown verbatim in the refusal. */
 const ADMIN_SUBCOMMAND_REASONS = {
   'pz access': 'it grants in-game power rather than using it',
   'pz raid': 'its zombie spawns are permanent and cannot be undone',
+  'pz siege': 'it announces a server-wide event and spawns hundreds of zombies',
 };
 
 /**

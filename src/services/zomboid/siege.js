@@ -18,6 +18,19 @@
 const fs = require('fs');
 const path = require('path');
 const { getGuildConfig } = require('../../config/guilds');
+const raid = require('./raid');
+
+/**
+ * Keep-out radius around player claims, in tiles.
+ *
+ * This is the single most important number in this file. Players may claim ANY
+ * building on this server, and the mod's cleanup strips every container and
+ * every ground item in the target building — so arming a siege on a claimed
+ * house would delete somebody's entire base and drop 200 zombies on it. The
+ * radius is measured from the claim rectangle, and generous because the cost of
+ * skipping a candidate house is nothing at all.
+ */
+const SAFEHOUSE_BUFFER = 150;
 
 const REQUEST_FILE = 'wabbajack_siege.txt';
 const STATUS_FILE = 'wabbajack_siege_status.txt';
@@ -36,6 +49,13 @@ function zomboidRoot(guildId) {
 
 function gameDir(guildId) {
   return getGuildConfig(guildId)?.zomboid?.gameDir || null;
+}
+
+/** map_meta.bin for a guild — where the safehouse claims live. */
+function paths_mapMeta(guildId) {
+  const p = raid.savePaths(guildId);
+  if (!p) throw new Error('No Zomboid save is configured for this guild.');
+  return p.mapMeta;
 }
 
 /**
@@ -90,6 +110,31 @@ function arm(guildId, { town = null, zombies = 200, loot = 'high' } = {}) {
     pool = pool.filter((h) => h.town.toLowerCase().startsWith(want));
     if (!pool.length) throw new Error(`No houses found for "${town}".`);
   }
+
+  // Never a claimed building, and never near one. The mod strips the target
+  // house bare when the loot timer expires; on a claimed house that is somebody
+  // losing everything they own to an event they did not opt into.
+  //
+  // Fails closed: if the safehouse list cannot be read we refuse to arm rather
+  // than arm blind, because the failure mode here is not "the event is a bit
+  // off", it is "a player's base is destroyed".
+  let claims;
+  try {
+    claims = raid.readSafehouses(paths_mapMeta(guildId));
+  } catch (err) {
+    throw new Error(
+      `Could not read the safehouse list, so no house can be confirmed unclaimed: ${err.message}`,
+    );
+  }
+  const clear = pool.filter((h) =>
+    !claims.some((s) => raid.distToSafehouse(h.x, h.y, s) < SAFEHOUSE_BUFFER));
+  if (!clear.length) {
+    throw new Error(
+      `Every candidate house${town ? ` in ${town}` : ''} is within ${SAFEHOUSE_BUFFER} tiles ` +
+      `of a player claim (${claims.length} claims). Try another town.`,
+    );
+  }
+  pool = clear;
 
   const house = pool[Math.floor(Math.random() * pool.length)];
   const id = Date.now();

@@ -30,6 +30,7 @@ const COMMAND_FEATURES = {
 
   leaderboard: 'zomboid',
   pz: 'zomboid',
+  character: 'zomboid',
 };
 
 /** Music additionally requires admin, not just the feature. */
@@ -42,6 +43,30 @@ const MUSIC_COMMANDS = new Set(
  * admin. Admins pass these too — isStaff() subsumes isAdmin().
  */
 const STAFF_COMMANDS = new Set(['pz']);
+
+/**
+ * Subcommands that need full admin even though their parent command doesn't.
+ *
+ * `/pz access` hands out in-game power rather than using it: a Sheriff who could
+ * run it could make themselves `admin`, which would turn the whole staff tier
+ * into a formality. Everything else under `/pz` is bounded — a Sheriff can
+ * teleport a player, not change who is allowed to.
+ *
+ * `/pz raid` is here for the opposite reason: it is bounded in scope but not in
+ * time. Spawned zombies are permanent — this server runs ZombieRespawn=None and
+ * PZ has no RCON command that removes them — so a single mistyped option leaves
+ * hundreds of zombies in the world for good. Nothing else under `/pz` is
+ * irreversible.
+ */
+const ADMIN_SUBCOMMANDS = {
+  pz: new Set(['access', 'raid']),
+};
+
+/** Why each entry above is restricted, shown verbatim in the refusal. */
+const ADMIN_SUBCOMMAND_REASONS = {
+  'pz access': 'it grants in-game power rather than using it',
+  'pz raid': 'its zombie spawns are permanent and cannot be undone',
+};
 
 /**
  * Whether a member counts as an admin in their guild.
@@ -101,9 +126,12 @@ function musicDenialReason(guildId, member) {
  * command is never invokable, so the feature branch here is defence in depth
  * against a stale registration.
  *
+ * @param {string|null} [subcommand] the invoked subcommand, for the entries in
+ *   ADMIN_SUBCOMMANDS. Checked here rather than inside the command so a refusal
+ *   is still recorded as one in the audit log.
  * @returns {string|null} a refusal message, or null when allowed.
  */
-function commandDenialReason(commandName, guildId, member) {
+function commandDenialReason(commandName, guildId, member, subcommand = null) {
   const required = COMMAND_FEATURES[commandName];
   if (required && !hasFeature(guildId, required)) {
     return '❌ That command is not enabled in this server.';
@@ -113,6 +141,11 @@ function commandDenialReason(commandName, guildId, member) {
   }
   if (STAFF_COMMANDS.has(commandName) && !isStaff(member)) {
     return '❌ Server admin commands are limited to Sheriffs and Owners.';
+  }
+  if (subcommand && ADMIN_SUBCOMMANDS[commandName]?.has(subcommand) && !isAdmin(member)) {
+    const why = ADMIN_SUBCOMMAND_REASONS[`${commandName} ${subcommand}`]
+      || 'it is not bounded the way the rest of the staff commands are';
+    return `❌ \`/${commandName} ${subcommand}\` is Owners-only — ${why}.`;
   }
   return null;
 }
@@ -138,6 +171,7 @@ module.exports = {
   COMMAND_FEATURES,
   MUSIC_COMMANDS,
   STAFF_COMMANDS,
+  ADMIN_SUBCOMMANDS,
   musicDenialReason,
   commandDenialReason,
   commandsForGuild,

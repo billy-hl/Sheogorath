@@ -13,15 +13,21 @@
  * *not* mirrored into setDefaultMemberPermissions: that would hide the command
  * from anyone without Discord's Administrator flag, which is exactly the Sheriff
  * — a role that gets these commands *instead of* server-wide Discord power.
+ *
+ * One exception lives in the same place: `access` grants in-game power rather
+ * than using it, so it's listed in ADMIN_SUBCOMMANDS and refused to Sheriffs.
  */
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getGuildConfig } = require('../config/guilds');
 const { players: rconPlayers, serverMessage } = require('../services/zomboid/rcon');
 const admin = require('../services/zomboid/admin');
+const access = require('../services/zomboid/access');
 const items = require('../services/zomboid/items');
 const { characterName, playersDbPath } = require('../services/zomboid/players');
 const { collectPlayers, isAlive, knownSkills } = require('../services/zomboid/leaderboard');
 const restarts = require('../services/zomboid/restart');
+const xp = require('../services/zomboid/xp');
+const raid = require('../services/zomboid/raid');
 
 const COLOR = 0x8b1a1a;
 
@@ -65,6 +71,37 @@ function skillNames(logDir) {
   }
   skillsCache.set(logDir, { at: Date.now(), names });
   return names;
+}
+
+/**
+ * The newest PerkLog record for a username, or null if they've never logged in.
+ *
+ * Records are keyed by Steam ID, so this matches on the last-seen display name —
+ * the same lookup `/pz info` does.
+ */
+function skillRecord(logDir, username) {
+  if (!logDir) return null;
+  try {
+    const all = collectPlayers(logDir);
+    const hit = [...all.values()].find(
+      (r) => r.name && r.name.toLowerCase() === username.toLowerCase(),
+    );
+    return hit && hit.skillsAt > -1 ? hit : null;
+  } catch (err) {
+    console.warn('[PZ] Could not read PerkLog:', err?.message || err);
+    return null;
+  }
+}
+
+/** "12 minutes ago" / "3 hours ago" — how stale a PerkLog reading is. */
+function agoLabel(at) {
+  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
 /** Display label for a player: character name when we have one, else username. */
@@ -167,6 +204,24 @@ module.exports = {
             .setMaxValue(1000000)))
     .addSubcommand((s) =>
       s
+        .setName('setlevel')
+        .setDescription('Raise a skill to a level, working out the XP for you')
+        .addStringOption(playerOption('player', 'Whose skill to raise'))
+        .addStringOption((o) =>
+          o
+            .setName('skill')
+            .setDescription('Skill to raise, e.g. Woodwork')
+            .setRequired(true)
+            .setAutocomplete(true))
+        .addIntegerOption((o) =>
+          o
+            .setName('level')
+            .setDescription('Level to bring them up to')
+            .setRequired(true)
+            .setMinValue(1)
+            .setMaxValue(xp.MAX_LEVEL)))
+    .addSubcommand((s) =>
+      s
         .setName('godmode')
         .setDescription('Make a player invincible')
         .addStringOption(playerOption('player', 'Player'))
@@ -183,6 +238,17 @@ module.exports = {
         .setDescription('Let a player walk through walls')
         .addStringOption(playerOption('player', 'Player'))
         .addStringOption(toggleOption))
+    .addSubcommand((s) =>
+      s
+        .setName('access')
+        .setDescription("Set a player's in-game access level (Owners only)")
+        .addStringOption(playerOption('player', 'Player to promote or demote'))
+        .addStringOption((o) =>
+          o
+            .setName('level')
+            .setDescription('Access level to give them, e.g. moderator')
+            .setRequired(true)
+            .setAutocomplete(true)))
     .addSubcommand((s) =>
       s
         .setName('say')
@@ -206,7 +272,44 @@ module.exports = {
     .addSubcommand((s) =>
       s.setName('restart-cancel').setDescription('Cancel a scheduled restart'))
     .addSubcommand((s) =>
-      s.setName('restart-status').setDescription('Is a restart running or scheduled?')),
+      s.setName('restart-status').setDescription('Is a restart running or scheduled?'))
+    .addSubcommand((s) =>
+      s
+        .setName('raid')
+        .setDescription('Horde event: staged spawns around every online player')
+        .addIntegerOption((o) =>
+          o
+            .setName('per-player')
+            .setDescription('Zombies per player across the whole event (default 40)')
+            .setMinValue(1)
+            .setMaxValue(200)
+            .setRequired(false))
+        .addIntegerOption((o) =>
+          o
+            .setName('minutes')
+            .setDescription('How long to spread the waves over (default 5)')
+            .setMinValue(1)
+            .setMaxValue(30)
+            .setRequired(false))
+        .addIntegerOption((o) =>
+          o
+            .setName('near')
+            .setDescription('Closest spawn distance in tiles (default 45)')
+            .setMinValue(20)
+            .setMaxValue(95)
+            .setRequired(false))
+        .addIntegerOption((o) =>
+          o
+            .setName('far')
+            .setDescription('Furthest spawn distance — keep under 100 (default 70)')
+            .setMinValue(25)
+            .setMaxValue(99)
+            .setRequired(false))
+        .addBooleanOption((o) =>
+          o
+            .setName('preview')
+            .setDescription('Work out the spawns and report them without spawning anything')
+            .setRequired(false))),
 
   /**
    * Autocomplete for the player / item / skill options.
@@ -217,15 +320,43 @@ module.exports = {
   async autocomplete(interaction) {
     const focused = interaction.options.getFocused(true);
     const guildId = interaction.guildId;
+    const sub = interaction.options.getSubcommand(false);
     let choices = [];
 
     try {
-      if (focused.name === 'player' || focused.name === 'target') {
+      if (focused.name === 'player' && sub === 'access') {
+        // The only subcommand that reaches players who aren't logged in:
+        // promoting someone when they ask, rather than waiting for them to be
+        // online, is the normal case. Their current level rides along in the
+        // label so a demotion isn't aimed blind.
+        const query = focused.value.toLowerCase();
+        choices = access
+          .accounts(guildId)
+          .filter((a) => a.username.toLowerCase().includes(query))
+          .slice(0, 25)
+          .map((a) => ({
+            name: `${a.username}${a.level ? ` — ${a.level}` : ''}`.slice(0, 100),
+            value: a.username.slice(0, 100),
+          }));
+      } else if (focused.name === 'player' || focused.name === 'target') {
         const query = focused.value.toLowerCase();
         choices = (await onlineNames(guildId))
           .filter((n) => n.toLowerCase().includes(query))
           .slice(0, 25)
           .map((n) => ({ name: n, value: n }));
+      } else if (focused.name === 'level') {
+        // Read from the server's role table rather than hardcoded: this server
+        // has custom roles beside the built-in ones, and the console's `help`
+        // lists neither them nor the right set of built-ins.
+        const query = focused.value.toLowerCase();
+        choices = access
+          .levels(guildId)
+          .filter((l) => l.name.toLowerCase().includes(query))
+          .slice(0, 25)
+          .map((l) => ({
+            name: `${l.name}${l.description ? ` — ${l.description}` : ''}`.slice(0, 100),
+            value: l.name.slice(0, 100),
+          }));
       } else if (focused.name === 'item') {
         choices = items.search(guildId, focused.value, 25).map((i) => ({
           // Both halves shown: the name is what they searched for, the ID is
@@ -388,6 +519,39 @@ module.exports = {
           return;
         }
 
+        case 'setlevel': {
+          const skill = interaction.options.getString('skill');
+          const target = interaction.options.getInteger('level');
+
+          // The PerkLog only dumps skills on login, death and character
+          // creation — never on level-up. So this is where they stood when they
+          // last connected, which is the freshest figure the server records
+          // anywhere. Without it we'd be adding XP to an unknown starting
+          // point, so refuse rather than guess.
+          const record = skillRecord(cfg.logDir, player);
+          if (!record) {
+            await interaction.editReply(
+              `❌ No PerkLog entry for **${player}** yet, so I can't tell what level they're ` +
+                `starting from. Once they've logged in at least once this will work; until ` +
+                `then use \`/pz addxp\`.`,
+            );
+            return;
+          }
+
+          const from = record.skills[skill] || 0;
+          const { grant } = xp.plan(skill, from, target);
+          await admin.addXp(guildId, player, skill, grant);
+
+          const stale = agoLabel(record.skillsAt);
+          await interaction.editReply(
+            `✅ Gave **${label(dbPath, player)}** ${grant.toLocaleString()} XP in **${skill}** — ` +
+              `enough to go from **${from}** to **${target}**.\n` +
+              `_Starting level read from their last login (${stale}). If they've levelled ` +
+              `since, they'll land a little above ${target}._`,
+          );
+          return;
+        }
+
         case 'godmode':
           await admin.godMode(guildId, player, on);
           await interaction.editReply(
@@ -408,6 +572,35 @@ module.exports = {
             `✅ Noclip **${on ? 'on' : 'off'}** for **${label(dbPath, player)}**.`,
           );
           return;
+
+        case 'access': {
+          const level = interaction.options.getString('level');
+          const result = await access.setLevel(guildId, player, level);
+          const who = label(dbPath, result.username);
+
+          if (!result.changed) {
+            await interaction.editReply(
+              `**${who}** is already **${result.to}** — nothing to change.`,
+            );
+            return;
+          }
+
+          const online = (await onlineNames(guildId)).some(
+            (n) => n.toLowerCase() === result.username.toLowerCase(),
+          );
+
+          await interaction.editReply(
+            `✅ **${who}** is now **${result.to}** — was **${result.from || 'unset'}**.\n` +
+              (online
+                ? '_They have it right now; no need to relog._'
+                : '_They are offline, so it applies when they next log in._') +
+              (result.verified
+                ? ''
+                : "\n⚠️ The server accepted it, but I couldn't read the whitelist back to " +
+                  'confirm it stuck — worth spot-checking.'),
+          );
+          return;
+        }
 
         case 'say': {
           const message = interaction.options.getString('message');
@@ -490,6 +683,74 @@ module.exports = {
           return;
         }
 
+        case 'raid': {
+          const perPlayer = interaction.options.getInteger('per-player') ?? raid.DEFAULTS.perPlayer;
+          const minutes = interaction.options.getInteger('minutes') ?? 5;
+          const near = interaction.options.getInteger('near') ?? raid.DEFAULTS.near;
+          const far = interaction.options.getInteger('far') ?? raid.DEFAULTS.far;
+          const preview = interaction.options.getBoolean('preview') ?? false;
+
+          if (far <= near) {
+            await interaction.editReply('`far` has to be greater than `near`.');
+            return;
+          }
+
+          const online = await onlineNames(guildId);
+          if (!online.length) {
+            await interaction.editReply('Nobody is online — there is nothing to spawn around.');
+            return;
+          }
+
+          // Spawns are permanent (ZombieRespawn=None, and no RCON command
+          // removes zombies), so the worst case is stated up front rather than
+          // discovered afterwards in the command log.
+          const worstCase = perPlayer * online.length;
+          await interaction.editReply(
+            `${preview ? '🔍 Previewing' : '🧟 Starting'} a horde event over **${minutes} min** — ` +
+              `**${perPlayer}** per player across **${online.length}** online ` +
+              `(up to **${worstCase}** zombies, ${near}-${far} tiles).` +
+              (preview ? '' : '\n_These are permanent; nothing removes them but players._'),
+          );
+
+          const misses = [];
+          const summary = await raid.runRaid(
+            guildId,
+            { perPlayer, duration: minutes * 60, near, far, dryRun: preview },
+            (e) => {
+              if (e.kind === 'miss') misses.push(`${e.player} (${e.d}t)`);
+              if (e.kind === 'skip') misses.push(`${e.player} — ${e.reason}`);
+            },
+          );
+
+          const embed = new EmbedBuilder()
+            .setColor(COLOR)
+            .setTitle(preview ? '🔍 Horde preview' : '🧟 Horde event finished')
+            .addFields(
+              { name: 'Spawned', value: `${summary.spawned}`, inline: true },
+              { name: 'Landed', value: `${summary.ok}`, inline: true },
+              { name: 'Missed', value: `${summary.miss + summary.skipped}`, inline: true },
+            )
+            .setTimestamp();
+
+          const hit = Object.entries(summary.perPlayer).filter(([, n]) => n > 0);
+          if (hit.length) {
+            embed.addFields({
+              name: 'Per player',
+              value: hit.map(([u, n]) => `• ${label(dbPath, u)} — ${n}`).join('\n').slice(0, 1024),
+            });
+          }
+          if (misses.length) {
+            // A miss is `invalid location`: that player's client was not
+            // streaming the square, so they got less than everyone else.
+            embed.addFields({
+              name: 'Not delivered',
+              value: misses.join('\n').slice(0, 1024),
+            });
+          }
+          await interaction.followUp({ embeds: [embed], flags: 64 });
+          return;
+        }
+
         case 'restart-cancel': {
           const cancelled = await restarts.cancelRestart();
           if (!cancelled) {
@@ -531,9 +792,10 @@ module.exports = {
           await interaction.editReply('Unknown subcommand.');
       }
     } catch (err) {
-      // A missing player and a restart already in flight are both operator
-      // error with a message worth showing verbatim; anything else is ours.
-      const expected = err.notFound || err.alreadyRunning;
+      // A missing player, a restart already in flight and an unmeetable level
+      // request are all operator error with a message worth showing verbatim;
+      // anything else is ours.
+      const expected = err.notFound || err.alreadyRunning || err.userFacing;
       if (!expected) {
         console.error(`[PZ] /pz ${sub} failed:`, err?.message || err);
       }

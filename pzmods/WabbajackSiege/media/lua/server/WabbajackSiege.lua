@@ -53,6 +53,17 @@ local CLEANUP_MINUTES = 5
 local LOOT_MINUTES = 5
 -- How far from the centre we look when counting or removing our zombies.
 local SITE_RADIUS = 60
+--[[
+Hard expiry, in real minutes.
+
+Cleanup normally waits for the horde to be broken, but nothing obliges players
+to fight it: once the loot clock is running the rational play is to grab what
+you can and leave, which leaves the horde at ~100% alive and, without this,
+parked there forever. ZombieRespawn is None on this server and nothing else ever
+clears zombies, so an event that is never completed would be a permanent scar on
+the map. After this long the site is cleaned up regardless of how the fight went.
+]]
+local MAX_EVENT_MINUTES = 120
 
 -- Ground clutter that sells "somebody was holed up in here". Vanilla only, and
 -- deliberately worthless - it is set dressing, not part of the reward. Boarded
@@ -233,6 +244,27 @@ local function stripBuilding(square)
     return containers, ground
 end
 
+--[[
+Whether the target building is under a player claim.
+
+Checked here as well as in the bot, because the two are minutes apart and this
+server lets players claim ANY building: the bot confirms the house is unclaimed
+when it arms the event, and somebody can walk up and claim it before the loot
+timer expires. Stripping every container in a claim would be that player losing
+everything to an event they never opted into, so the strip and the spawn both
+defer to a claim made in the meantime.
+]]
+local function isClaimed(square)
+    if not square or not SafeHouse then return false end
+    -- nil username, true = "is this claimed by anyone at all", matching the
+    -- vanilla callers.
+    local ok, claimed = pcall(function()
+        return SafeHouse.getSafeHouse(square) ~= nil
+            or SafeHouse.isSafeHouse(square, nil, true)
+    end)
+    return ok and claimed or false
+end
+
 --- True when any live player is standing inside the building.
 local function playerInBuilding(square)
     local building = square and square:getBuilding()
@@ -339,6 +371,15 @@ end
 local function fire(ev)
     local sq = getCell() and getCell():getGridSquare(ev.x, ev.y, ev.z)
     if not sq then return false end          -- area not streamed yet
+    -- Somebody may have claimed the house between the bot arming this and the
+    -- area streaming in. Abandon rather than besiege a player's base.
+    if isClaimed(sq) then
+        log("event " .. ev.id .. " ABANDONED - the house has been claimed since it was armed")
+        ev.phase = "done"
+        ev.abandoned = true
+        writeStatus(ev)
+        return true
+    end
     stockBuilding(sq, ev.loot)
     ev.spawned = ringWithZombies(ev.x, ev.y, ev.z, ev.zombies, ev.id)
     ev.phase = "active"
@@ -394,10 +435,32 @@ local function tick()
         end
         if sq and ev.enteredAt and not ev.looted
            and realMinutesSince(ev.enteredAt) >= LOOT_MINUTES then
-            stripBuilding(sq)
+            if isClaimed(sq) then
+                -- Claimed since the event started. Their base, their contents -
+                -- leave it entirely alone.
+                log("event " .. ev.id .. " loot NOT cleared - house is now claimed")
+            else
+                stripBuilding(sq)
+                log("event " .. ev.id .. " loot cleared")
+            end
             ev.looted = true
-            log("event " .. ev.id .. " loot cleared")
             writeStatus(ev)
+        end
+
+        -- Hard expiry. Nothing forces players to fight the horde, so without
+        -- this a looted-and-abandoned site leaves its zombies standing forever.
+        if realMinutesSince(ev.firedAt) >= MAX_EVENT_MINUTES then
+            local removed = sweepZombies(ev.x, ev.y, ev.z, ev.id, true)
+            log("event " .. ev.id .. " EXPIRED after " .. MAX_EVENT_MINUTES ..
+                " min - removed " .. removed .. " zombies")
+            ev.phase = "done"
+            ev.expired = true
+            ev.alive = 0
+            writeStatus(ev)
+            st.done = st.done or {}
+            st.done[ev.id] = true
+            st.current = nil
+            return
         end
     end
 

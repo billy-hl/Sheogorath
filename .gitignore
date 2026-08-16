@@ -217,3 +217,12 @@ logs/
 # not build output. The Gatsby rule above would otherwise silently exclude it.
 !src/api/public/
 !src/api/public/**
+
+# Deployment artifacts and secrets that live only on the Leviathan box.
+# .env.save and instagram-cookies.txt hold credentials; they were untracked but
+# NOT ignored, so a `git add -A` run on the server would have committed them.
+.env.save
+instagram-cookies.txt
+sheogorath.lock
+*.bak
+*.bak.*

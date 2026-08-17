@@ -78,7 +78,7 @@
       "workshopDir": "/home/allisteras/gameservers/zomboid/gamefiles/steamapps/workshop/content/108600",
       "modUpdates": {
         "autoRestart": true,
-        "settleMinutes": 2,
+        "settleMinutes": 0,
         "minMinutesBetweenRestarts": 15,
         "deferToNightlyMinutes": 15
       },

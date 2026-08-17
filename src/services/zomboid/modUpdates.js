@@ -45,16 +45,25 @@ const { serverMessage, isReachable } = require('./rcon');
 
 const DEFAULTS = {
   pollMinutes: 3,
-  // A Workshop update younger than this is left alone, so a burst of fixes
-  // pushed a minute apart becomes one restart rather than three. Kept short:
-  // the premise that waiting "costs nothing" was wrong. Clients auto-update
-  // their own copy, so from the moment an author publishes, anyone who
-  // restarts Steam is locked out with a version mismatch until the server
-  // catches up. Waiting costs exactly the thing the server is for.
-  settleMinutes: 2,
-  // Floor between bot-triggered restarts. This is thrash protection only, not
-  // a quiet-hours policy — a mismatched server cannot be joined, so deferring
-  // a restart does not spare players an interruption, it prolongs one.
+  // Zero: act on an update the moment it is seen.
+  //
+  // This used to hold a fresh update back for a couple of minutes so that an
+  // author pushing three fixes a minute apart became one restart rather than
+  // three. That trade is the wrong way round. Clients auto-update their own
+  // copy, so from the moment the author publishes, every player who restarts
+  // Steam is locked out on a version mismatch until the server catches up —
+  // the wait was spent entirely on the players it was meant to spare.
+  //
+  // Burst protection has not gone away, it has moved: minMinutesBetweenRestarts
+  // now does that job. A burst becomes at most one restart per cooldown window
+  // instead of one settled restart, which costs an extra bounce in the rare
+  // multi-push case and saves the outage in every single-push case.
+  settleMinutes: 0,
+  // Floor between bot-triggered restarts. With settleMinutes at 0 this is the
+  // only thing standing between a chatty mod author and a restart loop, so it
+  // is load-bearing rather than belt-and-braces. Not a quiet-hours policy — a
+  // mismatched server cannot be joined, so deferring a restart does not spare
+  // players an interruption, it prolongs one.
   minMinutesBetweenRestarts: 15,
   // If the nightly restart is due within this window, let it do the work.
   // Only worth it when the nightly is genuinely imminent; anything longer
@@ -182,8 +191,17 @@ function compareVersions(configuredIds, local, remote) {
   return { updates, missing, gone };
 }
 
-/** Updates that have stopped changing, and are therefore worth restarting for. */
+/**
+ * Updates that have stopped changing, and are therefore worth restarting for.
+ *
+ * A settleMinutes of 0 disables the gate outright rather than cutting off at
+ * exactly `now`. Steam's publish timestamp is its clock, not ours, and one a
+ * second or two ahead would fail `steamAt <= now` and hold the update for a
+ * whole poll cycle — an "act immediately" policy that silently waited three
+ * minutes on clock skew would be indistinguishable from the old behaviour.
+ */
 function settled(updates, settleMinutes, now = Date.now()) {
+  if (!settleMinutes) return updates.slice();
   const cutoff = now - settleMinutes * 60 * 1000;
   return updates.filter((u) => u.steamAt * 1000 <= cutoff);
 }
@@ -388,8 +406,11 @@ function updateConfig(guildId) {
  * @returns {Promise<{act:boolean, plan:string}>}
  */
 async function decide(cfg, guildId, ready) {
+  // With settleMinutes at 0 this is no longer "still settling" — every update
+  // is ready the moment it is seen. Reaching here means the poll turned up only
+  // removed mods (found.gone), which a restart would not fix.
   if (!ready.length) {
-    return { act: false, plan: '_Waiting for the update to settle before restarting._' };
+    return { act: false, plan: '_No mod updates to apply._' };
   }
 
   if (!cfg.autoRestart) {

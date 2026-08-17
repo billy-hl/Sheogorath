@@ -99,7 +99,7 @@ function towns(guildId) {
  * every id it has run and refuses to repeat one, so a duplicated command or a
  * file left on disk after a restart cannot re-arm an event that already fired.
  */
-function arm(guildId, { town = null, zombies = 200, loot = 'high' } = {}) {
+function arm(guildId, { town = null, zombies = 200, loot = 'high', silent = false } = {}) {
   const root = zomboidRoot(guildId);
   if (!root) throw new Error('No Zomboid save is configured for this guild.');
 
@@ -144,9 +144,10 @@ function arm(guildId, { town = null, zombies = 200, loot = 'high' } = {}) {
     `y=${house.y}\n` +
     `z=0\n` +
     `zombies=${zombies}\n` +
-    `loot=${loot}\n`;
+    `loot=${loot}\n` +
+    `silent=${silent ? 1 : 0}\n`;
   fs.writeFileSync(path.join(root, REQUEST_FILE), body);
-  return { id, ...house, zombies, loot };
+  return { id, ...house, zombies, loot, silent };
 }
 
 /**

@@ -333,7 +333,12 @@ module.exports = {
             .setName('loot')
             .setDescription('Loot tier (default high)')
             .setRequired(false)
-            .addChoices({ name: 'standard', value: 'standard' }, { name: 'high', value: 'high' })))
+            .addChoices({ name: 'standard', value: 'standard' }, { name: 'high', value: 'high' }))
+        .addBooleanOption((o) =>
+          o
+            .setName('silent')
+            .setDescription('Place it with no announcement — players have to find it')
+            .setRequired(false)))
     .addSubcommand((s) =>
       s.setName('siege-status').setDescription('How the current siege is going')),
 
@@ -797,10 +802,11 @@ module.exports = {
           const town = interaction.options.getString('town');
           const zombies = interaction.options.getInteger('zombies') ?? 200;
           const loot = interaction.options.getString('loot') ?? 'high';
+          const silent = interaction.options.getBoolean('silent') ?? false;
 
           let ev;
           try {
-            ev = siege.arm(guildId, { town, zombies, loot });
+            ev = siege.arm(guildId, { town, zombies, loot, silent });
           } catch (err) {
             await interaction.editReply(`❌ ${err.message}`);
             return;
@@ -809,14 +815,17 @@ module.exports = {
           // Announced in the open: the coordinates ARE the event. Travelling
           // there through the world is the first half of the risk, and a siege
           // nobody is told about is just a horde nobody finds.
+          //
+          // Unless silent, which is the other legitimate mode: seed the house
+          // and let somebody stumble on it, with no race and no crowd.
           const where = `**${ev.x}, ${ev.y}** (${ev.town.replace(/, KY$/, '')})`;
-          await serverMessage(
+          if (!silent) await serverMessage(
             guildId,
             `SURVIVOR HOLDOUT FOUND at ${ev.x},${ev.y} — supplies inside, and it is surrounded. ` +
               'Whatever is left in five minutes rots.',
           ).catch((err) => console.warn('[PZ] siege in-game notice failed:', err?.message || err));
 
-          const announceId = announceChannelId(cfg);
+          const announceId = silent ? null : announceChannelId(cfg);
           if (announceId) {
             const ch = await interaction.client.channels.fetch(announceId).catch(() => null);
             if (ch) {
@@ -837,7 +846,8 @@ module.exports = {
           }
 
           await interaction.editReply(
-            `🏚️ Armed siege \`${ev.id}\` at **${ev.x},${ev.y}** (${ev.town}) — ` +
+            `🏚️ Armed ${silent ? '**silent** ' : ''}siege \`${ev.id}\` at ` +
+              `**${ev.x},${ev.y}** (${ev.town}) — ` +
               `${ev.zombies} zombies, ${ev.loot} loot.\n` +
               '_The mod places it the moment the area streams in — before anyone can see it. ' +
               'Track it with `/pz siege-status`._',

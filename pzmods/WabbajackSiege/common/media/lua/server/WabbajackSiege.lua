@@ -143,6 +143,9 @@ local function readRequest()
     req.z = tonumber(req.z or "0") or 0
     req.zombies = tonumber(req.zombies or "200") or 200
     req.loot = req.loot or "standard"
+    -- A silent event places loot and zombies with no announcement at all, so
+    -- players find it rather than race to it.
+    req.silent = (req.silent == "1" or req.silent == "true")
     if not req.x or not req.y then return nil end
     return req
 end
@@ -157,6 +160,7 @@ local function writeStatus(st)
     w:write("alive=" .. tostring(st.alive or 0) .. "\n")
     w:write("x=" .. tostring(st.x or 0) .. "\n")
     w:write("y=" .. tostring(st.y or 0) .. "\n")
+    w:write("silent=" .. (st.silent and "1" or "0") .. "\n")
     w:close()
 end
 
@@ -426,7 +430,7 @@ local function poll()
 
     st.current = {
         id = req.id, x = req.x, y = req.y, z = req.z,
-        zombies = req.zombies, loot = req.loot,
+        zombies = req.zombies, loot = req.loot, silent = req.silent,
         phase = "armed", spawned = 0,
     }
     log("armed event " .. req.id .. " at " .. req.x .. "," .. req.y)
@@ -609,6 +613,7 @@ local function onClientCommand(module, command, player, args)
         x = x, y = y, z = z,
         zombies = math.min(tonumber(args.zombies) or 200, 500),
         loot = args.loot == "standard" and "standard" or "high",
+        silent = args.silent == "1",
         phase = "armed", spawned = 0,
     }
     log("armed via menu by " .. tostring(player:getUsername()) ..

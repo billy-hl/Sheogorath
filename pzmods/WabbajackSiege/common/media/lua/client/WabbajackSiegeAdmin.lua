@@ -25,7 +25,10 @@ goes quiet, /pz siege still works.
 require "ISUI/Maps/ISWorldMap"
 
 local ZOMBIE_CHOICES = { 100, 200, 300 }
-local RAID_CHOICES = { 20, 40, 80 }
+-- Per-player counts offered for a base raid. The top of this range is heavy:
+-- 200 each across a dozen online players is 2,400 zombies placed at once, and
+-- they are permanent until somebody kills them.
+local RAID_CHOICES = { 20, 40, 80, 120, 160, 200 }
 
 --[[
 Whether the local player is staff.

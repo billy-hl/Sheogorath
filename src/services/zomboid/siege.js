@@ -12,8 +12,16 @@
  * PZ Lua sandbox exposes getFileReader/getFileWriter relative to the Zomboid
  * folder and nothing else — no network, no IPC.
  *
- * Both files live in the Zomboid root (the same directory that holds Saves/ and
- * Logs/), which is what getFileReader resolves against.
+ * The two files do NOT live in the same directory, which is a genuine asymmetry
+ * in the PZ Lua file API rather than a mistake here:
+ *
+ *   getFileReader("x")  reads  <Zomboid>/x
+ *   getFileWriter("x")  writes <Zomboid>/Lua/x
+ *
+ * Verified by finding the mod's status file on disk after it had written one. So
+ * the request is written to the Zomboid root and the status is read back out of
+ * Lua/. Getting this wrong is silent on both sides: the mod reads a request that
+ * is never there, or the bot polls a status file that is never written.
  */
 const fs = require('fs');
 const path = require('path');
@@ -159,8 +167,14 @@ function arm(guildId, { town = null, zombies = 200, loot = 'high', silent = fals
 function status(guildId) {
   const root = zomboidRoot(guildId);
   if (!root) return null;
-  const f = path.join(root, STATUS_FILE);
-  if (!fs.existsSync(f)) return null;
+  // Lua/ — see the note at the top: getFileWriter is rooted there, not at the
+  // Zomboid root that getFileReader uses.
+  let f = path.join(root, 'Lua', STATUS_FILE);
+  if (!fs.existsSync(f)) {
+    // Tolerate the root too, in case a future build changes the base dir.
+    f = path.join(root, STATUS_FILE);
+    if (!fs.existsSync(f)) return null;
+  }
   const out = {};
   for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
     const m = line.match(/^\s*(\w+)\s*=\s*(.*?)\s*$/);

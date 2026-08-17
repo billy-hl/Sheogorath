@@ -91,27 +91,48 @@ local function sweepSquare(sq, remove)
     return n
 end
 
---- Sweeps everything currently streamed. Only reaches loaded chunks by design.
+--[[
+Sweeps what is currently streamed around each online player.
+
+BUDGETED ON PURPOSE. This runs synchronously inside one server tick, and the
+first version used a radius of 100 — 201x201 = 40,401 squares per player, or
+~485,000 iterations with twelve people online, each allocating a string key for
+the dedupe table. That is a multi-second freeze of the whole server, long enough
+for the hang watchdog to consider restarting it.
+
+So: a modest radius, a hard ceiling on squares examined, and an integer dedupe
+key instead of a string. The immediate pass is only ever a head start anyway —
+LoadGridsquare does the real work as players move, one square at a time, for
+free.
+]]
+local IMMEDIATE_RADIUS = 40          -- 81x81 = 6,561 squares per player
+local MAX_SQUARES = 60000            -- ceiling across all players, per call
+
 local function sweepLoaded(remove)
     local cell = getCell()
     if not cell then return 0, 0 end
-    local total, squares = 0, 0
     local players = getOnlinePlayers()
     if not players then return 0, 0 end
-    -- Walk a box around each online player rather than the whole cell: the cell
-    -- object has no cheap "all loaded squares" accessor, and this covers exactly
-    -- the area that is actually streamed.
-    local R = 100
+
+    local total, squares, examined = 0, 0, 0
     local seen = {}
     for p = 0, players:size() - 1 do
         local pl = players:get(p)
-        local px, py = pl and math.floor(pl:getX()) or nil, pl and math.floor(pl:getY()) or nil
-        if px then
-            for x = px - R, px + R do
-                for y = py - R, py + R do
-                    local key = x .. ":" .. y
+        if pl then
+            local px, py = math.floor(pl:getX()), math.floor(pl:getY())
+            for x = px - IMMEDIATE_RADIUS, px + IMMEDIATE_RADIUS do
+                for y = py - IMMEDIATE_RADIUS, py + IMMEDIATE_RADIUS do
+                    -- Integer key: x*32768+y is unique for a 32k-wide map and
+                    -- allocates nothing, unlike string concatenation.
+                    local key = x * 32768 + y
                     if not seen[key] then
                         seen[key] = true
+                        examined = examined + 1
+                        if examined > MAX_SQUARES then
+                            log("immediate pass hit the " .. MAX_SQUARES ..
+                                "-square ceiling; the rest clears as areas load")
+                            return total, squares
+                        end
                         local sq = cell:getGridSquare(x, y, 0)
                         if sq then
                             local n = sweepSquare(sq, remove)

@@ -29,6 +29,7 @@ const restarts = require('../services/zomboid/restart');
 const xp = require('../services/zomboid/xp');
 const raid = require('../services/zomboid/raid');
 const siege = require('../services/zomboid/siege');
+const baseRaid = require('../services/zomboid/baseRaid');
 
 const COLOR = 0x8b1a1a;
 
@@ -310,7 +311,16 @@ module.exports = {
           o
             .setName('preview')
             .setDescription('Work out the spawns and report them without spawning anything')
-            .setRequired(false)))
+            .setRequired(false))
+        .addStringOption((o) =>
+          o
+            .setName('target')
+            .setDescription('Where the horde goes (default: their safehouses)')
+            .setRequired(false)
+            .addChoices(
+              { name: 'safehouse — armed at their base, fires when they get home', value: 'safehouse' },
+              { name: 'players — spawned around them right now', value: 'players' },
+            )))
     .addSubcommand((s) =>
       s
         .setName('siege')
@@ -340,7 +350,9 @@ module.exports = {
             .setDescription('Place it with no announcement — players have to find it')
             .setRequired(false)))
     .addSubcommand((s) =>
-      s.setName('siege-status').setDescription('How the current siege is going')),
+      s.setName('siege-status').setDescription('How the current siege is going'))
+    .addSubcommand((s) =>
+      s.setName('raid-status').setDescription('How the current base raid is going')),
 
   /**
    * Autocomplete for the player / item / skill options.
@@ -724,6 +736,56 @@ module.exports = {
         }
 
         case 'raid': {
+          // Two different mechanisms behind one command.
+          //
+          // `safehouse` cannot go through RCON at all: createhorde2 needs the
+          // target chunk streamed, and a base nobody is standing near is by
+          // definition not. It is armed in the mod and fires on stream-in.
+          // `players` is the original engine, kept because it is the only thing
+          // that works when you want the horde to land NOW.
+          if ((interaction.options.getString('target') ?? 'safehouse') === 'safehouse') {
+            if (!siege.modEnabled(guildId)) {
+              await interaction.editReply(
+                '❌ The `WabbajackSiege` server mod is not enabled — base raids run inside it.\n' +
+                  'Add it to `MOD_IDS` in the server `.env` and restart.',
+              );
+              return;
+            }
+            if (!baseRaid.moduleInstalled(guildId)) {
+              await interaction.editReply(
+                '❌ The installed `WabbajackSiege` build has no base-raid module, so arming one ' +
+                  'would write a request nothing reads.\n' +
+                  'Publish the Workshop update and restart, or use `target: players`.',
+              );
+              return;
+            }
+            const perPlayerSh =
+              interaction.options.getInteger('per-player') ?? baseRaid.DEFAULTS.perPlayer;
+            const online = await onlineNames(guildId);
+            if (!online.length) {
+              await interaction.editReply('Nobody is online — there is nothing to arm.');
+              return;
+            }
+            if (interaction.options.getBoolean('preview')) {
+              await interaction.editReply(
+                `🔍 Would arm **${perPlayerSh}** zombies at the safehouse of each of ` +
+                  `**${online.length}** online players. Players with no claim are skipped.`,
+              );
+              return;
+            }
+            const ev = baseRaid.arm(guildId, { perPlayer: perPlayerSh });
+            await interaction.editReply(
+              `🏠 Armed base raid \`${ev.id}\` — **${ev.perPlayer}** zombies ringing the ` +
+                `safehouse of each of **${online.length}** online players.\n` +
+                '_Placed on the claim perimeter, never inside it. Each one materialises when ' +
+                'somebody streams that area, so they come home to it rather than watching it ' +
+                'appear. Players with no claim are skipped._\n' +
+                '**These are permanent** — nothing removes them but players. ' +
+                'Track it with `/pz raid-status`.',
+            );
+            return;
+          }
+
           const perPlayer = interaction.options.getInteger('per-player') ?? raid.DEFAULTS.perPlayer;
           const minutes = interaction.options.getInteger('minutes') ?? 5;
           const near = interaction.options.getInteger('near') ?? raid.DEFAULTS.near;
@@ -852,6 +914,30 @@ module.exports = {
               '_The mod places it the moment the area streams in — before anyone can see it. ' +
               'Track it with `/pz siege-status`._',
           );
+          return;
+        }
+
+        case 'raid-status': {
+          const st = baseRaid.status(guildId);
+          if (!st) {
+            await interaction.editReply('No base raid has reported yet.');
+            return;
+          }
+          const pending = Number(st.pending || 0);
+          await interaction.editReply({
+            embeds: [new EmbedBuilder()
+              .setColor(COLOR)
+              .setTitle('Base raid status')
+              .setDescription(pending > 0
+                ? `⏳ ${pending} cluster(s) still waiting for somebody to go near that claim`
+                : '✅ Every cluster has fired')
+              .addFields(
+                { name: 'Claims armed', value: `${st.armed || 0}`, inline: true },
+                { name: 'Clusters fired', value: `${st.fired || 0}`, inline: true },
+                { name: 'Zombies placed', value: `${st.spawned || 0}`, inline: true },
+              )
+              .setTimestamp()],
+          });
           return;
         }
 

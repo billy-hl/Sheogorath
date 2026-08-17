@@ -506,6 +506,73 @@ local function onLoadGridsquare(square)
     fire(ev)
 end
 
+--[[
+The in-game admin menu's channel.
+
+Second way in, alongside the bot's request file. The menu is the natural one
+when you are already standing in the building you want; the file is the natural
+one from Discord, and is also the fallback if this channel ever proves
+unreliable on a dedicated server.
+
+Access is re-checked HERE, not trusted from the client. The menu hides itself
+from non-staff, but hiding a menu is not a permission check — a modified client
+can send whatever it likes, and arming a siege spawns hundreds of permanent
+zombies.
+]]
+local function onClientCommand(module, command, player, args)
+    if module ~= "WabbajackSiege" then return end
+    if not player then return end
+
+    local lvl = player.getAccessLevel and player:getAccessLevel() or "None"
+    if lvl ~= "Admin" and lvl ~= "Moderator" then
+        log("refused " .. tostring(command) .. " from " ..
+            tostring(player:getUsername()) .. " (access=" .. tostring(lvl) .. ")")
+        return
+    end
+
+    local st = state()
+
+    if command == "cancel" then
+        local ev = st.current
+        if not ev then player:Say("No siege is running.") return end
+        local removed = sweepZombies(ev.x, ev.y, ev.z, ev.id, true)
+        log("siege " .. ev.id .. " cancelled by " .. tostring(player:getUsername())
+            .. " - removed " .. removed .. " zombies")
+        ev.phase = "done"; ev.alive = 0
+        writeStatus(ev)
+        st.done = st.done or {}; st.done[ev.id] = true
+        st.current = nil
+        player:Say("Siege cancelled, " .. removed .. " zombies removed.")
+        return
+    end
+
+    if command ~= "arm" or not args then return end
+    local x, y, z = tonumber(args.x), tonumber(args.y), tonumber(args.z or 0) or 0
+    if not x or not y then return end
+
+    local sq = getCell() and getCell():getGridSquare(x, y, z)
+    -- Same guard the bot applies before arming: never a claimed building.
+    if sq and isClaimed(sq) then
+        player:Say("That building is claimed — pick somewhere else.")
+        log("refused arm at " .. x .. "," .. y .. " - claimed")
+        return
+    end
+
+    st.current = {
+        id = tostring(getTimestamp()) .. "-" .. tostring(ZombRand(1000)),
+        x = x, y = y, z = z,
+        zombies = math.min(tonumber(args.zombies) or 200, 500),
+        loot = args.loot == "standard" and "standard" or "high",
+        phase = "armed", spawned = 0,
+    }
+    log("armed via menu by " .. tostring(player:getUsername()) ..
+        " at " .. x .. "," .. y)
+    writeStatus(st.current)
+    fire(st.current)
+    player:Say("Siege armed here.")
+end
+
+Events.OnClientCommand.Add(onClientCommand)
 Events.EveryOneMinute.Add(poll)
 Events.EveryOneMinute.Add(tick)
 Events.LoadGridsquare.Add(onLoadGridsquare)

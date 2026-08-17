@@ -1,0 +1,73 @@
+--[[
+Wabbajack siege — in-game admin menu.
+
+Right-click any square while logged in as staff and you get a "Siege" submenu
+that arms an event on the building you are standing on or pointing at. The
+alternative is the bot's /pz siege, which picks a house from the map's
+spawnpoints; this exists for the case where you are already standing in the
+building you want and picking it off a list is silly.
+
+TRUST
+Nothing here is a security boundary. The menu only *hides* itself from
+non-admins so it does not clutter everyone's right-click; the server re-checks
+access level on arrival and refuses anything it does not like. A crafted packet
+from a modified client is exactly why that second check exists.
+
+The propane mod in this collection records that OnClientCommand "never actually
+reached the server in real host-mode testing". That was host mode, not a
+dedicated server, and sendClientCommand is used ~70 times by vanilla — but it is
+why the bot's file-based path is kept rather than replaced: if this channel ever
+goes quiet, /pz siege still works.
+]]
+
+local ZOMBIE_CHOICES = { 100, 200, 300 }
+
+--- Squares can come from the object under the cursor or the player's own tile.
+local function squareFor(worldObjects, player)
+    for _, o in ipairs(worldObjects or {}) do
+        if o and o.getSquare and o:getSquare() then return o:getSquare() end
+    end
+    return player and player:getSquare() or nil
+end
+
+local function arm(player, square, zombies, loot)
+    if not square then return end
+    sendClientCommand(player, "WabbajackSiege", "arm", {
+        x = square:getX(), y = square:getY(), z = square:getZ(),
+        zombies = zombies, loot = loot,
+    })
+    player:Say("Arming siege…")
+end
+
+local function cancel(player)
+    sendClientCommand(player, "WabbajackSiege", "cancel", {})
+    player:Say("Cancelling siege…")
+end
+
+local function onFillMenu(playerNum, context, worldObjects)
+    local player = getSpecificPlayer(playerNum)
+    if not player then return end
+    -- Staff only. isAdmin() covers the owner; the access level check picks up
+    -- the moderator/admin tiers on a dedicated server.
+    local lvl = player.getAccessLevel and player:getAccessLevel() or "None"
+    if not (isAdmin() or lvl == "Admin" or lvl == "Moderator") then return end
+
+    local square = squareFor(worldObjects, player)
+    if not square then return end
+
+    local root = context:addOption("Siege", nil, nil)
+    local sub = ISContextMenu:getNew(context)
+    context:addSubMenu(root, sub)
+
+    for _, n in ipairs(ZOMBIE_CHOICES) do
+        local opt = sub:addOption(n .. " zombies", nil, nil)
+        local tiers = ISContextMenu:getNew(sub)
+        sub:addSubMenu(opt, tiers)
+        tiers:addOption("High loot", player, arm, square, n, "high")
+        tiers:addOption("Standard loot", player, arm, square, n, "standard")
+    end
+
+    sub:addOption("Cancel current siege", player, cancel)
+end
+
+Events.OnFillWorldObjectContextMenu.Add(onFillMenu)

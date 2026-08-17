@@ -71,7 +71,7 @@ local MAX_EVENT_MINUTES = 120
 -- construction is cleanly reachable from Lua, so this is what is actually
 -- achievable server-side.
 local DRESSING = {
-    "Base.Cigarettes", "Base.EmptyCan", "Base.EmptyCan", "Base.Whiskey",
+    "Base.CigarettePack", "Base.TinCanEmpty", "Base.TinCanEmpty", "Base.Whiskey",
     "Base.Sheet", "Base.Sheet", "Base.Magazine", "Base.Matches",
     "Base.BeerCanEmpty", "Base.Bandage", "Base.Newspaper",
 }
@@ -117,7 +117,15 @@ modes:
 ]]
 local function readRequest()
     local reader = getFileReader(REQUEST_FILE, false)
-    if not reader then return nil end
+    if not reader then
+        -- Diagnostic, not noise. The first field trial of this mod failed
+        -- silently here: the request file existed, the mod loaded, and nothing
+        -- happened, with no way from the outside to tell whether the poll was
+        -- running, the file was missing, or the parse had failed. One line per
+        -- minute is a cheap price for never being blind about it again.
+        log("poll: no readable " .. REQUEST_FILE .. " (getFileReader returned nil)")
+        return nil
+    end
     local req = {}
     local line = reader:readLine()
     while line do
@@ -126,7 +134,11 @@ local function readRequest()
         line = reader:readLine()
     end
     reader:close()
-    if not req.id or not req.x or not req.y then return nil end
+    if not req.id or not req.x or not req.y then
+        log("poll: " .. REQUEST_FILE .. " read but missing id/x/y — got "
+            .. tostring(req.id) .. "/" .. tostring(req.x) .. "/" .. tostring(req.y))
+        return nil
+    end
     req.x = tonumber(req.x); req.y = tonumber(req.y)
     req.z = tonumber(req.z or "0") or 0
     req.zombies = tonumber(req.zombies or "200") or 200
@@ -152,17 +164,23 @@ end
 
 -- Vanilla item ids only. Anything modded here would make the mod a client
 -- dependency, which is the one thing this design avoids.
+--
+-- Every id below is checked against media/scripts. This matters more than it
+-- looks: container:AddItem() on an unknown id returns nil and adds NOTHING, with
+-- no error. Four ids in the first draft were B41 names that B42 renamed
+-- (CannedBeans, WaterBottleFull, Cigarettes, EmptyCan) and would have quietly
+-- delivered an emptier house than advertised.
 local LOOT = {
     standard = {
         "Base.Axe", "Base.HuntingKnife", "Base.Bandage", "Base.Bandage",
-        "Base.CannedBeans", "Base.CannedBeans", "Base.WaterBottleFull",
+        "Base.TinnedBeans", "Base.TinnedBeans", "Base.WaterBottle",
         "Base.Screwdriver", "Base.Hammer", "Base.SheetRope",
     },
     high = {
         "Base.Axe", "Base.Machete", "Base.Shotgun", "Base.ShotgunShells",
         "Base.ShotgunShells", "Base.Pistol", "Base.Bullets9mmBox",
         "Base.FirstAidKit", "Base.Bandage", "Base.Bandage", "Base.Antibiotics",
-        "Base.CannedBeans", "Base.CannedBeans", "Base.WaterBottleFull",
+        "Base.TinnedBeans", "Base.TinnedBeans", "Base.WaterBottle",
         "Base.Generator", "Base.PetrolCan", "Base.Screwdriver", "Base.Hammer",
     },
 }
@@ -370,7 +388,13 @@ end
 --- Places loot and zombies. Safe to call only once per event.
 local function fire(ev)
     local sq = getCell() and getCell():getGridSquare(ev.x, ev.y, ev.z)
-    if not sq then return false end          -- area not streamed yet
+    if not sq then
+        -- Expected until somebody walks near. Logged because "armed but never
+        -- fired" and "never armed" look identical from outside otherwise.
+        log("event " .. ev.id .. " waiting: " .. ev.x .. "," .. ev.y
+            .. " is not streamed yet")
+        return false
+    end
     -- Somebody may have claimed the house between the bot arming this and the
     -- area streaming in. Abandon rather than besiege a player's base.
     if isClaimed(sq) then
@@ -395,7 +419,10 @@ local function poll()
     local req = readRequest()
     if not req then return end
     if st.current and st.current.id == req.id then return end   -- already known
-    if st.done and st.done[req.id] then return end              -- already run
+    if st.done and st.done[req.id] then
+        log("poll: request " .. tostring(req.id) .. " already ran — ignoring")
+        return
+    end
 
     st.current = {
         id = req.id, x = req.x, y = req.y, z = req.z,
@@ -590,6 +617,20 @@ local function onClientCommand(module, command, player, args)
     fire(st.current)
     player:Say("Siege armed here.")
 end
+
+--[[
+Heartbeat.
+
+Ten minutes apart, so it is not spam, but present so that "the mod is loaded"
+and "the mod's timers are running" stop being the same unverified claim. The
+first field trial could not distinguish them.
+]]
+Events.EveryTenMinutes.Add(function()
+    local st = state()
+    local ev = st.current
+    log("heartbeat: " .. (ev and ("event " .. tostring(ev.id) .. " phase=" ..
+        tostring(ev.phase) .. " spawned=" .. tostring(ev.spawned or 0)) or "idle"))
+end)
 
 Events.OnClientCommand.Add(onClientCommand)
 Events.EveryOneMinute.Add(poll)

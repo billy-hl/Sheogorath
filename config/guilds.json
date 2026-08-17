@@ -32,7 +32,8 @@
       "suggestions": "1534255127278649446",
       "trading": "1534552667597307904",
       "safehouseClaims": "1535064872956461076",
-      "commandLog": "1535750358905651294"
+      "commandLog": "1535750358905651294",
+      "characters": "1536868592342138930"
     },
     "roles": {
       "admin": "1408619717438210139",
@@ -58,7 +59,8 @@
         "events": null,
         "modUpdates": "1533305942089924769",
         "eulogies": "1535092551646847016",
-        "announcements": "1533305942089924769"
+        "announcements": "1533305942089924769",
+        "playerCount": "1537469977156657194"
       },
       "storyTimeHour": 22,
       "workshopPollMinutes": 3,

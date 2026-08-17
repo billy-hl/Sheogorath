@@ -4,10 +4,11 @@ Wabbajack siege — in-game admin menu.
 Right-click any square while logged in as staff and you get a "Siege" submenu
 that arms an event on the building you are standing on or pointing at.
 
-Menu-armed events are ALWAYS SILENT. Announcing is the bot's job, not this
-mod's, so nothing here broadcasts - the loot and the horde are simply placed and
-players find them. Use /pz siege when you want it announced; use this when you
-want it discovered.
+Menu-armed events ANNOUNCE, like any other siege. They were silent originally on
+the reasoning that announcing was the bot's job -- but that left arming one from
+in game with no location, no marker and no word to anybody, which is
+indistinguishable from the command not working. /pz siege silent:true is the way
+to get one nobody is told about.
 
 TRUST
 Nothing here is a security boundary. The menu only *hides* itself from
@@ -149,6 +150,25 @@ local function onServerCommand(module, command, args)
         return
     end
 
+    --[[
+    Server-wide notice that a siege has gone live.
+
+    setHaloNote rather than a chat line: it is vanilla, needs no ISChat
+    internals, and puts the text where the player is already looking. Kept short
+    because a halo note is one line -- the map marker carries the precision, this
+    just says a thing has happened and roughly where.
+    ]]
+    if command == "notify" and args and args.place then
+        local p = (getPlayer and getPlayer()) or (getSpecificPlayer and getSpecificPlayer(0))
+        if p and p.setHaloNote then
+            pcall(function()
+                p:setHaloNote("SURVIVOR HOLDOUT FOUND IN " .. string.upper(tostring(args.place)),
+                    255, 190, 60, 400.0)
+            end)
+        end
+        return
+    end
+
     if command == "markerStop" then
         -- Ignore a stop for an event that is not the one being shown, so a late
         -- teardown cannot wipe the marker for the siege that replaced it.
@@ -233,8 +253,12 @@ local function onFillMenu(playerNum, context, worldObjects, test)
         local opt = siegeMenu:addOption(n .. " zombies", nil, nil)
         local tiers = ISContextMenu:getNew(siegeMenu)
         siegeMenu:addSubMenu(opt, tiers)
-        tiers:addOption("High loot", player, arm, square, n, "high", true)
-        tiers:addOption("Standard loot", player, arm, square, n, "standard", true)
+        -- Announced, not silent. Menu sieges used to be hardcoded quiet, which
+        -- meant arming one from in game produced no location, no marker and no
+        -- word to anybody -- indistinguishable from it not working. Use
+        -- /pz siege silent:true when you actually want one nobody is told about.
+        tiers:addOption("High loot", player, arm, square, n, "high", false)
+        tiers:addOption("Standard loot", player, arm, square, n, "standard", false)
     end
     menu:addOption("Cancel current siege", player, cancel)
 

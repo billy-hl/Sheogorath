@@ -622,6 +622,68 @@ UI lives in the client file, because none of those APIs exist server-side.
 A SILENT siege gets no marker. The whole point of silent is that players find
 it, and a blinking ring on everyone's map is the loudest possible announcement.
 ]]
+--[[
+Turning coordinates into a place name.
+
+"SURVIVOR HOLDOUT FOUND at 3573,10899" told players nothing they could act on:
+Project Zomboid gives them no coordinate readout, so the one piece of
+information in the announcement was the one piece they could not use. A town
+name is the only location a player can actually navigate to.
+
+Centres come from each town's own spawnpoints.lua in media/maps, and the radius
+is the furthest spawn point from that centre. SEVEN of the eleven towns ship a
+single spawn point, so their radius is 0 -- which is why this is a
+nearest-centre test with a floor rather than a bounding-box lookup. A
+bounding-box version would have reported "nowhere" for most of the map.
+]]
+local TOWNS = {
+    { name = "Brandenburg",    x = 2152,  y = 6089,  r = 0 },
+    { name = "Echo Creek",     x = 3573,  y = 10899, r = 0 },
+    { name = "Ekron",          x = 411,   y = 9761,  r = 0 },
+    { name = "Fallas Lake",    x = 7213,  y = 8288,  r = 0 },
+    { name = "Irvington",      x = 1912,  y = 14381, r = 0 },
+    { name = "March Ridge",    x = 9883,  y = 12812, r = 0 },
+    { name = "Muldraugh",      x = 10785, y = 9924,  r = 708 },
+    { name = "Riverside",      x = 6356,  y = 5430,  r = 1194 },
+    { name = "Rosewood",       x = 8171,  y = 11686, r = 708 },
+    { name = "Valley Station", x = 12595, y = 5330,  r = 0 },
+    { name = "West Point",     x = 11578, y = 6862,  r = 717 },
+}
+-- Floor for "counts as being in the town", covering the seven with radius 0.
+local IN_TOWN_MIN = 500
+
+local function placeName(x, y)
+    local best, bestDist
+    for _, t in ipairs(TOWNS) do
+        local dx, dy = x - t.x, y - t.y
+        local d = math.sqrt(dx * dx + dy * dy)
+        if not bestDist or d < bestDist then best, bestDist = t, d end
+    end
+    if not best then return "the countryside" end
+    if bestDist <= math.max(best.r, IN_TOWN_MIN) then return best.name end
+    return "the outskirts of " .. best.name
+end
+
+--[[
+Announces the siege to everyone, in game, WHEN IT ACTUALLY FIRES.
+
+This used to be the bot's job over RCON servermsg, which announced at ARM time
+-- possibly long before the event existed, since an armed siege waits for
+somebody to stream the area. Announcing here means the message and the horde
+appear together.
+
+A silent siege still says nothing; that is the whole point of silent.
+]]
+local function announce(ev)
+    if ev.silent then return end
+    pcall(function()
+        sendServerCommand("WabbajackSiege", "notify", {
+            place = placeName(ev.x, ev.y),
+            minutes = tostring(LOOT_MINUTES),
+        })
+    end)
+end
+
 local MARKER_RADIUS = 30
 
 local function markerStart(ev)
@@ -915,10 +977,12 @@ local function fire(ev)
     ev.spawned = ringWithZombies(ev.x, ev.y, ev.z, ev.zombies, ev.id)
     callAirdrop(ev, sq)
     markerStart(ev)
+    announce(ev)
     ev.phase = "active"
     ev.firedAt = getGameTime():getWorldAgeHours()
     writeStatus(ev)
-    log("event " .. ev.id .. " live at " .. ev.x .. "," .. ev.y)
+    log("event " .. ev.id .. " live at " .. ev.x .. "," .. ev.y ..
+        " (" .. placeName(ev.x, ev.y) .. ")")
     return true
 end
 
@@ -1144,9 +1208,36 @@ local function onClientCommand(module, command, player, args)
     local sq = getCell() and getCell():getGridSquare(x, y, z)
     -- Same guard the bot applies before arming: never a claimed building.
     if sq and isClaimed(sq) then
-        player:Say("That building is claimed — pick somewhere else.")
+        player:Say("That building is claimed - pick somewhere else.")
         log("refused arm at " .. x .. "," .. y .. " - claimed")
         return
+    end
+
+    --[[
+    There has to BE a building.
+
+    The menu arms on whatever square is under the cursor, and clicking a street,
+    a porch or a doorway gives a square with no building. The event then ran
+    perfectly and tipped the entire loot list onto one tile, because
+    stockBuilding falls back to the ground when it finds no containers -- which
+    from the outside is indistinguishable from "the loot did not spawn". It said
+    so in the server log and nowhere a player could see.
+    ]]
+    if not sq then
+        player:Say("That square is not loaded - stand closer.")
+        log("refused arm at " .. x .. "," .. y .. " - square not streamed")
+        return
+    end
+    if not sq:getBuilding() then
+        player:Say("No building on that square - stand inside the building you want besieged.")
+        log("refused arm at " .. x .. "," .. y .. " - not inside a building")
+        return
+    end
+    -- A building with nothing to loot from is legal but worth saying out loud,
+    -- because the result is a heap on the floor rather than a stocked house.
+    if #containersInBuilding(sq) == 0 then
+        player:Say("That building has no containers - the loot will land on the floor.")
+        log("arm at " .. x .. "," .. y .. " - building has no containers")
     end
 
     st.current = {

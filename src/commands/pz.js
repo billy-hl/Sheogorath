@@ -884,12 +884,13 @@ module.exports = {
           //
           // Unless silent, which is the other legitimate mode: seed the house
           // and let somebody stumble on it, with no race and no crowd.
-          const where = `**${ev.x}, ${ev.y}** (${ev.town.replace(/, KY$/, '')})`;
-          if (!silent) await serverMessage(
-            guildId,
-            `SURVIVOR HOLDOUT FOUND at ${ev.x},${ev.y} — supplies inside, and it is surrounded. ` +
-              'Whatever is left in five minutes rots.',
-          ).catch((err) => console.warn('[PZ] siege in-game notice failed:', err?.message || err));
+          // Town, not coordinates. Players have no coordinate readout, so the
+          // one concrete detail in the old announcement was the one they could
+          // not act on.
+          const where = `**${ev.town.replace(/, KY$/, '')}**`;
+          // No in-game message from here any more. The mod announces when the
+          // siege actually FIRES; this fired at ARM time, which on an armed
+          // event that nobody is near could be a long time before it exists.
 
           const announceId = silent ? null : announceChannelId(cfg);
           if (announceId) {
@@ -912,8 +913,8 @@ module.exports = {
           }
 
           await interaction.editReply(
-            `🏚️ Armed ${silent ? '**silent** ' : ''}siege \`${ev.id}\` at ` +
-              `**${ev.x},${ev.y}** (${ev.town}) — ` +
+            `🏚️ Armed ${silent ? '**silent** ' : ''}siege \`${ev.id}\` in ` +
+              `**${ev.town.replace(/, KY$/, '')}** (${ev.x},${ev.y}) — ` +
               `${ev.zombies} zombies, ${ev.loot} loot.\n` +
               '_The mod places it the moment the area streams in — before anyone can see it. ' +
               'Track it with `/pz siege-status`._',

@@ -1,6 +1,6 @@
 name=Wabbajack Siege Events
 id=WabbajackSiege
 author=Wabbajack
-modversion=1.7.0
+modversion=1.8.0
 versionMin=42.0.0
 description=Server-side siege events: stocks a survivor house with loot and rings it with zombies, then cleans itself up. Server-only - places vanilla items and vanilla zombies, so clients need nothing.

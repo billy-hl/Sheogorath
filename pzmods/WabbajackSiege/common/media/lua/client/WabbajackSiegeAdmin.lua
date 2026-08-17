@@ -68,6 +68,21 @@ local function onFillMenu(playerNum, context, worldObjects)
     end
 
     sub:addOption("Cancel current siege", player, cancel)
+
+    -- Ground sweep. Counting first is deliberate: removal cannot be undone and
+    -- cannot tell a discarded corpse pile from somebody's deliberate stash.
+    local sweep = context:addOption("Ground sweep", nil, nil)
+    local ssub = ISContextMenu:getNew(context)
+    context:addSubMenu(sweep, ssub)
+    ssub:addOption("Count what would go (safe)", player, function(p)
+        sendClientCommand(p, "WabbajackSiege", "sweepCount", {})
+    end)
+    ssub:addOption("START removing (outside claims)", player, function(p)
+        sendClientCommand(p, "WabbajackSiege", "sweepStart", {})
+    end)
+    ssub:addOption("Stop sweeping", player, function(p)
+        sendClientCommand(p, "WabbajackSiege", "sweepStop", {})
+    end)
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFillMenu)

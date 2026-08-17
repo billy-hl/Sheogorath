@@ -546,6 +546,25 @@ local function onClientCommand(module, command, player, args)
         return
     end
 
+    -- Ground-item sweep. Counting is harmless; removing is not, so the two are
+    -- separate commands rather than a flag, and the count is what the menu
+    -- offers first.
+    if command == "sweepCount" then
+        local n, sq = WabbajackSweep_start(false, player:getUsername())
+        player:Say(n .. " loose items on " .. sq .. " squares nearby would be removed.")
+        return
+    end
+    if command == "sweepStart" then
+        local n, sq = WabbajackSweep_start(true, player:getUsername())
+        player:Say("Sweep armed. " .. n .. " removed nearby; the rest clears as areas load.")
+        return
+    end
+    if command == "sweepStop" then
+        local n = WabbajackSweep_stop()
+        player:Say("Sweep stopped. " .. n .. " items removed in total.")
+        return
+    end
+
     if command ~= "arm" or not args then return end
     local x, y, z = tonumber(args.x), tonumber(args.y), tonumber(args.z or 0) or 0
     if not x or not y then return end

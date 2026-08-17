@@ -469,6 +469,74 @@ local function playerInBuilding(square)
     return false
 end
 
+--[[
+Whether a building has anything to loot from, cheaply.
+
+Walks rooms rather than squares and stops at the first one holding containers.
+containersInBuilding is the thorough version and has to visit every square of
+every room to collect the objects for transmitting -- far too expensive to run
+against every building in a search radius.
+
+IsoRoom:getContainer() is the room's own container list, so a house answers this
+in a handful of calls.
+]]
+local function buildingHasContainers(b)
+    if not b then return false end
+    local ok, has = pcall(function()
+        local def = b:getDef()
+        local rooms = def and def:getRooms()
+        if not rooms then return false end
+        for i = 0, rooms:size() - 1 do
+            local rd = rooms:get(i)
+            local room = rd and rd:getIsoRoom()
+            local cs = room and room:getContainer()
+            if cs and cs:size() > 0 then return true end
+        end
+        return false
+    end)
+    return ok and has or false
+end
+
+--[[
+Finds a nearby building actually worth besieging.
+
+A siege on a square with no containers is not a failure the player can see: the
+loot list lands in a heap on one tile and the event otherwise runs perfectly.
+That happened in production from the in-game menu, where the target is whatever
+square was under the cursor -- a porch, a doorway, a street.
+
+Rather than refuse, move. Sampled every RELOCATE_STEP tiles so the search is a
+few hundred getGridSquare calls rather than several thousand, deduplicated by
+building id so each candidate is tested once, and claimed buildings are skipped
+for the same reason they are skipped everywhere else. Nearest wins, so the event
+lands on the closest real house rather than the first one enumerated.
+]]
+local RELOCATE_RADIUS = 30
+local RELOCATE_STEP = 3
+
+local function findStockableNear(cx, cy, cz)
+    local cell = getCell()
+    if not cell then return nil end
+    local checked, best, bestDist = {}, nil, nil
+    for dx = -RELOCATE_RADIUS, RELOCATE_RADIUS, RELOCATE_STEP do
+        for dy = -RELOCATE_RADIUS, RELOCATE_RADIUS, RELOCATE_STEP do
+            local sq = cell:getGridSquare(cx + dx, cy + dy, cz)
+            local b = sq and sq:getBuilding()
+            if b then
+                local ok, id = pcall(function() return b:getID() end)
+                if ok and id and not checked[id] then
+                    checked[id] = true
+                    if not isClaimed(sq) and buildingHasContainers(b) then
+                        local d = dx * dx + dy * dy
+                        if not bestDist or d < bestDist then best, bestDist = sq, d end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
 -- Share of the building's containers that end up holding something.
 local FILL_FRACTION = 0.6
 local MIN_PER_CONTAINER, MAX_PER_CONTAINER = 1, 3
@@ -973,6 +1041,22 @@ local function fire(ev)
         retire(state(), ev, "house claimed since it was armed")
         return true
     end
+    -- Nothing to loot here? Move to the nearest building that has something,
+    -- rather than tipping the loot list onto one tile and calling it an event.
+    if not buildingHasContainers(sq:getBuilding()) then
+        local alt = findStockableNear(ev.x, ev.y, ev.z)
+        if alt then
+            log("event " .. ev.id .. " relocated from " .. ev.x .. "," .. ev.y ..
+                " to " .. alt:getX() .. "," .. alt:getY() ..
+                " - the original had nothing to loot")
+            ev.x, ev.y, ev.z = alt:getX(), alt:getY(), alt:getZ()
+            sq = alt
+        else
+            log("event " .. ev.id .. " has no stockable building within " ..
+                RELOCATE_RADIUS .. " tiles - loot will land on the ground")
+        end
+    end
+
     stockBuilding(sq, ev.loot)
     ev.spawned = ringWithZombies(ev.x, ev.y, ev.z, ev.zombies, ev.id)
     callAirdrop(ev, sq)
@@ -1233,11 +1317,12 @@ local function onClientCommand(module, command, player, args)
         log("refused arm at " .. x .. "," .. y .. " - not inside a building")
         return
     end
-    -- A building with nothing to loot from is legal but worth saying out loud,
-    -- because the result is a heap on the floor rather than a stocked house.
-    if #containersInBuilding(sq) == 0 then
-        player:Say("That building has no containers - the loot will land on the floor.")
-        log("arm at " .. x .. "," .. y .. " - building has no containers")
+    -- Legal, and now self-correcting: fire() relocates to the nearest building
+    -- that has something. Said out loud so the event landing forty tiles away
+    -- is expected rather than baffling.
+    if not buildingHasContainers(sq:getBuilding()) then
+        player:Say("Nothing to loot here - the siege will move to the nearest building that has something.")
+        log("arm at " .. x .. "," .. y .. " - no containers, will relocate on fire")
     end
 
     st.current = {

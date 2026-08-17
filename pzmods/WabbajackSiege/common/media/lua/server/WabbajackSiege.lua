@@ -851,7 +851,17 @@ local function retire(st, ev, reason)
     return removed
 end
 
---- Retries cleanup for events that ended while their site was not streamed.
+--[[
+Retries cleanup for events that ended while their site was not streamed.
+
+Bounded, because the retry is only correct while it is making progress. If
+Kill ever fails on a zombie -- it is pcall'd, so a failure is silent -- the
+count never reaches zero and this would log and retry every minute for the rest
+of the wipe. Giving up after PENDING_ATTEMPTS turns an infinite loop into one
+line that says what was left behind.
+]]
+local PENDING_ATTEMPTS = 20
+
 local function sweepPending(st)
     if not st.pending then return end
     for key, p in pairs(st.pending) do
@@ -859,12 +869,18 @@ local function sweepPending(st)
         -- site means "cannot tell", not "nothing left".
         if (getCell() and getCell():getGridSquare(p.x, p.y, p.z)) then
             local removed = sweepZombies(p.id, true)
-            if removed > 0 then
-                log("pending cleanup: removed " .. removed ..
-                    " leftover zombies from event " .. tostring(p.id))
-            else
+            p.tries = (p.tries or 0) + 1
+            if removed == 0 then
                 st.pending[key] = nil
                 log("pending cleanup finished for event " .. tostring(p.id))
+            elseif p.tries >= PENDING_ATTEMPTS then
+                st.pending[key] = nil
+                log("pending cleanup GIVING UP on event " .. tostring(p.id) ..
+                    " after " .. p.tries .. " attempts - " .. removed ..
+                    " zombies could not be put down and will remain")
+            else
+                log("pending cleanup: put down " .. removed ..
+                    " leftover zombies from event " .. tostring(p.id))
             end
         end
     end
@@ -1081,6 +1097,24 @@ local function onClientCommand(module, command, player, args)
         if not ev then player:Say("No siege is running.") return end
         local removed = retire(st, ev, "cancelled by " .. tostring(player:getUsername()))
         player:Say("Siege cancelled, " .. removed .. " zombies removed.")
+        return
+    end
+
+    -- Base raids live in their own file; the menu handler is here, so this
+    -- reaches them through a global, the same way the sweep does.
+    if command == "baseRaid" then
+        if not WabbajackBaseRaid_arm then
+            player:Say("The base raid module is not installed on this server.")
+            return
+        end
+        local n = tonumber(args and args.perPlayer) or 40
+        local claims, clusters = WabbajackBaseRaid_arm(n, player:getUsername())
+        if claims == 0 then
+            player:Say("Nobody online has a safehouse to raid.")
+        else
+            player:Say("Base raid armed on " .. claims .. " claims, " .. clusters ..
+                " groups waiting.")
+        end
         return
     end
 

@@ -38,7 +38,15 @@ local MODDATA_KEY  = "WabbajackBaseRaid"
 local TAG          = "wabbajackRaid"
 
 -- Ring outside the claim edge, in tiles, that spawn points are drawn from.
-local RING_OUT_MIN, RING_OUT_MAX = 3, 9
+--
+-- RING_OUT_MIN has to exceed the cluster scatter below, or the promise that
+-- nothing spawns inside the claim is not kept: a point 3 tiles out with a
+-- 4-tile scatter puts zombies a tile INSIDE the walls, which skips the entire
+-- fight and drops them next to whatever the player built. 6 minus 4 leaves two
+-- tiles of margin at worst.
+local RING_OUT_MIN, RING_OUT_MAX = 6, 12
+-- Scatter within a cluster, in tiles either way. Must stay under RING_OUT_MIN.
+local CLUSTER_SCATTER = 4
 -- Clusters per raid. The horde arrives as a ring of groups rather than one
 -- lump, so it reads as converging on the building from every side.
 local CLUSTERS = 8
@@ -189,8 +197,8 @@ local function spawnCluster(x, y, z, count, raidId)
     for _ = 1, count do
         for _ = 1, PLACE_ATTEMPTS do
             -- Scatter within the cluster so they are a crowd, not a stack.
-            local cx = x + ZombRand(9) - 4
-            local cy = y + ZombRand(9) - 4
+            local cx = x + ZombRand(CLUSTER_SCATTER * 2 + 1) - CLUSTER_SCATTER
+            local cy = y + ZombRand(CLUSTER_SCATTER * 2 + 1) - CLUSTER_SCATTER
             if cell:getGridSquare(cx, cy, z) then
                 local list = addZombiesInOutfit(cx, cy, z, 1, nil, 50)
                 local zed = list and list:size() > 0 and list:get(0) or nil
@@ -241,9 +249,35 @@ local function arm(req)
         end
     end
 
+    -- Supersede handling belongs here, not in poll(): the in-game menu calls
+    -- arm() directly, so putting it in the caller left the menu path silently
+    -- discarding a running raid. Nothing has spawned yet for unfired clusters,
+    -- so this loses no zombies -- but it should say so.
+    if st.current then
+        log("raid " .. tostring(st.current.id) .. " superseded with " ..
+            #(st.current.pending or {}) .. " clusters unfired")
+        st.done = st.done or {}
+        st.done[st.current.id] = true
+    end
+
+    -- Bounding box over every pending cluster, so onLoadGridsquare can reject
+    -- the overwhelming majority of squares with four comparisons. That handler
+    -- runs for EVERY square streamed anywhere on the server -- thousands a
+    -- second with people moving -- and scanning all ~80 clusters on each was a
+    -- per-square cost paid continuously for an event that fires once.
+    local bx1, by1, bx2, by2 = 999999, 999999, -999999, -999999
+    for _, c in ipairs(pending) do
+        if c.x < bx1 then bx1 = c.x end
+        if c.y < by1 then by1 = c.y end
+        if c.x > bx2 then bx2 = c.x end
+        if c.y > by2 then by2 = c.y end
+    end
+
     st.current = {
         id = req.id,
         pending = pending,
+        bx1 = bx1 - TRIGGER_RADIUS, by1 = by1 - TRIGGER_RADIUS,
+        bx2 = bx2 + TRIGGER_RADIUS, by2 = by2 + TRIGGER_RADIUS,
         armedAt = getGameTime():getWorldAgeHours(),
         expire = req.expire,
         fired = 0,
@@ -302,14 +336,6 @@ local function poll()
     if not req then return end
     if st.current and st.current.id == req.id then return end
     if st.done and st.done[req.id] then return end
-    if st.current then
-        -- A new raid supersedes an unfinished one. The clusters that never
-        -- fired simply never happen; nothing was placed, so nothing leaks.
-        log("raid " .. tostring(st.current.id) .. " superseded with " ..
-            #(st.current.pending or {}) .. " clusters unfired")
-        st.done = st.done or {}
-        st.done[st.current.id] = true
-    end
     arm(req)
 end
 
@@ -346,10 +372,32 @@ end
 
 --- Streaming a square is what triggers the horde waiting there.
 local function onLoadGridsquare(square)
-    local st = state()
-    if not st.current or not st.current.pending or #st.current.pending == 0 then return end
+    local ev = state().current
+    if not ev or not ev.pending or #ev.pending == 0 then return end
     if not square then return end
-    firePending({ x = square:getX(), y = square:getY() })
+    local x, y = square:getX(), square:getY()
+    -- Cheap rejection first; see the bounding box note in arm().
+    if ev.bx1 and (x < ev.bx1 or x > ev.bx2 or y < ev.by1 or y > ev.by2) then return end
+    firePending({ x = x, y = y })
+end
+
+--[[
+Entry point for the in-game menu.
+
+Global rather than local for the same reason WabbajackSweep_start is: the
+context-menu handler lives in WabbajackSiege.lua and there is no import
+mechanism between server files. Only ever called from that handler, which
+re-checks staff access first.
+]]
+function WabbajackBaseRaid_arm(perPlayer, whoName)
+    arm({
+        id = tostring(getTimestamp()) .. "-" .. tostring(ZombRand(1000)),
+        perPlayer = math.max(1, math.min(tonumber(perPlayer) or 40, 200)),
+        expire = 180,
+    })
+    local ev = state().current
+    log("armed from the in-game menu by " .. tostring(whoName))
+    return (ev and ev.armed) or 0, (ev and ev.pending and #ev.pending) or 0
 end
 
 Events.EveryOneMinute.Add(poll)

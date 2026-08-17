@@ -25,6 +25,7 @@ goes quiet, /pz siege still works.
 require "ISUI/Maps/ISWorldMap"
 
 local ZOMBIE_CHOICES = { 100, 200, 300 }
+local RAID_CHOICES = { 20, 40, 80 }
 
 --[[
 Whether the local player is staff.
@@ -181,6 +182,19 @@ local function cancel(player)
 end
 
 --[[
+Base raid: a horde armed at the safehouse of every online player.
+
+Unlike a siege this is not about the square you right-clicked -- it targets
+claims, wherever they are -- so it takes no location. It is on this menu anyway
+because it is a staff tool and staff tools belong in one place.
+]]
+local function baseRaid(player, perPlayer)
+    sendClientCommand(player, "WabbajackSiege", "baseRaid",
+        { perPlayer = tostring(perPlayer) })
+    player:Say("Arming base raids…")
+end
+
+--[[
 Note the `test` parameter.
 
 The game calls every context-menu handler twice: once with test=true purely to
@@ -200,32 +214,48 @@ local function onFillMenu(playerNum, context, worldObjects, test)
     local square = squareFor(worldObjects, player)
     if not square then return end
 
-    local root = context:addOption("Siege", nil, nil)
-    local sub = ISContextMenu:getNew(context)
-    context:addSubMenu(root, sub)
+    -- One "Wabbajack" root rather than a Siege entry and a Ground sweep entry
+    -- sitting loose among the vanilla options. Everything staff-only lives
+    -- under it, so the right-click menu reads the same for staff as it does for
+    -- everyone else plus one line.
+    local root = context:addOption("Wabbajack", nil, nil)
+    local menu = ISContextMenu:getNew(context)
+    context:addSubMenu(root, menu)
 
+    -- Siege: acts on the square under the cursor, hence "here".
+    local siegeOpt = menu:addOption("Siege this building", nil, nil)
+    local siegeMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(siegeOpt, siegeMenu)
     for _, n in ipairs(ZOMBIE_CHOICES) do
-        local opt = sub:addOption(n .. " zombies", nil, nil)
-        local tiers = ISContextMenu:getNew(sub)
-        sub:addSubMenu(opt, tiers)
+        local opt = siegeMenu:addOption(n .. " zombies", nil, nil)
+        local tiers = ISContextMenu:getNew(siegeMenu)
+        siegeMenu:addSubMenu(opt, tiers)
         tiers:addOption("High loot", player, arm, square, n, "high", true)
         tiers:addOption("Standard loot", player, arm, square, n, "standard", true)
     end
+    menu:addOption("Cancel current siege", player, cancel)
 
-    sub:addOption("Cancel current siege", player, cancel)
+    -- Base raid: targets every online player's own claim, so it ignores the
+    -- square entirely.
+    local raidOpt = menu:addOption("Base raid (everyone online)", nil, nil)
+    local raidMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(raidOpt, raidMenu)
+    for _, n in ipairs(RAID_CHOICES) do
+        raidMenu:addOption(n .. " zombies per player", player, baseRaid, n)
+    end
 
     -- Ground sweep. Counting first is deliberate: removal cannot be undone and
     -- cannot tell a discarded corpse pile from somebody's deliberate stash.
-    local sweep = context:addOption("Ground sweep", nil, nil)
-    local ssub = ISContextMenu:getNew(context)
-    context:addSubMenu(sweep, ssub)
-    ssub:addOption("Count what would go (safe)", player, function(p)
+    local sweepOpt = menu:addOption("Ground sweep", nil, nil)
+    local sweepMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(sweepOpt, sweepMenu)
+    sweepMenu:addOption("Count what would go (safe)", player, function(p)
         sendClientCommand(p, "WabbajackSiege", "sweepCount", {})
     end)
-    ssub:addOption("START removing (outside claims)", player, function(p)
+    sweepMenu:addOption("START removing (outside claims)", player, function(p)
         sendClientCommand(p, "WabbajackSiege", "sweepStart", {})
     end)
-    ssub:addOption("Stop sweeping", player, function(p)
+    sweepMenu:addOption("Stop sweeping", player, function(p)
         sendClientCommand(p, "WabbajackSiege", "sweepStop", {})
     end)
 end

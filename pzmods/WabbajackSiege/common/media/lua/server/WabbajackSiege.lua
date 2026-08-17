@@ -185,6 +185,13 @@ local function readRequest()
         line = reader:readLine()
     end
     reader:close()
+    -- A cancel carries an id and nothing else: there is no location to cancel
+    -- AT, only the event that is currently running.
+    req.cancel = (req.cancel == "1" or req.cancel == "true")
+    if req.cancel then
+        if not req.id then return nil end
+        return req
+    end
     if not req.id or not req.x or not req.y then
         log("poll: " .. REQUEST_FILE .. " read but missing id/x/y — got "
             .. tostring(req.id) .. "/" .. tostring(req.x) .. "/" .. tostring(req.y))
@@ -338,7 +345,25 @@ local function squaresInBuilding(square)
     return out
 end
 
---- Every container inside the building that owns `square`.
+--[[
+Every container inside the building, PAIRED WITH ITS OWNING OBJECT.
+
+The object is not incidental. A container modified server-side does not reach
+players on its own: the client already holds whatever contents it was sent when
+the chunk streamed, and nothing re-sends them. So the server stocked a house
+with fifty items, logged that it had, and every player opened the same empty
+cupboards they were sent a moment earlier -- which is precisely the "containers
+are not spawning loot" being reported while the log said otherwise.
+
+`IsoObject:transmitCompleteItemToClients()` is the fix and is what vanilla does
+after every server-side container change (ISTransferAction, ISBarricadeAction
+and friends all call it, guarded by isServer()). It is on the OBJECT, not the
+container, hence carrying both here.
+
+The same class of bug was already known for ground items -- stripBuilding uses
+transmitRemoveItemFromSquare for exactly this reason -- just never applied to
+containers.
+]]
 local function containersInBuilding(square)
     local out = {}
     for _, sq in ipairs(squaresInBuilding(square)) do
@@ -347,11 +372,18 @@ local function containersInBuilding(square)
             for k = 0, objs:size() - 1 do
                 local o = objs:get(k)
                 local c = o and o.getContainer and o:getContainer()
-                if c then table.insert(out, c) end
+                if c then table.insert(out, { c = c, o = o }) end
             end
         end
     end
     return out
+end
+
+--- Pushes a server-side container change out to every client.
+local function transmit(entry)
+    if entry and entry.o and entry.o.transmitCompleteItemToClients then
+        pcall(function() entry.o:transmitCompleteItemToClients() end)
+    end
 end
 
 --[[
@@ -375,7 +407,15 @@ local function stripBuilding(square)
             for k = 0, objs:size() - 1 do
                 local o = objs:get(k)
                 local c = o and o.getContainer and o:getContainer()
-                if c then c:clear(); containers = containers + 1 end
+                if c then
+                    c:clear()
+                    -- Same reason the ground items below are transmitted: a
+                    -- silent clear leaves every client showing the old contents.
+                    if o.transmitCompleteItemToClients then
+                        pcall(function() o:transmitCompleteItemToClients() end)
+                    end
+                    containers = containers + 1
+                end
             end
         end
         local world = sq:getWorldObjects()
@@ -474,6 +514,7 @@ local function stockBuilding(square, tier)
         log("no containers found - dropped " .. #items .. " items on the ground")
         return #items
     end
+    local touched = {}
 
     -- Shuffle, so the filled containers are spread through the house instead of
     -- clustering in whichever room happened to enumerate first.
@@ -484,7 +525,8 @@ local function stockBuilding(square, tier)
 
     local total = 0
     for idx, id in ipairs(items) do
-        if containers[((idx - 1) % #containers) + 1]:AddItem(id) then total = total + 1 end
+        local e = containers[((idx - 1) % #containers) + 1]
+        if e.c:AddItem(id) then total = total + 1; touched[e] = true end
     end
 
     local fill = math.max(1, math.floor(#containers * FILL_FRACTION))
@@ -492,9 +534,14 @@ local function stockBuilding(square, tier)
         local n = MIN_PER_CONTAINER + ZombRand(MAX_PER_CONTAINER - MIN_PER_CONTAINER + 1)
         for _ = 1, n do
             local id = items[ZombRand(#items) + 1]
-            if containers[i]:AddItem(id) then total = total + 1 end
+            if containers[i].c:AddItem(id) then total = total + 1; touched[containers[i]] = true end
         end
     end
+
+    -- Tell every client what just changed. Without this the house is stocked
+    -- only as far as the server is concerned.
+    local sent = 0
+    for e, _ in pairs(touched) do transmit(e); sent = sent + 1 end
 
     -- Set dressing on the floor, so it reads as a place somebody lived in
     -- rather than a house that happens to have a shotgun in a wardrobe.
@@ -507,7 +554,8 @@ local function stockBuilding(square, tier)
 
     log("cleared " .. cleared .. " containers, then stocked " .. total ..
         " items across " .. math.min(fill, #containers) .. "/" .. #containers ..
-        " containers, " .. #DRESSING .. " pieces of dressing")
+        " containers (" .. sent .. " transmitted), " .. #DRESSING ..
+        " pieces of dressing")
     return total
 end
 
@@ -674,8 +722,86 @@ So an event that cannot be fully cleaned is not forgotten, it is parked in
 st.pending and retried once a minute. That also makes superseding an event safe,
 which is what lets a new siege replace one that is stuck.
 ]]
+--[[
+Clears the site: the building's containers, and loose items just outside it.
+
+Cancelling used to remove the zombies and leave the stocked house standing,
+which is the worst of both -- the danger gone, the reward still there for the
+taking. An event that is over should leave nothing behind, so every exit clears
+the site, not just the loot timer.
+
+Two guards. A claimed building is never touched, because somebody may have
+claimed the house since the event was armed and stripping every container in a
+claim is that player losing everything to an event they never opted into. And
+the outdoor sweep is skipped entirely if the claim list cannot be read, rather
+than sweeping blind next to somebody's base.
+]]
+local SITE_LITTER_RADIUS = 12
+
+local function claimRects()
+    local out = {}
+    local ok = pcall(function()
+        local list = SafeHouse and SafeHouse.getSafehouseList and SafeHouse.getSafehouseList()
+        if not list then return end
+        for i = 0, list:size() - 1 do
+            local sh = list:get(i)
+            table.insert(out, { x = sh:getX(), y = sh:getY(), w = sh:getW(), h = sh:getH() })
+        end
+    end)
+    if not ok then return nil end
+    return out
+end
+
+local function inAnyClaim(rects, x, y)
+    for _, r in ipairs(rects) do
+        if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then return true end
+    end
+    return false
+end
+
+local function stripSite(ev)
+    local cell = getCell()
+    if not cell then return end
+    local sq = cell:getGridSquare(ev.x, ev.y, ev.z)
+    if not sq then return end                 -- not streamed; nothing reachable
+    if isClaimed(sq) then
+        log("event " .. tostring(ev.id) .. " site left alone - the house is claimed")
+        return
+    end
+
+    stripBuilding(sq)
+
+    local rects = claimRects()
+    if not rects then
+        log("event " .. tostring(ev.id) .. " outdoor sweep skipped - claim list unreadable")
+        return
+    end
+    local ground = 0
+    for x = ev.x - SITE_LITTER_RADIUS, ev.x + SITE_LITTER_RADIUS do
+        for y = ev.y - SITE_LITTER_RADIUS, ev.y + SITE_LITTER_RADIUS do
+            if not inAnyClaim(rects, x, y) then
+                local s2 = cell:getGridSquare(x, y, ev.z)
+                local world = s2 and s2:getWorldObjects()
+                if world and world:size() > 0 then
+                    for i = world:size() - 1, 0, -1 do
+                        local item = world:get(i)
+                        if item then
+                            s2:transmitRemoveItemFromSquare(item)
+                            s2:removeWorldObject(item)
+                            ground = ground + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    log("event " .. tostring(ev.id) .. " site cleared - " .. ground ..
+        " loose items within " .. SITE_LITTER_RADIUS .. " tiles")
+end
+
 local function retire(st, ev, reason)
     markerStop(ev)
+    stripSite(ev)
     local removed = sweepZombies(ev.id, true)
     st.done = st.done or {}
     st.done[ev.id] = true
@@ -755,6 +881,20 @@ local function poll()
     if st.current and st.current.id == req.id then return end   -- already known
     if st.done and st.done[req.id] then
         log("poll: request " .. tostring(req.id) .. " already ran — ignoring")
+        return
+    end
+
+    -- Cancel from Discord. The in-game menu can only cancel what you are
+    -- standing next to; a silent siege is by definition one nobody has been
+    -- told the location of, so this is the only way to call one off.
+    if req.cancel then
+        st.done = st.done or {}
+        st.done[req.id] = true
+        if st.current then
+            retire(st, st.current, "cancelled from Discord")
+        else
+            log("cancel request " .. tostring(req.id) .. " - no siege was running")
+        end
         return
     end
     -- A new request while one is in flight used to overwrite st.current

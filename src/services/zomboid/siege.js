@@ -176,6 +176,27 @@ function arm(guildId, { town = null, zombies = 200, loot = 'high', silent = fals
 }
 
 /**
+ * Cancels the running siege.
+ *
+ * Exists because the in-game menu can only cancel the siege you are standing
+ * next to, and a SILENT siege is by definition one whose location was never
+ * announced — so without this there is no way to call one off short of finding
+ * it. Writes a request carrying an id and the cancel flag and nothing else;
+ * there is no location to cancel at, only whatever is currently running.
+ *
+ * The mod strips the site as part of retiring it, so this removes the loot and
+ * the horde together rather than leaving a stocked house with nothing guarding
+ * it.
+ */
+function cancel(guildId) {
+  const root = zomboidRoot(guildId);
+  if (!root) throw new Error('No Zomboid save is configured for this guild.');
+  const id = Date.now();
+  fs.writeFileSync(path.join(root, REQUEST_FILE), `id=${id}\ncancel=1\n`);
+  return { id };
+}
+
+/**
  * Last status the mod wrote, or null if it has not reported yet.
  *
  * phase is one of: armed (waiting for the area to stream in), active (loot and
@@ -208,4 +229,4 @@ function modEnabled(guildId) {
   return !!m && m[1].split(';').some((s) => s.trim() === 'WabbajackSiege');
 }
 
-module.exports = { arm, status, houses, towns, modEnabled, zomboidRoot };
+module.exports = { arm, cancel, status, houses, towns, modEnabled, zomboidRoot };

@@ -352,7 +352,11 @@ module.exports = {
     .addSubcommand((s) =>
       s.setName('siege-status').setDescription('How the current siege is going'))
     .addSubcommand((s) =>
-      s.setName('raid-status').setDescription('How the current base raid is going')),
+      s.setName('raid-status').setDescription('How the current base raid is going'))
+    .addSubcommand((s) =>
+      s
+        .setName('siege-cancel')
+        .setDescription('Call off the running siege and clear its loot and horde')),
 
   /**
    * Autocomplete for the player / item / skill options.
@@ -938,6 +942,25 @@ module.exports = {
               )
               .setTimestamp()],
           });
+          return;
+        }
+
+        case 'siege-cancel': {
+          if (!siege.modEnabled(guildId)) {
+            await interaction.editReply('❌ The `WabbajackSiege` server mod is not enabled.');
+            return;
+          }
+          const st = siege.status(guildId);
+          if (!st || st.phase === 'done') {
+            await interaction.editReply('Nothing to cancel — no siege is running.');
+            return;
+          }
+          const ev = siege.cancel(guildId);
+          await interaction.editReply(
+            `🛑 Cancel sent for the siege at **${st.x},${st.y}** (request \`${ev.id}\`).\n` +
+              '_The mod picks this up within a minute: it removes the horde, strips the house ' +
+              'and clears loose loot around it. Anything already carried out is kept._',
+          );
           return;
         }
 

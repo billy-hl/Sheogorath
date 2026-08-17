@@ -44,13 +44,24 @@ local TAG          = "wabbajackSiege"
 -- Not 100%: stragglers wander off, fall through the map, or end up somewhere
 -- unreachable, and an event that never completes would never clean up.
 local BROKEN_AT = 0.85
--- Minutes between the siege breaking and the leftovers being removed. Long
--- enough that players are not watching bodies wink out around them.
-local CLEANUP_MINUTES = 5
--- Minutes from the first player setting foot in the house to the unclaimed loot
--- going away. This is the whole tension of the event: the horde is still on you
--- and the clock is running, so you cannot calmly clear the building first.
-local LOOT_MINUTES = 5
+-- Minutes between the siege breaking and the leftovers being removed. Was 5,
+-- which put ten and a half minutes between the horde landing and the site being
+-- clear -- measured, not estimated, from a live run. Most of that was spent
+-- watching nothing happen, so it is now short enough to feel like a conclusion
+-- rather than a wait.
+local CLEANUP_MINUTES = 2
+--[[
+Minutes from the first player setting foot in the house to the unclaimed loot
+going away.
+
+This clock is per EVENT, not per player: the first person through the door
+starts it for everyone. That is deliberate -- the event has to end -- but at 5
+minutes it meant somebody arriving four minutes in got sixty seconds, which is
+indistinguishable from arriving to an empty house. Nine gives a latecomer a real
+run at it while still ending on a schedule. The horde, not the clock, is meant
+to be what stops you.
+]]
+local LOOT_MINUTES = 9
 -- How far from the centre we look when counting or removing our zombies.
 local SITE_RADIUS = 60
 --[[
@@ -78,6 +89,34 @@ local DRESSING = {
 
 local function log(msg)
     print("[WabbajackSiege] " .. tostring(msg))
+end
+
+--[[
+Whether a player counts as staff.
+
+THE ROLE NAMES ARE LOWERCASE.
+getAccessLevel() returns a name from the server's own `role` table, and that
+table stores them lowercase: `admin`, `moderator`, `gm`, `observer`. This code
+compared against "Admin" and "Moderator" capitalised -- which is what the
+vanilla docs suggest -- so nothing ever matched: the in-game menu was invisible
+to everybody including the owner, and the server refused every command that did
+reach it. Comparison is lowercased now.
+
+The custom roles on this server (`Wabbagang`, `Sheriff`) are deliberately NOT
+staff. They are cosmetic player groups, and arming a siege spawns hundreds of
+permanent zombies.
+]]
+local STAFF_ROLES = { admin = true, moderator = true, gm = true, overseer = true }
+
+local function accessLevel(player)
+    if not player or not player.getAccessLevel then return "" end
+    local ok, lvl = pcall(function() return player:getAccessLevel() end)
+    if not ok or not lvl then return "" end
+    return string.lower(tostring(lvl))
+end
+
+local function isStaff(player)
+    return STAFF_ROLES[accessLevel(player)] == true
 end
 
 local function state()
@@ -390,7 +429,29 @@ local function playerInBuilding(square)
     return false
 end
 
---- Scatters the loot list across the building's containers.
+-- Share of the building's containers that end up holding something.
+local FILL_FRACTION = 0.6
+local MIN_PER_CONTAINER, MAX_PER_CONTAINER = 1, 3
+
+--[[
+REPLACES the building's contents with the loot tier.
+
+The first version added the tier list to random containers and left everything
+else alone. In production that read as "the loot did not spawn", and the log
+says exactly why: `stocked 20 items across 79 containers`. Twenty items over
+seventy-nine containers means three in four you open hold nothing new and the
+rest hold the house's original junk, so a player gives up long before finding
+the shotgun. It was working perfectly and delivering nothing.
+
+So now the house is emptied first and restocked properly. Two rules:
+
+  - every entry in the tier list lands at least once, so the headline pieces
+    (the shotgun, the generator, the first aid kit) are guaranteed rather than
+    left to the dice;
+  - then it tops up to FILL_FRACTION of the containers, drawing from the tier
+    list with repeats, so a big house is actually full rather than proportionally
+    emptier than a small one.
+]]
 local function stockBuilding(square, tier)
     local items = LOOT[tier] or LOOT.standard
     if tier == "high" then
@@ -400,6 +461,11 @@ local function stockBuilding(square, tier)
         for _, id in ipairs(moddedBonus()) do table.insert(merged, id) end
         items = merged
     end
+
+    -- Empty it first. This is the "replace the contents" half, and it is what
+    -- makes the restock legible.
+    local cleared = stripBuilding(square)
+
     local containers = containersInBuilding(square)
     if #containers == 0 then
         -- No building, or a building with no furniture. Drop it on the floor
@@ -408,22 +474,41 @@ local function stockBuilding(square, tier)
         log("no containers found - dropped " .. #items .. " items on the ground")
         return #items
     end
-    for _, id in ipairs(items) do
-        local c = containers[ZombRand(#containers) + 1]
-        c:AddItem(id)
+
+    -- Shuffle, so the filled containers are spread through the house instead of
+    -- clustering in whichever room happened to enumerate first.
+    for i = #containers, 2, -1 do
+        local j = ZombRand(i) + 1
+        containers[i], containers[j] = containers[j], containers[i]
     end
+
+    local total = 0
+    for idx, id in ipairs(items) do
+        if containers[((idx - 1) % #containers) + 1]:AddItem(id) then total = total + 1 end
+    end
+
+    local fill = math.max(1, math.floor(#containers * FILL_FRACTION))
+    for i = 1, math.min(fill, #containers) do
+        local n = MIN_PER_CONTAINER + ZombRand(MAX_PER_CONTAINER - MIN_PER_CONTAINER + 1)
+        for _ = 1, n do
+            local id = items[ZombRand(#items) + 1]
+            if containers[i]:AddItem(id) then total = total + 1 end
+        end
+    end
+
     -- Set dressing on the floor, so it reads as a place somebody lived in
     -- rather than a house that happens to have a shotgun in a wardrobe.
     local squares = squaresInBuilding(square)
     if #squares > 0 then
         for _, id in ipairs(DRESSING) do
-            local sq = squares[ZombRand(#squares) + 1]
-            sq:AddWorldInventoryItem(id, 0, 0, 0)
+            squares[ZombRand(#squares) + 1]:AddWorldInventoryItem(id, 0, 0, 0)
         end
     end
-    log("stocked " .. #items .. " items across " .. #containers .. " containers, "
-        .. #DRESSING .. " pieces of dressing")
-    return #items
+
+    log("cleared " .. cleared .. " containers, then stocked " .. total ..
+        " items across " .. math.min(fill, #containers) .. "/" .. #containers ..
+        " containers, " .. #DRESSING .. " pieces of dressing")
+    return total
 end
 
 -- ----------------------------------------------------------------- zombies
@@ -437,14 +522,28 @@ ModData; that tag is the only way to tell our zombies from the world's when it
 comes time to clean up, and it survives a server restart because zombie ModData
 is persisted with the chunk.
 ]]
+-- Band the horde lands in, and how many positions each zombie may try.
+--
+-- A live run placed 124 of 200: a single attempt per zombie, on a ring 12-28
+-- tiles out, crosses the edge of what is streamed often enough that a third of
+-- the horde simply never appeared, and the siege was quietly two-thirds the
+-- size it advertised. Retrying with a fresh angle costs nothing -- the failure
+-- is a nil square, not an exception -- and the band is pulled in slightly so
+-- more of it lands inside loaded chunks.
+local RING_NEAR, RING_FAR = 10, 26
+local PLACE_ATTEMPTS = 6
+
 local function ringWithZombies(cx, cy, cz, count, eventId)
     local placed = 0
+    local cell = getCell()
+    if not cell then log("no cell - placed 0 zombies"); return 0 end
     for _ = 1, count do
+      for _ = 1, PLACE_ATTEMPTS do
         local ang = ZombRandFloat(0, 6.2831853)
-        local dist = ZombRandFloat(12, 28)
+        local dist = ZombRandFloat(RING_NEAR, RING_FAR)
         local x = math.floor(cx + math.cos(ang) * dist)
         local y = math.floor(cy + math.sin(ang) * dist)
-        local sq = getCell():getGridSquare(x, y, cz)
+        local sq = cell:getGridSquare(x, y, cz)
         if sq then
             -- One at a time so each can be tagged; a batch gives no handle on
             -- what it created. Note this returns a LIST, not a zombie - vanilla
@@ -456,10 +555,75 @@ local function ringWithZombies(cx, cy, cz, count, eventId)
                 if md then md[TAG] = eventId end
                 placed = placed + 1
             end
+            break   -- the square existed; a failed spawn is not worth retrying
         end
+      end
     end
     log("placed " .. placed .. "/" .. count .. " zombies")
     return placed
+end
+
+--[[
+Tells clients to draw the site on their map, the way the airdrop mod does.
+
+Two markers, both client-side: a blinking circle on the world map via
+markersAPI:addGridSquareMarker, and an on-screen direction arrow via
+getWorldMarkers():addDirectionArrow. The server only sends coordinates; all the
+UI lives in the client file, because none of those APIs exist server-side.
+
+A SILENT siege gets no marker. The whole point of silent is that players find
+it, and a blinking ring on everyone's map is the loudest possible announcement.
+]]
+local MARKER_RADIUS = 30
+
+local function markerStart(ev)
+    if ev.silent then return end
+    pcall(function()
+        sendServerCommand("WabbajackSiege", "markerStart", {
+            id = tostring(ev.id), x = ev.x, y = ev.y, z = ev.z, radius = MARKER_RADIUS,
+        })
+    end)
+end
+
+local function markerStop(ev)
+    pcall(function()
+        sendServerCommand("WabbajackSiege", "markerStop", { id = tostring(ev.id) })
+    end)
+end
+
+--[[
+Optionally drops an airdrop crate on the site.
+
+Guarded rather than declared in mod.info. AirdropMod is a third-party mod we do
+not control: a hard dependency would take the siege down with it the day it is
+unsubscribed, renamed, or restructured, and it would force every client to carry
+both. If the function is not there, this is simply a siege.
+
+Loot level 4 is the top of AirdropMod's own scale (Config.LootLevelMin 1,
+LootLevelMax 4, default 2), passed as forcedLootLevel so the crate matches the
+tier of the house rather than the server default.
+]]
+local AIRDROP_LOOT_LEVEL = 4
+local AIRDROP_MINUTES = 30
+
+local function callAirdrop(ev, sq)
+    if ev.loot ~= "high" then return false end
+    if not Airdrop_ServerSpawner then pcall(require, "Airdrop_ServerSpawner") end
+    local spawner = Airdrop_ServerSpawner
+    if not spawner or not spawner.spawnAtSquare then
+        log("airdrop skipped - AirdropMod is not loaded on this server")
+        return false
+    end
+    local now = (getTimestampMs and getTimestampMs()) or (getTimestamp() * 1000)
+    local ok, err = pcall(spawner.spawnAtSquare, sq, "siege-" .. tostring(ev.id),
+        now, now + AIRDROP_MINUTES * 60 * 1000, nil, nil, AIRDROP_LOOT_LEVEL)
+    if ok then
+        log("airdrop requested at " .. ev.x .. "," .. ev.y .. " (loot level " ..
+            AIRDROP_LOOT_LEVEL .. ")")
+        return true
+    end
+    log("airdrop call failed: " .. tostring(err))
+    return false
 end
 
 --[[
@@ -511,6 +675,7 @@ st.pending and retried once a minute. That also makes superseding an event safe,
 which is what lets a new siege replace one that is stuck.
 ]]
 local function retire(st, ev, reason)
+    markerStop(ev)
     local removed = sweepZombies(ev.id, true)
     st.done = st.done or {}
     st.done[ev.id] = true
@@ -573,6 +738,8 @@ local function fire(ev)
     end
     stockBuilding(sq, ev.loot)
     ev.spawned = ringWithZombies(ev.x, ev.y, ev.z, ev.zombies, ev.id)
+    callAirdrop(ev, sq)
+    markerStart(ev)
     ev.phase = "active"
     ev.firedAt = getGameTime():getWorldAgeHours()
     writeStatus(ev)
@@ -728,10 +895,9 @@ local function onClientCommand(module, command, player, args)
     if module ~= "WabbajackSiege" then return end
     if not player then return end
 
-    local lvl = player.getAccessLevel and player:getAccessLevel() or "None"
-    if lvl ~= "Admin" and lvl ~= "Moderator" then
+    if not isStaff(player) then
         log("refused " .. tostring(command) .. " from " ..
-            tostring(player:getUsername()) .. " (access=" .. tostring(lvl) .. ")")
+            tostring(player:getUsername()) .. " (access=" .. accessLevel(player) .. ")")
         return
     end
 

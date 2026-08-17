@@ -48,6 +48,16 @@ const DEFAULTS = {
   spread: 6,
   maxTotal: 900,
   safeBuffer: 10,
+  // Attempts per player per wave before a wave is written off as missed.
+  //
+  // A miss is `invalid location`: that square was not streamed. Retrying the
+  // SAME point is pointless -- it will not have streamed a quarter-second
+  // later -- so each attempt draws a fresh point from the band. The measured
+  // miss rate at 60-80 tiles is ~18%, and it compounds: with one attempt a
+  // player reliably receives about four fifths of the horde everyone else
+  // gets, which is exactly the "not all the zombies spawned" being reported.
+  // Four attempts takes an 18% per-attempt loss to roughly 0.1%.
+  spawnAttempts: 4,
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -238,19 +248,35 @@ async function runRaid(guildId, opts = {}, onEvent = () => {}) {
         continue;
       }
 
-      let reply = '';
-      try {
-        reply = await rcon(guildId,
-          `createhorde2 -x ${pt.x} -y ${pt.y} -z 0 -count ${perWave} -radius ${o.spread}`);
-      } catch (err) {
-        reply = `ERROR ${err?.message || err}`;
-      }
       // `invalid location` means the square was not streamed: nothing spawned,
-      // and the command still exits cleanly, so the text is the only signal.
-      const ok = !/invalid location/i.test(reply);
+      // and the command still exits cleanly, so the reply text is the only
+      // signal. Each retry picks a NEW point, because the one that just failed
+      // is not going to have streamed in the meantime.
+      let reply = '';
+      let ok = false;
+      let used = pt;
+      let tries = 0;
+      while (tries < o.spawnAttempts) {
+        tries++;
+        try {
+          reply = await rcon(guildId,
+            `createhorde2 -x ${used.x} -y ${used.y} -z 0 -count ${perWave} -radius ${o.spread}`);
+        } catch (err) {
+          reply = `ERROR ${err?.message || err}`;
+        }
+        ok = !/invalid location/i.test(reply);
+        if (ok) break;
+        const next = pickPoint(p, safehouses, o);
+        if (!next) break;                      // nowhere legal left to try
+        used = next;
+        await sleep(250);
+      }
       if (ok) { tally.ok++; tally.spawned += perWave; } else { tally.miss++; }
       tally.perPlayer[p.username] = (tally.perPlayer[p.username] || 0) + (ok ? perWave : 0);
-      onEvent({ kind: ok ? 'ok' : 'miss', player: p.username, ...pt, count: perWave, reply });
+      onEvent({
+        kind: ok ? 'ok' : 'miss', player: p.username, ...used,
+        count: perWave, reply, tries,
+      });
 
       await sleep(400);                       // don't burst the RCON queue
     }

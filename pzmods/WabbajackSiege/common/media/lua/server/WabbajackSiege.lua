@@ -115,17 +115,29 @@ modes:
     zombies=200
     loot=high
 ]]
+--[[
+"No request file" is the STEADY STATE, not a fault.
+
+The diagnostic exists for a real reason — the first field trial failed silently
+right here, with no way from outside to tell whether the poll was running, the
+file was missing or the parse had failed. But logging it every minute means a
+line every minute forever on a server that has no siege queued, which is most of
+the time; the ten-minute heartbeat already answers "are the timers running?".
+So it is logged once, and then only every thirtieth poll.
+]]
+local missingRequestPolls = 0
+
 local function readRequest()
     local reader = getFileReader(REQUEST_FILE, false)
     if not reader then
-        -- Diagnostic, not noise. The first field trial of this mod failed
-        -- silently here: the request file existed, the mod loaded, and nothing
-        -- happened, with no way from the outside to tell whether the poll was
-        -- running, the file was missing, or the parse had failed. One line per
-        -- minute is a cheap price for never being blind about it again.
-        log("poll: no readable " .. REQUEST_FILE .. " (getFileReader returned nil)")
+        if missingRequestPolls % 30 == 0 then
+            log("poll: no readable " .. REQUEST_FILE ..
+                " (getFileReader returned nil) - idle, this is normal")
+        end
+        missingRequestPolls = missingRequestPolls + 1
         return nil
     end
+    missingRequestPolls = 0
     local req = {}
     local line = reader:readLine()
     while line do
@@ -244,7 +256,27 @@ local function moddedBonus()
     return pick
 end
 
---- Every square inside the building that owns `square`.
+--[[
+Every square inside the building that owns `square`.
+
+THE ROOMDEF / ISOROOM DISTINCTION IS NOT COSMETIC
+`BuildingDef:getRooms()` returns RoomDef, which is map *metadata* — a rectangle
+on the grid that exists whether or not the area is loaded — and a RoomDef has no
+squares of its own. The squares hang off the streamed IsoRoom, reached with
+`RoomDef:getIsoRoom()`. Calling getSquares() straight on the RoomDef threw
+
+    java.lang.RuntimeException: Object tried to call nil in squaresInBuilding
+
+every minute in production, out of tick -> fire -> stockBuilding, which meant the
+siege aborted *before* ringWithZombies and no event ever left phase=armed. The
+feature had never once worked. Verified against the shipped classes:
+BuildingDef.getRooms()->ArrayList<RoomDef>, RoomDef has getIsoRoom() and no
+getSquares(), IsoRoom.getSquares()->ArrayList<IsoGridSquare>.
+
+getIsoRoom() is nil for a room that is not streamed, so it is checked rather
+than assumed: fire() only runs on a loaded site, but a large building can
+straddle the edge of what is loaded.
+]]
 local function squaresInBuilding(square)
     local out = {}
     local building = square and square:getBuilding()
@@ -254,7 +286,9 @@ local function squaresInBuilding(square)
     local rooms = def:getRooms()
     if not rooms then return out end
     for i = 0, rooms:size() - 1 do
-        local squares = rooms:get(i):getSquares()
+        local roomDef = rooms:get(i)
+        local room = roomDef and roomDef:getIsoRoom()
+        local squares = room and room:getSquares()
         if squares then
             for j = 0, squares:size() - 1 do
                 local sq = squares:get(j)
@@ -428,8 +462,16 @@ local function ringWithZombies(cx, cy, cz, count, eventId)
     return placed
 end
 
---- Counts (and optionally removes) the zombies belonging to this event.
-local function sweepZombies(cx, cy, cz, eventId, remove)
+--[[
+Counts (and optionally removes) the zombies belonging to this event.
+
+Takes no coordinates because it does not filter by them: the cell zombie list
+only ever holds what is currently streamed, so the tag is the whole selector and
+SITE_RADIUS never applied here. That is worth stating plainly, because it is
+also the trap — see siteLoaded() below. An earlier signature took cx/cy/cz and
+ignored them, which read as if a radius were being enforced.
+]]
+local function sweepZombies(eventId, remove)
     local n = 0
     local cell = getCell()
     if not cell then return 0 end
@@ -449,6 +491,61 @@ local function sweepZombies(cx, cy, cz, eventId, remove)
     return n
 end
 
+--- Whether the event site is currently streamed, i.e. whether we can see it.
+local function siteLoaded(ev)
+    return (getCell() and getCell():getGridSquare(ev.x, ev.y, ev.z)) ~= nil
+end
+
+--[[
+Ends an event and makes sure its zombies do not outlive it.
+
+Every exit from an event goes through here, because the naive version of this
+leaks a permanent horde. sweepZombies can only remove what is loaded, so
+"cleanup" run while nobody is near the site removes nothing at all — and if the
+event is marked done at that moment its tag is never looked for again. With
+ZombieRespawn=None and no RCON command that removes zombies, those spawns then
+stand there for the rest of the wipe.
+
+So an event that cannot be fully cleaned is not forgotten, it is parked in
+st.pending and retried once a minute. That also makes superseding an event safe,
+which is what lets a new siege replace one that is stuck.
+]]
+local function retire(st, ev, reason)
+    local removed = sweepZombies(ev.id, true)
+    st.done = st.done or {}
+    st.done[ev.id] = true
+    -- Keyed by id rather than an array, so this stays a plain string-keyed
+    -- table in ModData and never depends on array-length semantics there.
+    st.pending = st.pending or {}
+    st.pending[tostring(ev.id)] = { id = ev.id, x = ev.x, y = ev.y, z = ev.z }
+    st.current = nil
+    ev.phase = "done"
+    ev.alive = 0
+    writeStatus(ev)
+    log("event " .. tostring(ev.id) .. " retired (" .. tostring(reason) ..
+        ") - removed " .. removed .. " zombies now, rest cleared as the area loads")
+    return removed
+end
+
+--- Retries cleanup for events that ended while their site was not streamed.
+local function sweepPending(st)
+    if not st.pending then return end
+    for key, p in pairs(st.pending) do
+        -- Only judge a site we can actually see. An empty result on an unloaded
+        -- site means "cannot tell", not "nothing left".
+        if (getCell() and getCell():getGridSquare(p.x, p.y, p.z)) then
+            local removed = sweepZombies(p.id, true)
+            if removed > 0 then
+                log("pending cleanup: removed " .. removed ..
+                    " leftover zombies from event " .. tostring(p.id))
+            else
+                st.pending[key] = nil
+                log("pending cleanup finished for event " .. tostring(p.id))
+            end
+        end
+    end
+end
+
 -- ------------------------------------------------------------------- arming
 
 --- Places loot and zombies. Safe to call only once per event.
@@ -464,10 +561,14 @@ local function fire(ev)
     -- Somebody may have claimed the house between the bot arming this and the
     -- area streaming in. Abandon rather than besiege a player's base.
     if isClaimed(sq) then
-        log("event " .. ev.id .. " ABANDONED - the house has been claimed since it was armed")
-        ev.phase = "done"
+        -- Retire rather than just relabel: this left st.current pinned to a
+        -- finished event, so the id was never recorded in st.done and nothing
+        -- could arm again cleanly.
         ev.abandoned = true
-        writeStatus(ev)
+        -- state() rather than a threaded-in handle: fire() is called from
+        -- poll(), tick() and the menu handler, and ModData.getOrCreate returns
+        -- the same table to all three.
+        retire(state(), ev, "house claimed since it was armed")
         return true
     end
     stockBuilding(sq, ev.loot)
@@ -489,6 +590,15 @@ local function poll()
         log("poll: request " .. tostring(req.id) .. " already ran — ignoring")
         return
     end
+    -- A new request while one is in flight used to overwrite st.current
+    -- outright. The old event's zombies are tagged with ITS id, and nothing
+    -- ever looks for that id again once it is dropped, so every one of them
+    -- became permanent. Retire it properly instead; the bot also refuses to
+    -- arm over a siege that is genuinely under way, so reaching this normally
+    -- means replacing one that is stuck.
+    if st.current then
+        retire(st, st.current, "superseded by request " .. tostring(req.id))
+    end
 
     st.current = {
         id = req.id, x = req.x, y = req.y, z = req.z,
@@ -507,6 +617,11 @@ end
 --- Watches an active siege and cleans up once it is broken.
 local function tick()
     local st = state()
+    -- Before anything else, and regardless of whether an event is running:
+    -- leftovers from an event that ended out of sight are the one thing here
+    -- that becomes permanent if it is not retried.
+    sweepPending(st)
+
     local ev = st.current
     if not ev then return end
 
@@ -543,22 +658,26 @@ local function tick()
         -- Hard expiry. Nothing forces players to fight the horde, so without
         -- this a looted-and-abandoned site leaves its zombies standing forever.
         if realMinutesSince(ev.firedAt) >= MAX_EVENT_MINUTES then
-            local removed = sweepZombies(ev.x, ev.y, ev.z, ev.id, true)
-            log("event " .. ev.id .. " EXPIRED after " .. MAX_EVENT_MINUTES ..
-                " min - removed " .. removed .. " zombies")
-            ev.phase = "done"
             ev.expired = true
-            ev.alive = 0
-            writeStatus(ev)
-            st.done = st.done or {}
-            st.done[ev.id] = true
-            st.current = nil
+            retire(st, ev, "expired after " .. MAX_EVENT_MINUTES .. " min")
             return
         end
     end
 
     if ev.phase == "active" then
-        local alive = sweepZombies(ev.x, ev.y, ev.z, ev.id, false)
+        --[[
+        Only judge the fight while the site is streamed.
+
+        The cell zombie list holds loaded zombies only, so once the last player
+        walks away every tagged zombie vanishes from it and the horde reads as
+        100% dead. Without this guard the event declared itself broken the
+        moment it was abandoned, removed nothing (there was nothing loaded to
+        remove) and then marked itself done — which retired the tag and left the
+        entire horde standing there permanently. Exactly the outcome the
+        cleanup exists to prevent, reached by the cleanup itself.
+        ]]
+        if not siteLoaded(ev) then return end
+        local alive = sweepZombies(ev.id, false)
         ev.alive = alive
         writeStatus(ev)
         local killed = (ev.spawned or 0) - alive
@@ -573,14 +692,7 @@ local function tick()
 
     if ev.phase == "broken" then
         if realMinutesSince(ev.brokenAt) >= CLEANUP_MINUTES then
-            local removed = sweepZombies(ev.x, ev.y, ev.z, ev.id, true)
-            log("event " .. ev.id .. " cleaned up - removed " .. removed .. " stragglers")
-            ev.phase = "done"
-            ev.alive = 0
-            writeStatus(ev)
-            st.done = st.done or {}
-            st.done[ev.id] = true
-            st.current = nil
+            retire(st, ev, "horde broken")
         end
     end
 end
@@ -628,13 +740,7 @@ local function onClientCommand(module, command, player, args)
     if command == "cancel" then
         local ev = st.current
         if not ev then player:Say("No siege is running.") return end
-        local removed = sweepZombies(ev.x, ev.y, ev.z, ev.id, true)
-        log("siege " .. ev.id .. " cancelled by " .. tostring(player:getUsername())
-            .. " - removed " .. removed .. " zombies")
-        ev.phase = "done"; ev.alive = 0
-        writeStatus(ev)
-        st.done = st.done or {}; st.done[ev.id] = true
-        st.current = nil
+        local removed = retire(st, ev, "cancelled by " .. tostring(player:getUsername()))
         player:Say("Siege cancelled, " .. removed .. " zombies removed.")
         return
     end

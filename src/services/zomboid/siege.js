@@ -111,6 +111,23 @@ function arm(guildId, { town = null, zombies = 200, loot = 'high', silent = fals
   const root = zomboidRoot(guildId);
   if (!root) throw new Error('No Zomboid save is configured for this guild.');
 
+  // Refuse to arm over a siege that is genuinely under way. One event exists at
+  // a time — one request file, one status file, one ModData slot — so a second
+  // one supersedes the first, and superseding an active siege pulls the loot
+  // and the horde out from under whoever is currently fighting it.
+  //
+  // Deliberately NOT refused for phase=armed: an armed event that never fires
+  // (nobody has been near it) is exactly the case that needs replacing, and
+  // blocking that would leave no way out of it from Discord.
+  const running = status(guildId);
+  if (running && (running.phase === 'active' || running.phase === 'broken')) {
+    throw new Error(
+      `Siege \`${running.id}\` is still running at ${running.x},${running.y} ` +
+      `(${running.phase}, ${running.alive || 0} zombies alive). Wait for it to finish, ` +
+      'or cancel it in-game with the staff right-click menu.',
+    );
+  }
+
   let pool = houses(guildId);
   if (!pool.length) throw new Error('No candidate houses found in the map files.');
   if (town) {

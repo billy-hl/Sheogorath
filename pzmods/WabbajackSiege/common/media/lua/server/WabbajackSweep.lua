@@ -146,16 +146,27 @@ local function sweepLoaded(remove)
     return total, squares
 end
 
---- Public: called by the client command handler.
+--[[
+Public: called by the client command handler.
+
+A COUNT MUST NOT DISTURB A RUNNING SWEEP. This used to write st.active,
+st.startedAt and st.removed unconditionally, so "Count what would go (safe)" —
+the option the menu offers first precisely because it is the harmless one —
+silently disarmed any sweep already in progress and reset its running total to
+zero. Only an actual sweep touches the sweep's state now.
+]]
 function WabbajackSweep_start(remove, whoName)
     local st = state()
     local now, sq = sweepLoaded(remove)
-    st.active = remove and true or false
-    st.startedAt = getGameTime():getWorldAgeHours()
-    st.removed = (remove and now or 0)
-    st.by = whoName
+    if remove then
+        st.active = true
+        st.startedAt = getGameTime():getWorldAgeHours()
+        st.removed = now
+        st.by = whoName
+    end
     log((remove and "SWEEP armed by " or "count requested by ") .. tostring(whoName)
-        .. " - " .. now .. " items on " .. sq .. " squares in the loaded area")
+        .. " - " .. now .. " items on " .. sq .. " squares in the loaded area"
+        .. ((not remove) and st.active and " (a sweep is already running; unchanged)" or ""))
     return now, sq
 end
 

@@ -683,6 +683,39 @@ SITE_RADIUS never applied here. That is worth stating plainly, because it is
 also the trap — see siteLoaded() below. An earlier signature took cx/cy/cz and
 ignored them, which read as if a radius were being enforced.
 ]]
+--[[
+Puts down one of our zombies in a way clients actually see.
+
+removeFromWorld() DOES NOT BROADCAST. Every vanilla caller of it lives in
+media/lua/client -- not one is server-side -- and IsoZombie has no remove() or
+delete(), which IsoAnimal does have precisely so the deletion is pushed through
+AnimalSynchronizationManager and every client drops its copy. Called from a
+dedicated server it takes the zombie out of the server's own simulation and
+leaves every player still looking at it. That is why cancelling a siege logged
+"removed 100 zombies" while the horde was visibly still standing there: the
+number was true, and completely beside the point.
+
+Kill(nil) instead, because death IS a networked event. It is also the call the
+ChevalDeFrise mod makes from its own server-side damage code, which is the only
+working server-side precedent among the eighty mods installed here.
+
+The cost is corpses rather than a clean vanish. That is the better trade: a body
+is honest, and this server clears them on its own -- HoursForCorpseRemoval is 48
+in-game hours, about four real ones at DayLength 5. removeFromWorld is
+deliberately NOT called afterwards; letting the engine run its own death path is
+what keeps the corpse consistent on every client.
+]]
+local function despatch(z)
+    return pcall(function() z:Kill(nil) end)
+end
+
+--[[
+Counts (and optionally puts down) the LIVE zombies belonging to this event.
+
+Dead ones are skipped rather than counted, because Kill leaves the body in the
+cell's zombie list for a while: counting those would keep `alive` high after the
+horde was beaten, and would have this re-killing corpses every tick.
+]]
 local function sweepZombies(eventId, remove)
     local n = 0
     local cell = getCell()
@@ -693,11 +726,11 @@ local function sweepZombies(eventId, remove)
         local z = zlist:get(i)
         local md = z and z.getModData and z:getModData()
         if md and md[TAG] == eventId then
-            if remove then
-                z:removeFromWorld()
-                z:removeFromSquare()
+            local ok, dead = pcall(function() return z:isDead() end)
+            if not (ok and dead) then
+                if remove then despatch(z) end
+                n = n + 1
             end
-            n = n + 1
         end
     end
     return n

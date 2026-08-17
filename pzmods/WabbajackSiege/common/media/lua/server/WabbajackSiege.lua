@@ -189,6 +189,61 @@ local LOOT = {
     },
 }
 
+--[[
+Modded firearms, appended to the high tier when their mod is present.
+
+Guns are paired with a MAGAZINE rather than loose rounds. In B42 a firearm needs
+a magazine loaded before it fires, and the mods' own AmmoType references
+(`marzguns:bullet_45` and similar) do not resolve to a runtime fulltype the way
+the magazines do -- so a gun plus loose bullets would hand somebody a weapon they
+cannot actually use.
+
+Every id here was taken from the save's own WorldDictionary, which lists the
+exact runtime fulltype and owning mod for all 9,005 items the world knows. That
+is the authoritative source; guessing from script files is how the vanilla list
+ended up with four B41 names in it.
+
+Availability is tested by asking the script manager whether the ITEM exists,
+not by checking whether a mod is loaded. Two reasons: getActivatedMods() is
+client-only (its only vanilla callers are in media/lua/client, and calling it
+here would throw), and testing the item is the thing we actually care about — a
+mod can be present but have renamed the entry.
+]]
+local MODDED_HIGH = {
+    { "MarzGuns.M1911",    "MarzGuns.45Magazine7_M1911" },
+    { "MarzGuns.USP",      "MarzGuns.45Magazine12_USP" },
+    { "MarzGuns.PYTHON",   "MarzGuns.357SpeedLoader6_PYTHON" },
+    { "MarzGuns.MAC10",    "MarzGuns.45Magazine30_MAC10" },
+    { "MarzGuns.THOMPSON", "MarzGuns.45Magazine100_THOMPSON" },
+    { "MarzGuns.SVD",      "MarzGuns.762x54Magazine10_SVD" },
+    { "MarzGuns.AA12",     "MarzGuns.12GMagazine20_AA12" },
+}
+
+--- True when the server actually has a script for this item id.
+local function itemExists(id)
+    local ok, script = pcall(function() return getScriptManager():getItem(id) end)
+    return ok and script ~= nil
+end
+
+--- One random modded gun-and-magazine set whose items are actually present.
+local function moddedBonus()
+    local avail = {}
+    for _, set in ipairs(MODDED_HIGH) do
+        local all = true
+        for _, id in ipairs(set) do
+            if not itemExists(id) then all = false; break end
+        end
+        if all then table.insert(avail, set) end
+    end
+    if #avail == 0 then
+        log("no modded firearm sets available - high tier is vanilla only")
+        return {}
+    end
+    local pick = avail[ZombRand(#avail) + 1]
+    log("modded bonus: " .. pick[1] .. " + " .. pick[2])
+    return pick
+end
+
 --- Every square inside the building that owns `square`.
 local function squaresInBuilding(square)
     local out = {}
@@ -304,6 +359,13 @@ end
 --- Scatters the loot list across the building's containers.
 local function stockBuilding(square, tier)
     local items = LOOT[tier] or LOOT.standard
+    if tier == "high" then
+        -- Copy, so the bonus is not appended to the shared table every event.
+        local merged = {}
+        for _, id in ipairs(items) do table.insert(merged, id) end
+        for _, id in ipairs(moddedBonus()) do table.insert(merged, id) end
+        items = merged
+    end
     local containers = containersInBuilding(square)
     if #containers == 0 then
         -- No building, or a building with no furniture. Drop it on the floor

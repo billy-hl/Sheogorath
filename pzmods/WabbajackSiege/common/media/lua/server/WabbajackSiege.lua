@@ -14,12 +14,16 @@ target with getGridSquare and fail with "invalid location" on an unloaded chunk,
 and `additem` targets a *player*, so there is no way to put loot in a building at
 all. Running inside the server removes all three limits.
 
-WHY CLIENTS DO NOT NEED THIS
+WHY CLIENTS DO NOT NEED *THIS*
 It only ever places vanilla items and vanilla zombies. Nothing here defines an
-item, a sprite or a recipe, so there is nothing for a client to be missing. That
-keeps it out of the Workshop list and off the first-join download, which matters
-on a server whose median load time is already close to the median player's
-patience.
+item, a sprite or a recipe, so there is nothing for a client to be missing.
+
+STILL TRUE OF THIS MODULE, NO LONGER TRUE OF THE TOOLKIT. It used to end "which
+keeps it off the first-join download" -- that stopped being true once the mod was
+published to the Workshop (3784880973) and grew client Lua: the admin menu, and
+then WabbajackGather. Sieges themselves remain pure server-side vanilla, which is
+why cancelling one can be trusted to leave no trace on any client, but do not
+read this paragraph as a claim about the mod as a whole any more.
 
 "STOCKED BEFORE THEY ARRIVE"
 A server cannot load a chunk nobody is near. What it can do is act the instant

@@ -169,6 +169,29 @@ local function onServerCommand(module, command, args)
         return
     end
 
+    --[[
+    A reply to one admin, for menu actions that answer with a number.
+
+    player:Say() on its own is not enough. The foliage count ran correctly and
+    logged its answer server-side while the admin who asked saw nothing at all,
+    which is indistinguishable from the feature being broken -- and is exactly
+    how 1.11.0 got reported as doing nothing.
+
+    Same setHaloNote channel the siege notice uses, for the same reasons: vanilla,
+    no ISChat internals, and it puts the text where the player is already
+    looking. Cooler colour than the siege note so an answer to a question does
+    not read like a server-wide event.
+    ]]
+    if command == "adminNote" and args and args.text then
+        local p = (getPlayer and getPlayer()) or (getSpecificPlayer and getSpecificPlayer(0))
+        if p and p.setHaloNote then
+            pcall(function()
+                p:setHaloNote(tostring(args.text), 190, 230, 255, 400.0)
+            end)
+        end
+        return
+    end
+
     if command == "markerStop" then
         -- Ignore a stop for an event that is not the one being shown, so a late
         -- teardown cannot wipe the marker for the siege that replaced it.

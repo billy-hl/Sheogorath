@@ -193,20 +193,38 @@ local function pathSquares(cell, lx, ly, x, y, z)
     return out
 end
 
---- One pass over every driven vehicle on the server.
-local function pass()
+--[[
+One pass over every driven vehicle on the server.
+
+`getVehicles()` RETURNS A java.util.Set, AND IT MEANS IT. It has size(); it has
+no get(int). `vehicles:get(i)` throws "Object tried to call nil" on every call,
+which at 10Hz is six hundred stack traces a minute and not one bush felled --
+shipped exactly that in 1.11.0.
+
+The trap is that vanilla's own ISVehicleBloodUI calls `vehicles:get(i-1)`, which
+reads like proof that the Lua wrapper exposes list semantics. It is not; that is
+client debug UI behind a tickbox and it is just as broken. damnlib shows the
+real history: its B41-era copy uses `:get(i)` and its 42.17 override rewrites
+the same function to `:toArray()`. Iterate a Set as a Set. Verified against
+DoomedRoadkillPhysics, which is installed here and does exactly this.
+
+THE WHOLE BODY IS INSIDE A pcall as well as each vehicle. The per-vehicle pcall
+was never the problem -- the throw was in the loop machinery around it, so it
+escaped to OnTick and spammed the log ten times a second. A backstop here means
+a mistake of that shape costs a counter increment instead of the server log.
+]]
+local function doPass()
     local cell = getCell()
     if not cell then return 0, 0 end
 
-    -- Despite the Java signature saying Set, PZ's Lua wrapper exposes size()
-    -- and get(i) -- this is the idiom vanilla itself uses in ISVehicleBloodUI.
     local vehicles = cell:getVehicles()
     if not vehicles or vehicles:size() == 0 then return 0, 0 end
 
     local felled, touched = 0, 0
 
-    for i = 0, vehicles:size() - 1 do
-        local v = vehicles:get(i)
+    local iter = vehicles:iterator()
+    while iter:hasNext() do
+        local v = iter:next()
         if v then
             -- Everything about one vehicle is inside the pcall, including the
             -- id read: a vehicle that is mid-despawn throws on any accessor,
@@ -247,6 +265,16 @@ local function pass()
     end
 
     return felled, touched
+end
+
+--- Backstop: nothing from doPass may reach OnTick. See the note above.
+local function pass()
+    local ok, felled, touched = pcall(doPass)
+    if not ok then
+        failures = failures + 1
+        return 0, 0
+    end
+    return felled or 0, touched or 0
 end
 
 local ticks = 0

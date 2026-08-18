@@ -1294,18 +1294,34 @@ local function onClientCommand(module, command, player, args)
         return
     end
 
+    --[[
+    Answer one admin, visibly.
+
+    Say() alone has proven not to be enough: the foliage count ran and logged
+    its result server-side while the admin who asked saw nothing, which reads as
+    a dead feature. Both channels are used because it is not worth another round
+    of guessing which one carries -- Say costs nothing when the halo note is
+    what actually lands.
+    ]]
+    local function reply(text)
+        pcall(function() player:Say(text) end)
+        pcall(function()
+            sendServerCommand(player, "WabbajackSiege", "adminNote", { text = text })
+        end)
+    end
+
     -- Roadside foliage, reached through globals like the sweep and the raid.
     -- There is no arm or stop: the module runs unconditionally for every driven
     -- vehicle. This is the diagnostic that remains, and it is the only way to
     -- check the size threshold against the actual world.
     if command == "foliageCount" then
         if not WabbajackFoliage_count then
-            player:Say("The foliage module is not installed on this server.")
+            reply("The foliage module is not installed on this server.")
             return
         end
         local n, sq = WabbajackFoliage_count(player)
         local total = WabbajackFoliage_status and WabbajackFoliage_status() or 0
-        player:Say(n .. " bushes on " .. sq .. " squares within 10 tiles would be felled. "
+        reply(n .. " bushes on " .. sq .. " squares within 10 tiles would be felled. "
             .. total .. " felled server-wide so far.")
         return
     end

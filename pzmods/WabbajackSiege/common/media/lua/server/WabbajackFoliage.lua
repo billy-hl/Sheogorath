@@ -1,5 +1,5 @@
 --[[
-Roadside foliage — bushes and saplings die under wheels.
+Roadside foliage — bushes and saplings die under wheels, for everyone, always.
 
 WHAT THIS CANNOT DO, STATED FIRST
 It does not reduce the slowdown. That collision lives in BaseVehicle (Java):
@@ -15,6 +15,17 @@ still feels the first hit -- their own client resolved that collision before the
 server saw the position, because BaseVehicle$Authorization is Local/LocalCollide
 for a driven vehicle -- and then the bush dies. Roads clear themselves along the
 routes people actually drive. That is the whole feature.
+
+NO SWITCH. This runs unconditionally from the moment the mod loads, for every
+driven vehicle on the server, whoever is driving. There is deliberately no arm,
+no stop and no expiry: an earlier version defaulted to off and had to be turned
+on by staff from a context menu, which made it a staff tool that happened to
+help whoever was nearby. It is meant to be a property of the roads instead.
+
+That removal is why the remaining gates matter more, not less. What still limits
+it: only vehicles with a driver, only above MIN_SPEED_KMH, only trees at or
+below MAX_TREE_SIZE, never indoors, and never more than MAX_KILLS_PER_PASS at a
+time. Those are the whole safety story now.
 
 WHY Damage() AND NOT removeFromWorld()
 The same lesson the siege horde taught us. removeFromWorld() does not broadcast
@@ -35,12 +46,6 @@ The sweep nearly hung the server by walking an 81x81 box around every player:
 squares a vehicle is actually sitting on -- a handful per pass, regardless of
 how many people are logged in. If you ever find yourself scanning near *players*
 in this file, you have rebuilt that freeze under a new name.
-
-COUNT BEFORE YOU CUT
-Felling is irreversible and this is an RP server where roadside growth is cover
-and scenery. So, exactly like the sweep: counting is a separate command from
-cutting, the count is what the menu offers first, and the whole thing is off
-until somebody turns it on.
 ]]
 
 local FOLIAGE_KEY = "WabbajackFoliage"
@@ -48,12 +53,16 @@ local FOLIAGE_KEY = "WabbajackFoliage"
 --[[
 The size at or below which a tree is "foliage" rather than a tree.
 
-VERIFY THIS IN-WORLD BEFORE ARMING. IsoTree:getSize() is public and returns an
-int, but nothing in the class tells us which sizes vanilla considers a bush --
-isBush is NOT public, so it is not reachable from Lua and cannot be used as the
-test. 1 is the deliberately timid default: run the count first, drive a road you
-know, and see whether the number matches the saplings you can see. Raising this
-starts taking real trees, which does not grow back inside a wipe.
+THE ONE NUMBER THAT MATTERS, AND IT IS STILL UNVERIFIED. IsoTree:getSize() is
+public and returns an int, but nothing in the class tells us which sizes vanilla
+considers a bush -- isBush is NOT public, so it is not reachable from Lua and
+cannot be used as the test.
+
+1 is the deliberately timid default. Now that this runs unconditionally, a wrong
+value here is not a staff tool misbehaving, it is every road on the server being
+cleared of something nobody meant to lose, permanently, as people drive. Raise
+it only after the in-game count agrees with what you can see, and remember a
+felled tree does not grow back inside a wipe.
 ]]
 local MAX_TREE_SIZE = 1
 
@@ -88,17 +97,10 @@ crosses, and the work is a few square lookups. Anything faster is pure cost.
 ]]
 local TICK_EVERY = 6
 
-local REAL_MINUTES_PER_DAY = 120
-local EXPIRE_HOURS = 12
-
 local function log(msg) print("[WabbajackFoliage] " .. tostring(msg)) end
-local function state() return ModData.getOrCreate(FOLIAGE_KEY) end
 
-local function realHoursSince(worldAgeHours)
-    if not worldAgeHours then return 0 end
-    local gameHours = getGameTime():getWorldAgeHours() - worldAgeHours
-    return gameHours * (REAL_MINUTES_PER_DAY / 24) / 60
-end
+--- Persisted tally only. There is no on/off state to keep any more.
+local function state() return ModData.getOrCreate(FOLIAGE_KEY) end
 
 --[[
 Last known position per vehicle, for path interpolation.
@@ -191,13 +193,8 @@ local function pathSquares(cell, lx, ly, x, y, z)
     return out
 end
 
---[[
-One pass over the driven vehicles.
-
-`cut` false counts what would go without touching anything, which is what the
-menu offers first and what should be run before this is ever armed.
-]]
-local function pass(cut)
+--- One pass over every driven vehicle on the server.
+local function pass()
     local cell = getCell()
     if not cell then return 0, 0 end
 
@@ -235,7 +232,7 @@ local function pass(cut)
                 local budget = MAX_KILLS_PER_PASS
                 for _, sq in ipairs(pathSquares(cell, lx, ly, x, y, z)) do
                     if budget <= 0 then break end
-                    local n = clearSquare(sq, cut, budget)
+                    local n = clearSquare(sq, true, budget)
                     if n > 0 then
                         felled = felled + n
                         touched = touched + 1
@@ -254,29 +251,32 @@ end
 
 local ticks = 0
 
+--- Unconditional. The only gate is the tick divider.
 local function onTick()
-    local st = state()
-    if not st.active then return end
     ticks = ticks + 1
     if ticks < TICK_EVERY then return end
     ticks = 0
-    local n = pass(true)
-    if n > 0 then st.felled = (st.felled or 0) + n end
+    local n = pass()
+    if n > 0 then
+        local st = state()
+        st.felled = (st.felled or 0) + n
+    end
 end
 
 --[[
 Public: what would be felled around the admin asking, right now.
 
-DELIBERATELY NOT `pass(false)`. Counting through the vehicle path would only
-ever report foliage under a vehicle being driven above the speed floor -- so an
-admin standing still, which is exactly what an admin does when they open a
-context menu, would always be told zero. A count that reads zero whenever you
-run it is indistinguishable from a broken feature, and this mod has shipped that
-bug before.
+STILL WORTH HAVING WITH NO SWITCH TO FLIP. This is not an on/off control, it is
+the only way to check MAX_TREE_SIZE against the world -- and with the feature
+always live, being able to ask "is this threshold eating things it should not?"
+matters more than it did when the whole thing was opt-in.
 
-So it scans a small box around the caller instead, which is the question worth
-answering anyway: stand next to a sapling you can see, ask, and find out whether
-MAX_TREE_SIZE agrees with you before arming anything.
+DELIBERATELY NOT A PASS OVER VEHICLES. Counting that way would only ever report
+foliage under a vehicle being driven above the speed floor, so an admin standing
+still -- which is exactly what an admin does when they open a context menu --
+would always be told zero. A count that reads zero whenever you run it is
+indistinguishable from a broken feature, and this mod has shipped that bug
+before.
 
 THE RADIUS IS SAFE HERE AND WOULD NOT BE IN A LOOP. 21x21 is 441 squares, once,
 when a human clicks a menu item. The sweep's freeze was 485,000 squares every
@@ -310,51 +310,22 @@ function WabbajackFoliage_count(player)
     return found, squares
 end
 
-function WabbajackFoliage_start(whoName)
-    local st = state()
-    st.active = true
-    st.startedAt = getGameTime():getWorldAgeHours()
-    st.felled = st.felled or 0
-    st.by = whoName
-    log("ARMED by " .. tostring(whoName) .. " - size<=" .. MAX_TREE_SIZE ..
-        ", min speed " .. MIN_SPEED_KMH .. "km/h, expires in " .. EXPIRE_HOURS .. "h")
-    return true
-end
-
-function WabbajackFoliage_stop()
-    local st = state()
-    st.active = false
-    log("stopped - felled " .. tostring(st.felled or 0) .. " in total")
-    return st.felled or 0
-end
-
+--- Running total since the mod was installed. Always live, so there is no
+--- "active" to report.
 function WabbajackFoliage_status()
-    local st = state()
-    return st.active and true or false, st.felled or 0, st.by
+    return state().felled or 0
 end
 
---[[
-Expiry, and a periodic flush of the position table.
-
-Both live here for the same reason the sweep expires: a thing that quietly
-destroys world objects should not run for the rest of the wipe because somebody
-forgot about it. The flush also drops rows for vehicles that have since
-unloaded, which is the only way this table would otherwise grow.
-]]
+--- Flushes position rows for vehicles that have since unloaded -- the only way
+--- that table would otherwise grow -- and reports accumulated failures.
 local function tick()
-    local st = state()
     lastPos = {}
     if failures > 0 then
         log(failures .. " vehicle read(s) failed in the last minute")
         failures = 0
     end
-    if not st.active then return end
-    if realHoursSince(st.startedAt) >= EXPIRE_HOURS then
-        log("expired after " .. EXPIRE_HOURS .. "h - felled " .. tostring(st.felled or 0))
-        st.active = false
-    end
 end
 
 Events.OnTick.Add(onTick)
 Events.EveryOneMinute.Add(tick)
-log("loaded (inactive - count first, then arm)")
+log("loaded - always on, size<=" .. MAX_TREE_SIZE .. ", min speed " .. MIN_SPEED_KMH .. "km/h")

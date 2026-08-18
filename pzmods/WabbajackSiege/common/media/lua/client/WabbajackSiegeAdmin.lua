@@ -286,21 +286,12 @@ local function onFillMenu(playerNum, context, worldObjects, test)
         sendClientCommand(p, "WabbajackSiege", "sweepStop", {})
     end)
 
-    -- Roadside foliage. Counting first for the same reason as the sweep, with
-    -- one extra: a felled tree does not grow back inside a wipe, and the size
-    -- threshold that separates "sapling" from "oak" has to be confirmed against
-    -- a road you know before this is armed.
-    local foliageOpt = menu:addOption("Roadside foliage", nil, nil)
-    local foliageMenu = ISContextMenu:getNew(menu)
-    menu:addSubMenu(foliageOpt, foliageMenu)
-    foliageMenu:addOption("Count around me (safe)", player, function(p)
+    -- Roadside foliage has no arm or stop -- it runs unconditionally for every
+    -- driven vehicle on the server. A single flat option rather than a submenu
+    -- with one entry: there is nothing to choose between, only something to
+    -- check, and the size threshold is the thing worth checking.
+    menu:addOption("Check roadside foliage here", player, function(p)
         sendClientCommand(p, "WabbajackSiege", "foliageCount", {})
-    end)
-    foliageMenu:addOption("START clearing under wheels", player, function(p)
-        sendClientCommand(p, "WabbajackSiege", "foliageStart", {})
-    end)
-    foliageMenu:addOption("Stop clearing", player, function(p)
-        sendClientCommand(p, "WabbajackSiege", "foliageStop", {})
     end)
 end
 

@@ -1,6 +1,6 @@
 --[[
-Shift + right-click a Shortcut slot to pull its materials out of nearby
-containers and into your hands.
+Shift + right-click a recipe -- in the craft menu, the build menu, or on a
+Shortcut slot -- to pull its materials out of nearby containers into your hands.
 
 THE PROBLEM IT SOLVES
 Building means standing at the site, reading what the recipe wants, walking back
@@ -8,27 +8,32 @@ to the crate, opening it, dragging planks, walking back. The materials are
 usually right there in a stash a few tiles away. This does the fetching.
 
 WHY SHIFT + RIGHT-CLICK
-Plain right-click is already taken: TheShortcut opens the Building or Crafting
-window and scrolls to the recipe. Nothing anywhere in that mod reads
-isShiftKeyDown, so the modifier is unclaimed and this adds a behaviour without
-taking one away. Unmodified clicks fall through to the original handler
-untouched.
+On TheShortcut's slots plain right-click is already taken -- it opens the
+Building or Crafting window and scrolls to the recipe. On the Neat_Crafting and
+Neat_Building recipe entries right-click is unused entirely. Shift is free in
+all three mods (none of them reads isShiftKeyDown anywhere), so one consistent
+gesture works everywhere and no existing behaviour is taken away. Unmodified
+clicks fall through untouched.
 
-SOFT DEPENDENCY, DELIBERATELY. There is no `require=TheShortcut` in mod.info and
-there must not be. A hard require means that if TheShortcut or NeatUI_Framework
+SOFT DEPENDENCY, DELIBERATELY. There is no `require=` on any of these UI mods in
+mod.info and there must not be. A hard require means that if TheShortcut or NeatUI_Framework
 is ever removed or fails to load, the WHOLE toolkit fails to load with it -- and
 on this server a mod that fails to load gets automatically disabled by the
 restart script's health check, taking sieges, base raids and foliage down with
-it over a UI convenience. So this detects TheShortcut at runtime and quietly
-does nothing if it is absent.
+it over a UI convenience. So this detects each UI at runtime and quietly
+does nothing about the ones that are absent.
 
-WRAPPED, NOT REPLACED. The original onRightMouseUp is kept and called. If
-TheShortcut changes its handler, unmodified clicks keep working and only the
-shift path is at risk. Note also that TheShortcut forks itself by game build
-(42.12 / 42.13 / 42.14 trees, chosen by versionMin) -- this patches whichever
-class definition actually loaded, so it follows the fork automatically, but a
-future tree that renames these classes would silently skip the patch. Hence the
-log line on install: silence would look identical to working.
+WRAPPED, NOT REPLACED. The original onRightMouseUp is kept and called, so if one
+of these mods changes its handler, unmodified clicks keep working and only the
+shift path is at risk. On the Neat entries there IS no original -- right-click is
+unused there -- and a plain click must keep doing nothing, which is why the
+call-through is guarded rather than assumed.
+
+All three mods fork themselves by game build (TheShortcut 42.12/13/14,
+Neat_Building 42/13/14/15, Neat_Crafting 42/42.13, each chosen by versionMin).
+This patches whichever class definition actually loaded, so it follows those
+forks automatically; a future tree that RENAMES a class would silently skip it.
+Hence the count logged on install -- silence would look identical to working.
 
 WHAT "NEARBY" MEANS
 Exactly what the crafting UI means by it. ISCraftingUI:getContainers() (and its
@@ -238,11 +243,21 @@ getInputs() works the same on either.
 ]]
 local function patch(className, field)
     local class = _G[className]
-    if not class or type(class.onRightMouseUp) ~= "function" then
-        log(className .. ": not present or has no onRightMouseUp - skipped")
+    if not class then
+        log(className .. ": not present - skipped")
         return false
     end
 
+    --[[
+    The original may be nil, and that is a normal case rather than a failure.
+
+    TheShortcut's slots define onRightMouseUp (it opens the crafting window).
+    The Neat_Crafting and Neat_Building recipe entries do not define one at all
+    -- right-click is simply unused there -- so `original` resolves through the
+    ISUIElement inheritance chain or comes back nil. Either way an unmodified
+    click must behave exactly as it did before, which for those means doing
+    nothing at all.
+    ]]
     local original = class.onRightMouseUp
     class.onRightMouseUp = function(self, x, y)
         if isShiftKeyDown and isShiftKeyDown() then
@@ -260,7 +275,8 @@ local function patch(className, field)
                 return true
             end
         end
-        return original(self, x, y)
+        if type(original) == "function" then return original(self, x, y) end
+        return false
     end
     log(className .. ": shift+right-click gather installed")
     return true
@@ -272,16 +288,50 @@ Patched on game start rather than at file load.
 Mod file load order is not defined, so at load time TheShortcut's classes may
 not exist yet. By OnGameStart every mod's files have run.
 ]]
+--[[
+Every surface that shows a recipe, and where it lives.
+
+All four of the Neat entries keep the recipe on `.recipe` and all of them call
+recipe:getInputs() themselves, so one gather implementation serves the lot --
+build recipes and craft recipes are both CraftRecipe in B42.
+
+Each mod ships several trees chosen by versionMin (TheShortcut 42.12/13/14,
+Neat_Building 42/13/14/15, Neat_Crafting 42/42.13). This patches whichever
+class definition actually loaded, so it follows those forks automatically; what
+it cannot survive is a tree that renames the class, hence the warning below.
+
+Deliberately NOT the inventory pane. Shift is the multi-select modifier there --
+CleanUI reads isShiftKeyDown in seven places across its inventory pane for range
+selection and drag guards -- so shift+right-click on an inventory item would
+fight selection, and an inventory item is not a recipe anyway: it would need a
+reverse output->recipe lookup and a guess at which of several recipes was meant.
+The craft and build menus already have the recipe in hand.
+]]
+local TARGETS = {
+    { "ShortcutBuildSlot",          "building" },   -- TheShortcut, build slot
+    { "ShortcutRecipeSlot",         "recipe"   },   -- TheShortcut, recipe slot
+    { "NC_RecipeList_Box",          "recipe"   },   -- Neat_Crafting, list view
+    { "NC_RecipeList_Grid",         "recipe"   },   -- Neat_Crafting, grid view
+    { "NB_BuildingRecipeList_Box",  "recipe"   },   -- Neat_Building, list view
+    { "NB_BuildingRecipeList_Grid", "recipe"   },   -- Neat_Building, grid view
+}
+
 local function install()
-    if not ShortcutBuildSlot and not ShortcutRecipeSlot then
-        log("TheShortcut not installed - gather disabled (this is fine)")
-        return
+    local present, patched = 0, 0
+    for _, t in ipairs(TARGETS) do
+        if _G[t[1]] then
+            present = present + 1
+            if patch(t[1], t[2]) then patched = patched + 1 end
+        end
     end
-    local a = patch("ShortcutBuildSlot", "building")
-    local b = patch("ShortcutRecipeSlot", "recipe")
-    if not a and not b then
-        log("WARNING: TheShortcut is present but neither slot class could be patched"
-            .. " - it may have changed its class names")
+
+    if present == 0 then
+        log("no supported crafting UI found - gather disabled (this is fine)")
+    elseif patched == 0 then
+        log("WARNING: " .. present .. " UI class(es) present but none could be patched"
+            .. " - they may have been renamed")
+    else
+        log("gather ready on " .. patched .. " of " .. present .. " UI surface(s)")
     end
 end
 

@@ -12,16 +12,20 @@
  * PZ Lua sandbox exposes getFileReader/getFileWriter relative to the Zomboid
  * folder and nothing else — no network, no IPC.
  *
- * The two files do NOT live in the same directory, which is a genuine asymmetry
- * in the PZ Lua file API rather than a mistake here:
+ * BOTH ENDS OF THE FILE API ARE ROOTED AT <Zomboid>/Lua, NOT THE ZOMBOID ROOT.
  *
- *   getFileReader("x")  reads  <Zomboid>/x
+ *   getFileReader("x")  reads  <Zomboid>/Lua/x
  *   getFileWriter("x")  writes <Zomboid>/Lua/x
  *
- * Verified by finding the mod's status file on disk after it had written one. So
- * the request is written to the Zomboid root and the status is read back out of
- * Lua/. Getting this wrong is silent on both sides: the mod reads a request that
- * is never there, or the bot polls a status file that is never written.
+ * An earlier note here claimed the reader used the Zomboid root and only the
+ * writer used Lua/ — a genuine-sounding asymmetry that was simply wrong, and it
+ * cost every Discord-armed siege. Requests were written to the root, the mod
+ * read Lua/, found nothing, and logged "idle, this is normal" once a minute
+ * while a real request sat unread a directory away.
+ *
+ * Established by probe, not by reading: a cancel request placed in Lua/ was
+ * picked up within seconds, while one in the root had been ignored for hours.
+ * Getting this wrong is silent on both sides, which is exactly how it survived.
  */
 const fs = require('fs');
 const path = require('path');
@@ -53,6 +57,21 @@ function zomboidRoot(guildId) {
   const db = getGuildConfig(guildId)?.zomboid?.playersDb;
   if (!db) return null;
   return path.resolve(path.dirname(db), '..', '..', '..');
+}
+
+/**
+ * Where the mod reads and writes: <Zomboid>/Lua.
+ *
+ * One helper so the request and status paths cannot drift apart again. Creates
+ * the directory rather than assuming it — it exists on any server that has run
+ * a Lua mod, but a fresh save would not have it and the failure would be silent.
+ */
+function luaDir(guildId) {
+  const root = zomboidRoot(guildId);
+  if (!root) return null;
+  const dir = path.join(root, 'Lua');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* already there */ }
+  return dir;
 }
 
 function gameDir(guildId) {
@@ -171,7 +190,7 @@ function arm(guildId, { town = null, zombies = 200, loot = 'high', silent = fals
     `zombies=${zombies}\n` +
     `loot=${loot}\n` +
     `silent=${silent ? 1 : 0}\n`;
-  fs.writeFileSync(path.join(root, REQUEST_FILE), body);
+  fs.writeFileSync(path.join(luaDir(guildId), REQUEST_FILE), body);
   return { id, ...house, zombies, loot, silent };
 }
 
@@ -192,7 +211,7 @@ function cancel(guildId) {
   const root = zomboidRoot(guildId);
   if (!root) throw new Error('No Zomboid save is configured for this guild.');
   const id = Date.now();
-  fs.writeFileSync(path.join(root, REQUEST_FILE), `id=${id}\ncancel=1\n`);
+  fs.writeFileSync(path.join(luaDir(guildId), REQUEST_FILE), `id=${id}\ncancel=1\n`);
   return { id };
 }
 

@@ -155,7 +155,16 @@ modes:
     loot=high
 ]]
 --[[
-"No request file" is the STEADY STATE, not a fault.
+"No request file" is the steady state -- but it is NOT proof of health.
+
+This line once read "idle, this is normal", and that reassurance hid a real
+fault for a whole session: the bot was writing requests to <Zomboid>/ while
+getFileReader reads <Zomboid>/Lua/, so a genuine request sat unread while this
+logged contentment once a minute. Both ends of the file API are rooted at Lua/;
+the reader was never the exception the old comment claimed it was.
+
+The wording now says where it looked, so the next person can compare that
+against where the request actually is.
 
 The diagnostic exists for a real reason — the first field trial failed silently
 right here, with no way from outside to tell whether the poll was running, the
@@ -170,8 +179,8 @@ local function readRequest()
     local reader = getFileReader(REQUEST_FILE, false)
     if not reader then
         if missingRequestPolls % 30 == 0 then
-            log("poll: no readable " .. REQUEST_FILE ..
-                " (getFileReader returned nil) - idle, this is normal")
+            log("poll: nothing at <Zomboid>/Lua/" .. REQUEST_FILE ..
+                " - idle if no request was sent, WRONG PATH if one was")
         end
         missingRequestPolls = missingRequestPolls + 1
         return nil

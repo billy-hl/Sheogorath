@@ -50,7 +50,6 @@ const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
 const { schedulePlayerCount } = require('./services/zomboid/playerCount');
-const { scheduleWelcomeWatch } = require('./services/zomboid/welcomeWatch');
 const { welcomeMember } = require('./services/welcome');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
@@ -237,14 +236,6 @@ client.once(Events.ClientReady, async () => {
     schedulePlayerCount(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule player count:', err?.message || err);
-  }
-
-  // Greet players in-game as they connect. Isolated like the rest — a fault in
-  // the greeting must not stop the counter or the sweep from being scheduled.
-  try {
-    scheduleWelcomeWatch();
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule join welcome:', err?.message || err);
   }
 
   // Sweep stale offers off the trading board.

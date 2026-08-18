@@ -79,6 +79,11 @@ Reads the bot's request.
     perPlayer=40
     expire=180
 
+Read from <Zomboid>/Lua/, which is where getFileReader is rooted -- BOTH ends of
+the file API are, despite a long-standing note here claiming the reader used the
+Zomboid root. Requests written to the root are never seen, and the miss is
+indistinguishable from no request at all.
+
 The bot deliberately does NOT send coordinates. Claims are created and released
 while the server runs, and SafeHouse.getSafehouseList() here is live, whereas
 anything parsed out of map_meta.bin on the Discord side is as old as the last

@@ -67,9 +67,14 @@ function arm(guildId, { perPlayer = DEFAULTS.perPlayer, expire = DEFAULTS.expire
   const root = siege.zomboidRoot(guildId);
   if (!root) throw new Error('No Zomboid save is configured for this guild.');
 
+  // <Zomboid>/Lua, not the Zomboid root. getFileReader is rooted there, which
+  // is why every raid armed before this landed in a directory the mod does not
+  // read — silently, because a missing request is indistinguishable from idle.
+  const dir = path.join(root, 'Lua');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* already there */ }
   const id = Date.now();
   const body = `id=${id}\nperPlayer=${perPlayer}\nexpire=${expire}\n`;
-  fs.writeFileSync(path.join(root, REQUEST_FILE), body);
+  fs.writeFileSync(path.join(dir, REQUEST_FILE), body);
   return { id, perPlayer, expire };
 }
 

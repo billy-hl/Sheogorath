@@ -1,6 +1,6 @@
 name=Wabbajack Server Toolkit
 id=WabbajackSiege
 author=Wabbajack
-modversion=1.12.1
+modversion=1.13.0
 versionMin=42.0.0
 description=Server-side event and admin toolkit: siege events, base raids, a ground sweep, a login shield, and roadside bushes that clear under wheels for everyone. Server-only - places vanilla items and vanilla zombies, so clients need nothing.

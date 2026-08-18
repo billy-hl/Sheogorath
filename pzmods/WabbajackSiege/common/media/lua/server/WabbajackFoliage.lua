@@ -23,9 +23,11 @@ on by staff from a context menu, which made it a staff tool that happened to
 help whoever was nearby. It is meant to be a property of the roads instead.
 
 That removal is why the remaining gates matter more, not less. What still limits
-it: only vehicles with a driver, only above MIN_SPEED_KMH, only trees at or
-below MAX_TREE_SIZE, never indoors, and never more than MAX_KILLS_PER_PASS at a
-time. Those are the whole safety story now.
+it: only vehicles with a driver, only things the engine itself flags as a bush,
+never indoors, and never more than MAX_KILLS_PER_PASS at a time.
+
+There is no speed floor and no size threshold. Both were guesses, and both made
+this miss the thing it exists to catch -- see clearSquare and the driver check.
 
 WHY Damage() AND NOT removeFromWorld()
 The same lesson the siege horde taught us. removeFromWorld() does not broadcast
@@ -49,27 +51,6 @@ in this file, you have rebuilt that freeze under a new name.
 ]]
 
 local FOLIAGE_KEY = "WabbajackFoliage"
-
---[[
-The size at or below which a tree is "foliage" rather than a tree.
-
-THE ONE NUMBER THAT MATTERS, AND IT IS STILL UNVERIFIED. IsoTree:getSize() is
-public and returns an int, but nothing in the class tells us which sizes vanilla
-considers a bush -- isBush is NOT public, so it is not reachable from Lua and
-cannot be used as the test.
-
-1 is the deliberately timid default. Now that this runs unconditionally, a wrong
-value here is not a staff tool misbehaving, it is every road on the server being
-cleared of something nobody meant to lose, permanently, as people drive. Raise
-it only after the in-game count agrees with what you can see, and remember a
-felled tree does not grow back inside a wipe.
-]]
-local MAX_TREE_SIZE = 1
-
--- Only a vehicle actually being driven clears anything. A parked car must never
--- bulldoze the hedge it was parked against, and a car being pushed or rolling
--- to a stop is not a statement of intent either.
-local MIN_SPEED_KMH = 15
 
 --[[
 Per vehicle, per pass. A car crossing a hedge row could otherwise destroy
@@ -125,7 +106,28 @@ nothing about whether its work is landing.
 local failures = 0
 
 --[[
-Counts, and optionally fells, foliage on one square.
+Counts, and optionally fells, bushes on one square.
+
+ASK THE ENGINE WHAT A BUSH IS. `IsoGridSquare:getBushes()` and `IsoObject:isBush()`
+are both public, and isBush is the *same property BaseVehicle consults* when it
+decides to slow you down. So the selector is now definitionally the set of
+things that cost you speed -- which is exactly the feature.
+
+THIS REPLACES A GUESS THAT WAS WRONG TWICE OVER. 1.12.1 selected
+`instanceof(o, "IsoTree")` with `getSize() <= MAX_TREE_SIZE`, on the assumption
+that a bush was a small tree. Reported symptom: one bush died and several beside
+it did not. Both halves of the guess were broken -- isBush is not on IsoTree at
+all (it is on IsoObject and IsoSprite), so plenty of roadside growth is a plain
+IsoObject that the instanceof never matched, and among the real IsoTrees the
+size cutoff dropped the rest. There is no size threshold here any more, and
+nothing left to calibrate.
+
+It is also *safer* than the guess it replaces: a sprite flagged as a bush is
+never a mature oak, so the "raise the threshold and start felling real trees"
+risk is gone rather than merely tuned.
+
+hasBush() first: a cheap boolean that skips allocating the list on the
+overwhelming majority of squares, which matters at 10Hz.
 
 Indoor squares are skipped outright. Vehicles do get inside buildings -- garages,
 warehouses, the odd wall a player drove through -- and a potted plant in
@@ -134,30 +136,38 @@ somebody's base is not roadside growth.
 local function clearSquare(sq, cut, budget)
     if not sq then return 0 end
     if sq:getRoom() then return 0 end            -- indoors, leave it alone
+    if not sq:hasBush() then return 0 end        -- cheap reject, no allocation
 
-    local objs = sq:getObjects()
-    if not objs or objs:size() == 0 then return 0 end
+    local bushes = sq:getBushes()
+    if not bushes or bushes:size() == 0 then return 0 end
 
     local n = 0
-    -- Backwards: felling mutates the square's object list underneath us.
-    for i = objs:size() - 1, 0, -1 do
+    -- getBushes() returns java.util.List, which really does have get(int) --
+    -- unlike getCell():getVehicles(), which is a Set and cost us a tick-rate
+    -- exception storm. Different collection, different rules; do not "fix"
+    -- this one to match the other.
+    -- Backwards, because felling mutates the square underneath us.
+    for i = bushes:size() - 1, 0, -1 do
         if n >= budget then break end
-        local o = objs:get(i)
-        -- instanceof is the vanilla test (ISDestroyCursor and the animal menus
-        -- both use it) and it is what makes getSize() safe to call directly --
-        -- duck-typing a Java object through `o.getSize` does not work here.
-        if o and instanceof(o, "IsoTree") then
-            local size = o:getSize()
-            if size and size <= MAX_TREE_SIZE then
-                if cut then
-                    -- A number far above any tree's health. Damage() runs the
-                    -- engine's own destruction, which is what makes the drop
-                    -- and the removal reach clients; see the header.
-                    local ok = pcall(function() o:Damage(1000.0) end)
-                    if ok then n = n + 1 end
-                else
-                    n = n + 1
-                end
+        local o = bushes:get(i)
+        if o then
+            if not cut then
+                n = n + 1
+            elseif instanceof(o, "IsoTree") then
+                -- Damage() runs the engine's own destruction, which is what
+                -- makes the removal reach clients AND drops vanilla's own
+                -- yield -- the twigs and branch. See the header.
+                if pcall(function() o:Damage(1000.0) end) then n = n + 1 end
+            else
+                -- A bush that is not a tree has no yield to drop, and
+                -- removeFromWorld() would not broadcast. transmitRemoveItemFromSquare
+                -- takes an IsoObject and is the call the sweep already relies on
+                -- for exactly this reason.
+                local ok = pcall(function()
+                    sq:transmitRemoveItemFromSquare(o)
+                    sq:RemoveTileObject(o)
+                end)
+                if ok then n = n + 1 end
             end
         end
     end
@@ -234,14 +244,21 @@ local function doPass()
                 local id = v:getId()
                 local x, y = math.floor(v:getX()), math.floor(v:getY())
                 local z = math.floor(v:getZ() or 0)
-                local speed = math.abs(v:getCurrentSpeedKmHour() or 0)
                 local last = lastPos[id]
                 lastPos[id] = { x = x, y = y, z = z }
 
-                -- Parked, coasting, or nobody at the wheel: position recorded
-                -- (so the next real pass interpolates from somewhere sane) and
-                -- nothing else.
-                if speed < MIN_SPEED_KMH then return end
+                --[[
+                NO SPEED FLOOR, ON PURPOSE, AND THE REASON IS THE BUG ITSELF.
+                There used to be a 15km/h minimum, which was self-defeating:
+                hitting a bush is what costs you speed, so ploughing into one
+                could drop the vehicle under the floor and switch off the very
+                thing meant to clear it. Slow going through heavy growth is
+                precisely when this should be working hardest.
+
+                A driver is still required. That is what keeps this "under
+                wheels" rather than "near any parked car", and it is the only
+                remaining gate on which vehicles act.
+                ]]
                 if not v:getDriver() then return end
 
                 local lx, ly = x, y
@@ -294,13 +311,14 @@ end
 --[[
 Public: what would be felled around the admin asking, right now.
 
-STILL WORTH HAVING WITH NO SWITCH TO FLIP. This is not an on/off control, it is
-the only way to check MAX_TREE_SIZE against the world -- and with the feature
-always live, being able to ask "is this threshold eating things it should not?"
-matters more than it did when the whole thing was opt-in.
+STILL WORTH HAVING WITH NO SWITCH AND NO THRESHOLD. It no longer calibrates
+anything -- the engine's own isBush decides that now -- but it answers the
+question that actually gets asked when a bush survives: "does the server agree
+this is a bush at all?" A zero here next to something leafy means the sprite is
+not flagged, which is a different problem from the clearing not running.
 
 DELIBERATELY NOT A PASS OVER VEHICLES. Counting that way would only ever report
-foliage under a vehicle being driven above the speed floor, so an admin standing
+foliage under a vehicle currently being driven, so an admin standing
 still -- which is exactly what an admin does when they open a context menu --
 would always be told zero. A count that reads zero whenever you run it is
 indistinguishable from a broken feature, and this mod has shipped that bug
@@ -334,7 +352,7 @@ function WabbajackFoliage_count(player)
     end
 
     log("count by " .. tostring(player:getUsername()) .. " - " .. found ..
-        " within " .. COUNT_RADIUS .. " tiles (size<=" .. MAX_TREE_SIZE .. ")")
+        " bushes within " .. COUNT_RADIUS .. " tiles")
     return found, squares
 end
 
@@ -356,4 +374,4 @@ end
 
 Events.OnTick.Add(onTick)
 Events.EveryOneMinute.Add(tick)
-log("loaded - always on, size<=" .. MAX_TREE_SIZE .. ", min speed " .. MIN_SPEED_KMH .. "km/h")
+log("loaded - always on, engine isBush selector, any speed, driver required")

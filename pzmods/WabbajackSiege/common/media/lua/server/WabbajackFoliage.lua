@@ -23,11 +23,13 @@ on by staff from a context menu, which made it a staff tool that happened to
 help whoever was nearby. It is meant to be a property of the roads instead.
 
 That removal is why the remaining gates matter more, not less. What still limits
-it: only vehicles with a driver, only things the engine itself flags as a bush,
-never indoors, and never more than MAX_KILLS_PER_PASS at a time.
+it: only vehicles with a driver, only bushes the engine itself flags plus trees
+at or below MAX_YOUNG_TREE_SIZE, never indoors, and never more than
+MAX_KILLS_PER_PASS at a time.
 
-There is no speed floor and no size threshold. Both were guesses, and both made
-this miss the thing it exists to catch -- see clearSquare and the driver check.
+There is no speed floor. That one was a guess and a self-defeating one -- see
+the driver check. The tree size cutoff stays, but it is read off the game's own
+LOGS_PER_SIZE table rather than picked; see clearable().
 
 WHY Damage() AND NOT removeFromWorld()
 The same lesson the siege horde taught us. removeFromWorld() does not broadcast
@@ -106,60 +108,89 @@ nothing about whether its work is landing.
 local failures = 0
 
 --[[
-Counts, and optionally fells, bushes on one square.
+There are TWO kinds of roadside growth and they need different tests.
 
-ASK THE ENGINE WHAT A BUSH IS. `IsoGridSquare:getBushes()` and `IsoObject:isBush()`
-are both public, and isBush is the *same property BaseVehicle consults* when it
-decides to slow you down. So the selector is now definitionally the set of
-things that cost you speed -- which is exactly the feature.
+Decompiling IsoObject.isBush() settles what the engine means by "bush":
 
-THIS REPLACES A GUESS THAT WAS WRONG TWICE OVER. 1.12.1 selected
-`instanceof(o, "IsoTree")` with `getSize() <= MAX_TREE_SIZE`, on the assumption
-that a bush was a small tree. Reported symptom: one bush died and several beside
-it did not. Both halves of the guess were broken -- isBush is not on IsoTree at
-all (it is on IsoObject and IsoSprite), so plenty of roadside growth is a plain
-IsoObject that the instanceof never matched, and among the real IsoTrees the
-size cutoff dropped the rest. There is no size threshold here any more, and
-nothing left to calibrate.
+    sprite.tilesetName.equals("f_bushes_1") || sprite.getProperties().get("Bush") != null
 
-It is also *safer* than the guess it replaces: a sprite flagged as a bush is
-never a mature oak, so the "raise the threshold and start felling real trees"
-risk is gone rather than merely tuned.
+That is the brown, flat bush. It is NOT a tree, which is why an instanceof
+IsoTree test never saw one. The green sapling is the other thing: a genuine
+IsoTree with a small getSize(), which isBush() returns false for.
 
-hasBush() first: a cheap boolean that skips allocating the list on the
-overwhelming majority of squares, which matters at 10Hz.
+So each of the last two selectors caught exactly one kind:
+  1.12.1  instanceof IsoTree + getSize() <= N   ->  saplings only
+  1.13.0  getBushes() / isBush()                ->  brown bushes only
+
+1.13.0 was never published, which is the only reason this is not a regression
+report. Neither test was wrong; each was half of the answer. This is the union.
+
+A SIZE CUTOFF IS STILL NEEDED, BUT ONLY FOR TREES. isBush needs no threshold --
+a bush sprite is a bush. Trees do, because "every IsoTree" would fell mature
+oaks, which do not grow back inside a wipe.
+
+WHERE THE CUTOFF COMES FROM, RATHER THAN A GUESS. IsoTree's static init builds
+LOGS_PER_SIZE as an 8-entry array {1,1,2,3,4,5,6,8}, so getSize() runs 0..7 and
+the log yield climbs with it. Sizes 0 and 1 both yield a single log -- saplings.
+Size 2 yields two. By 3 and up you are felling something that gives 3, 4, 5, 6,
+8 logs, which is a tree in every sense that matters.
+
+So 2 is "young tree", and it is a real boundary in the game's own data rather
+than a number picked because it felt safe. The count reports a full size
+histogram of nearby trees INCLUDING those above the cutoff, so raising it is a
+decision made against what is actually growing out there.
+]]
+local MAX_YOUNG_TREE_SIZE = 2
+
+--- A label when this object is roadside growth we clear, nil when it is not.
+local function clearable(o)
+    if not o then return nil end
+    -- isBush is public on IsoObject, so it is safe on anything from a square.
+    local ok, bush = pcall(function() return o:isBush() end)
+    if ok and bush then return "bush" end
+    if instanceof(o, "IsoTree") then
+        local size = o:getSize()
+        if size and size <= MAX_YOUNG_TREE_SIZE then return "tree" end
+    end
+    return nil
+end
+
+--[[
+Counts, and optionally clears, roadside growth on one square.
+
+Iterates the square's own object list rather than getBushes(), because
+getBushes() is defined as exactly the isBush() subset -- it filters the same
+list on that one test -- so using it would discard every sapling before this
+code ever saw it.
 
 Indoor squares are skipped outright. Vehicles do get inside buildings -- garages,
 warehouses, the odd wall a player drove through -- and a potted plant in
 somebody's base is not roadside growth.
 ]]
-local function clearSquare(sq, cut, budget)
+local function clearSquare(sq, cut, budget, tally)
     if not sq then return 0 end
     if sq:getRoom() then return 0 end            -- indoors, leave it alone
-    if not sq:hasBush() then return 0 end        -- cheap reject, no allocation
 
-    local bushes = sq:getBushes()
-    if not bushes or bushes:size() == 0 then return 0 end
+    local objs = sq:getObjects()
+    if not objs or objs:size() == 0 then return 0 end
 
     local n = 0
-    -- getBushes() returns java.util.List, which really does have get(int) --
-    -- unlike getCell():getVehicles(), which is a Set and cost us a tick-rate
-    -- exception storm. Different collection, different rules; do not "fix"
-    -- this one to match the other.
-    -- Backwards, because felling mutates the square underneath us.
-    for i = bushes:size() - 1, 0, -1 do
+    -- Backwards, because clearing mutates the square underneath us.
+    for i = objs:size() - 1, 0, -1 do
         if n >= budget then break end
-        local o = bushes:get(i)
-        if o then
+        local o = objs:get(i)
+        local kind = clearable(o)
+        if kind then
+            if tally then tally[kind] = (tally[kind] or 0) + 1 end
             if not cut then
                 n = n + 1
-            elseif instanceof(o, "IsoTree") then
+            elseif kind == "tree" then
                 -- Damage() runs the engine's own destruction, which is what
                 -- makes the removal reach clients AND drops vanilla's own
                 -- yield -- the twigs and branch. See the header.
                 if pcall(function() o:Damage(1000.0) end) then n = n + 1 end
             else
-                -- A bush that is not a tree has no yield to drop, and
+                -- A brown bush is not a tree: no yield to drop, and
                 -- removeFromWorld() would not broadcast. transmitRemoveItemFromSquare
                 -- takes an IsoObject and is the call the sweep already relies on
                 -- for exactly this reason.
@@ -338,6 +369,8 @@ function WabbajackFoliage_count(player)
     local px, py = math.floor(player:getX()), math.floor(player:getY())
     local pz = math.floor(player:getZ() or 0)
     local found, squares = 0, 0
+    local tally = {}
+    local sizes = {}      -- every tree nearby by size, cutoff or not
 
     for x = px - COUNT_RADIUS, px + COUNT_RADIUS do
         for y = py - COUNT_RADIUS, py + COUNT_RADIUS do
@@ -345,15 +378,44 @@ function WabbajackFoliage_count(player)
             if sq then
                 -- Budget high enough not to cap a count: this reports, it does
                 -- not cut, so the per-pass kill cap is meaningless here.
-                local n = clearSquare(sq, false, math.huge)
+                local n = clearSquare(sq, false, math.huge, tally)
                 if n > 0 then found = found + n; squares = squares + 1 end
+
+                --[[
+                Trees ABOVE the cutoff are surveyed too, and this is the whole
+                point of the histogram: "nothing happened" and "that is a size 4
+                and we deliberately leave those" look identical in game. Seeing
+                the sizes that are actually out there is what turns raising
+                MAX_YOUNG_TREE_SIZE into a decision instead of another guess.
+                ]]
+                if not sq:getRoom() then
+                    local objs = sq:getObjects()
+                    if objs then
+                        for i = 0, objs:size() - 1 do
+                            local o = objs:get(i)
+                            if o and instanceof(o, "IsoTree") then
+                                local s = o:getSize()
+                                if s then sizes[s] = (sizes[s] or 0) + 1 end
+                            end
+                        end
+                    end
+                end
             end
         end
     end
 
-    log("count by " .. tostring(player:getUsername()) .. " - " .. found ..
-        " bushes within " .. COUNT_RADIUS .. " tiles")
-    return found, squares
+    local hist = {}
+    for s = 0, 7 do
+        if sizes[s] then hist[#hist + 1] = "size " .. s .. ":" .. sizes[s] end
+    end
+    local histText = (#hist > 0) and table.concat(hist, ", ") or "no trees"
+
+    log("count by " .. tostring(player:getUsername()) .. " - "
+        .. (tally.bush or 0) .. " bushes, " .. (tally.tree or 0)
+        .. " young trees (<=" .. MAX_YOUNG_TREE_SIZE .. ") within "
+        .. COUNT_RADIUS .. " tiles | all trees: " .. histText)
+
+    return found, squares, (tally.bush or 0), (tally.tree or 0), histText
 end
 
 --- Running total since the mod was installed. Always live, so there is no
@@ -374,4 +436,4 @@ end
 
 Events.OnTick.Add(onTick)
 Events.EveryOneMinute.Add(tick)
-log("loaded - always on, engine isBush selector, any speed, driver required")
+log("loaded - always on, bushes + trees size<=" .. MAX_YOUNG_TREE_SIZE .. ", any speed, driver required")

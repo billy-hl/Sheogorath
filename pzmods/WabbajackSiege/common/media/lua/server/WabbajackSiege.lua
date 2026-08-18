@@ -1319,10 +1319,13 @@ local function onClientCommand(module, command, player, args)
             reply("The foliage module is not installed on this server.")
             return
         end
-        local n, sq = WabbajackFoliage_count(player)
+        local n, sq, bushes, trees, hist = WabbajackFoliage_count(player)
         local total = WabbajackFoliage_status and WabbajackFoliage_status() or 0
-        reply(n .. " bushes on " .. sq .. " squares within 10 tiles would be felled. "
-            .. total .. " felled server-wide so far.")
+        -- Two lines: what would go, then what is standing. The second is the
+        -- one that explains a survivor -- a size 4 is left on purpose.
+        reply(bushes .. " bushes + " .. trees .. " young trees would go here ("
+            .. n .. " on " .. sq .. " squares). " .. total .. " cleared server-wide.")
+        reply("Trees nearby: " .. tostring(hist))
         return
     end
 

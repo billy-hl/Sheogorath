@@ -285,6 +285,23 @@ local function onFillMenu(playerNum, context, worldObjects, test)
     sweepMenu:addOption("Stop sweeping", player, function(p)
         sendClientCommand(p, "WabbajackSiege", "sweepStop", {})
     end)
+
+    -- Roadside foliage. Counting first for the same reason as the sweep, with
+    -- one extra: a felled tree does not grow back inside a wipe, and the size
+    -- threshold that separates "sapling" from "oak" has to be confirmed against
+    -- a road you know before this is armed.
+    local foliageOpt = menu:addOption("Roadside foliage", nil, nil)
+    local foliageMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(foliageOpt, foliageMenu)
+    foliageMenu:addOption("Count around me (safe)", player, function(p)
+        sendClientCommand(p, "WabbajackSiege", "foliageCount", {})
+    end)
+    foliageMenu:addOption("START clearing under wheels", player, function(p)
+        sendClientCommand(p, "WabbajackSiege", "foliageStart", {})
+    end)
+    foliageMenu:addOption("Stop clearing", player, function(p)
+        sendClientCommand(p, "WabbajackSiege", "foliageStop", {})
+    end)
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFillMenu)

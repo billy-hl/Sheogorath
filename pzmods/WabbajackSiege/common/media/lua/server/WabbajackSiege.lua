@@ -1294,6 +1294,35 @@ local function onClientCommand(module, command, player, args)
         return
     end
 
+    -- Roadside foliage, reached through globals like the sweep and the raid.
+    -- Same shape as the sweep for the same reason: felling does not grow back
+    -- inside a wipe, so counting is its own command and the menu offers it
+    -- first.
+    if command == "foliageCount" then
+        if not WabbajackFoliage_count then
+            player:Say("The foliage module is not installed on this server.")
+            return
+        end
+        local n, sq = WabbajackFoliage_count(player)
+        player:Say(n .. " bushes on " .. sq .. " squares within 10 tiles would be felled.")
+        return
+    end
+    if command == "foliageStart" then
+        if not WabbajackFoliage_start then
+            player:Say("The foliage module is not installed on this server.")
+            return
+        end
+        WabbajackFoliage_start(player:getUsername())
+        player:Say("Foliage clearing armed. Bushes die under wheels - the first bump still happens.")
+        return
+    end
+    if command == "foliageStop" then
+        if not WabbajackFoliage_stop then return end
+        local n = WabbajackFoliage_stop()
+        player:Say("Foliage clearing stopped. " .. n .. " felled in total.")
+        return
+    end
+
     if command ~= "arm" or not args then return end
     local x, y, z = tonumber(args.x), tonumber(args.y), tonumber(args.z or 0) or 0
     if not x or not y then return end

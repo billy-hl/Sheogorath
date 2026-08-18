@@ -3,4 +3,4 @@ id=WabbajackSiege
 author=Wabbajack
 modversion=1.11.0
 versionMin=42.0.0
-description=Server-side event and admin toolkit: siege events, base raids, a zombie sweep and a login shield. Server-only - places vanilla items and vanilla zombies, so clients need nothing.
+description=Server-side event and admin toolkit: siege events, base raids, a ground sweep, a login shield, and roadside foliage that clears under wheels. Server-only - places vanilla items and vanilla zombies, so clients need nothing.

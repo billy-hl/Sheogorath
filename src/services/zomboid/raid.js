@@ -126,12 +126,30 @@ function readSafehouses(file) {
     return out;
   };
 
+  // Take the BEST candidate, not the first.
+  //
+  // Scanning down from the tail, the first offset that parses cleanly is not
+  // necessarily the real block: a spurious alignment in trailing data can yield
+  // one plausible-looking record and win purely by being nearer the end. The
+  // comment here used to claim the parse had to run to the end of the buffer,
+  // which it never checked.
+  //
+  // Preferring the candidate with the most records is safe in the direction
+  // that matters. Over-reporting claims only makes `arm` skip more candidate
+  // houses; under-reporting is what destroys somebody's base. So a longer parse
+  // always wins, and the search continues a bounded distance past the first hit
+  // rather than stopping at it.
+  const KEEP_LOOKING_BYTES = 8192;
+  let best = null;
+  let bestOff = null;
   for (let off = d.length - 16; off > Math.max(0, d.length - 400000); off -= 1) {
+    if (best && bestOff - off > KEEP_LOOKING_BYTES) break;
     try {
       const r = tryAt(off);
-      if (r.length >= 1) return r;
+      if (r.length >= 1 && (!best || r.length > best.length)) { best = r; bestOff = off; }
     } catch { /* wrong offset */ }
   }
+  if (best) return best;
   throw new Error('could not locate the safehouse block in map_meta.bin');
 }
 

@@ -71,6 +71,10 @@ function normalizeGuild(id, raw) {
       // what staff did without reading logs/commands.jsonl on the host. Every
       // command is recorded to that file regardless of this setting.
       commandLog: channels.commandLog || null,
+      // Where first-time joiners are greeted. Unset means the guild is not
+      // greeted at all — the welcome handler stays inert rather than guessing
+      // a channel.
+      welcome: channels.welcome || null,
     },
     roles: {
       // The guild's role ladder, highest first. Only `admin` and `staff` gate
@@ -87,6 +91,12 @@ function normalizeGuild(id, raw) {
       veteran: roles.veteran || null,
       member: roles.member || null,
     },
+    // Overrides the default greeting copy. `{mention}` is substituted with the
+    // new member. Guild-level because it is the guild's own voice, and the
+    // Zomboid guild's wording differs from a plain social server's.
+    welcomeMessage: typeof raw.welcomeMessage === 'string' && raw.welcomeMessage.trim()
+      ? raw.welcomeMessage.trim()
+      : null,
     zomboid: raw.zomboid || null,
   };
 }

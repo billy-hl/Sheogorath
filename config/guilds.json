@@ -33,7 +33,8 @@
       "trading": "1534552667597307904",
       "safehouseClaims": "1535064872956461076",
       "commandLog": "1535750358905651294",
-      "characters": "1536868592342138930"
+      "characters": "1536868592342138930",
+      "welcome": "1533306144561303743"
     },
     "roles": {
       "admin": "1408619717438210139",
@@ -84,7 +85,11 @@
       },
       "playersDb": "/home/allisteras/gameservers/zomboid/data/Saves/Multiplayer/wabbajack/players.db",
       "usersDb": "/home/allisteras/gameservers/zomboid/data/db/wabbajack.db",
-      "gameDir": "/home/allisteras/gameservers/zomboid/gamefiles"
-    }
+      "gameDir": "/home/allisteras/gameservers/zomboid/gamefiles",
+      "welcomeWatch": {
+        "template": "Welcome to Wabbajack, {name}. Good luck out there."
+      }
+    },
+    "welcomeMessage": "Welcome, {mention}. Read **#rules**, then **#server-info** has the connection details. Ask in **#help** if you get stuck."
   }
 }

@@ -50,6 +50,8 @@ const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
 const { schedulePlayerCount } = require('./services/zomboid/playerCount');
+const { scheduleWelcomeWatch } = require('./services/zomboid/welcomeWatch');
+const { welcomeMember } = require('./services/welcome');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
 
@@ -237,6 +239,14 @@ client.once(Events.ClientReady, async () => {
     console.error('[Zomboid] Failed to schedule player count:', err?.message || err);
   }
 
+  // Greet players in-game as they connect. Isolated like the rest — a fault in
+  // the greeting must not stop the counter or the sweep from being scheduled.
+  try {
+    scheduleWelcomeWatch();
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule join welcome:', err?.message || err);
+  }
+
   // Sweep stale offers off the trading board.
   try {
     scheduleTradeSweep(client);
@@ -363,6 +373,13 @@ client.on('messageCreate', async (message) => {
  * gateway replays when the bot gains access to an existing one — without it,
  * a reconnect would re-vet and re-tag the whole forum.
  */
+// Greet first-time joiners. Guilds without `channels.welcome` are ignored, and
+// anyone with a `welcomedAt` on record is a returning member, not a new one.
+client.on(Events.GuildMemberAdd, async (member) => {
+  await welcomeMember(client, member);
+});
+
+
 client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
   if (!newlyCreated) return;
   lastInteractionTime = Date.now();

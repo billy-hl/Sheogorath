@@ -971,6 +971,11 @@ module.exports = {
             await interaction.editReply('No siege has reported yet.');
             return;
           }
+          // The status file outlives the event that wrote it, so a finished
+          // siege reads as current until you notice the phase. Stamping the
+          // embed with the file's mtime rather than "now" makes an hour-old
+          // report look an hour old.
+          const reportedAt = siege.statusTime(guildId);
           const phase = {
             armed: '⏳ Armed — waiting for someone to get close enough to load the area',
             active: '🔥 Active — loot and horde are placed',
@@ -986,7 +991,8 @@ module.exports = {
               { name: 'Spawned', value: `${st.spawned || 0}`, inline: true },
               { name: 'Still alive', value: `${st.alive || 0}`, inline: true },
             )
-            .setTimestamp();
+            .setFooter({ text: `siege ${st.id || '?'} — last reported` })
+            .setTimestamp(reportedAt || undefined);
           await interaction.editReply({ embeds: [embed] });
           return;
         }

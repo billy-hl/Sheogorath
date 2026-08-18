@@ -120,6 +120,7 @@ local function sweepLoaded(remove)
         local pl = players:get(p)
         if pl then
             local px, py = math.floor(pl:getX()), math.floor(pl:getY())
+            local pz = math.floor(pl:getZ() or 0)
             for x = px - IMMEDIATE_RADIUS, px + IMMEDIATE_RADIUS do
                 for y = py - IMMEDIATE_RADIUS, py + IMMEDIATE_RADIUS do
                     -- Integer key: x*32768+y is unique for a 32k-wide map and
@@ -133,10 +134,18 @@ local function sweepLoaded(remove)
                                 "-square ceiling; the rest clears as areas load")
                             return total, squares
                         end
-                        local sq = cell:getGridSquare(x, y, 0)
-                        if sq then
-                            local n = sweepSquare(sq, remove)
-                            if n > 0 then total = total + n; squares = squares + 1 end
+                        -- Ground floor plus the floor the player is actually
+                        -- standing on. Sweeping only z=0 missed everything
+                        -- dropped upstairs, which on a server where players
+                        -- build multi-storey bases is most of the clutter worth
+                        -- clearing. Sweeping all eight levels would be eight
+                        -- times the cost for floors nobody is near.
+                        for _, z in ipairs(pz == 0 and { 0 } or { 0, pz }) do
+                            local sq = cell:getGridSquare(x, y, z)
+                            if sq then
+                                local n = sweepSquare(sq, remove)
+                                if n > 0 then total = total + n; squares = squares + 1 end
+                            end
                         end
                     end
                 end

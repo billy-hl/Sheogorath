@@ -159,4 +159,4 @@ function collectEvents(logDir, windowMs = 24 * 60 * 60 * 1000) {
   return { since, until, deaths, players, builders };
 }
 
-module.exports = { collectEvents, parseStamp, logFiles, linesSince, CHAT };
+module.exports = { collectEvents, parseStamp, logFiles, linesSince, CHAT, JOINED };

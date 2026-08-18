@@ -229,4 +229,14 @@ function modEnabled(guildId) {
   return !!m && m[1].split(';').some((s) => s.trim() === 'WabbajackSiege');
 }
 
-module.exports = { arm, cancel, status, houses, towns, modEnabled, zomboidRoot };
+/** When the mod last wrote a status, or null. Used to show staleness. */
+function statusTime(guildId) {
+  const root = zomboidRoot(guildId);
+  if (!root) return null;
+  for (const f of [path.join(root, 'Lua', STATUS_FILE), path.join(root, STATUS_FILE)]) {
+    try { return fs.statSync(f).mtime; } catch { /* try the next */ }
+  }
+  return null;
+}
+
+module.exports = { arm, cancel, status, statusTime, houses, towns, modEnabled, zomboidRoot };

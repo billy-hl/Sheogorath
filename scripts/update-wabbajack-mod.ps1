@@ -73,6 +73,7 @@ if (-not (Test-Path $ProjectDir)) {
     Die "Project $ProjectDir not found. Create it in-game first, or fix -ProjectDir."
 }
 $wsTxt = Join-Path $ProjectDir 'workshop.txt'
+$id = $null
 if (Test-Path $wsTxt) {
     $id = Read-Capture $wsTxt '^\s*id\s*=\s*(\d+)'
     if ($id) { Ok "project publishes to Workshop item $id" }
@@ -127,6 +128,17 @@ foreach ($rel in $need) {
 }
 $after = Read-Capture (Join-Path $staging "Contents\mods\$ModId\common\mod.info") '^\s*modversion\s*=\s*(.+)$'
 if (-not $after) { Die 'staged mod.info has no modversion line' }
+
+# The staged workshop.txt is about to overwrite the project's. Preflight read
+# the project's id and would have been pointless if this then replaced it with a
+# different one: the upload would go to the wrong Workshop item, and the only
+# symptom is the server continuing to load the old build.
+$stagedId = Read-Capture (Join-Path $staging 'workshop.txt') '^\s*id\s*=\s*(\d+)'
+if ($id -and $stagedId -and $id -ne $stagedId) {
+    Die "the archive targets Workshop item $stagedId but this project is $id.`n" +
+        "    Installing it would publish to the wrong item. Check the zip."
+}
+if ($stagedId) { Ok "archive targets Workshop item $stagedId" }
 $luaCount = (Get-ChildItem (Join-Path $staging "Contents\mods\$ModId") -Recurse -Filter *.lua).Count
 Ok "staged version $after, $luaCount lua files"
 
@@ -142,22 +154,36 @@ if ($DryRun) {
 # ----------------------------------------------------------------- install
 
 Step 'Installing'
-# Delete rather than overwrite: a file removed upstream would otherwise survive
-# here and ship inside the next upload.
-if (Test-Path $modPath) {
-    Remove-Item $modPath -Recurse -Force
-    Say 'removed the previous mod folder'
-}
-# Copy the MOD folder to its exact destination rather than copying `Contents`
-# into the project. `Copy-Item <dir> <existing dir> -Recurse` nests the source
-# inside the target, so that form produces Contents\Contents on any project that
-# already had one -- which is every project except a brand new one.
 $modsDir = Join-Path $ProjectDir 'Contents\mods'
 if (-not (Test-Path $modsDir)) { New-Item -ItemType Directory -Path $modsDir -Force | Out-Null }
-Copy-Item (Join-Path $staging "Contents\mods\$ModId") $modsDir -Recurse -Force
-foreach ($f in 'workshop.txt', 'preview.png') {
-    $src = Join-Path $staging $f
-    if (Test-Path $src) { Copy-Item $src $ProjectDir -Force; Say "updated $f" }
+
+# The old folder is moved aside, not deleted. Deleting first contradicts this
+# script's whole contract: Remove-Item -Recurse deletes as it walks, so a locked
+# file -- the game being open is enough -- aborts partway and leaves NO mod
+# folder rather than the one that was working a second ago. It is only discarded
+# once the replacement is in place and verified.
+$backup = "$modPath.replaced-$(Get-Date -Format yyyyMMdd-HHmmss)"
+if (Test-Path $modPath) {
+    try { Move-Item $modPath $backup -Force }
+    catch { Die "could not move the old mod folder aside (is the game running?): $_" }
+    Say 'moved the previous mod folder aside'
+}
+
+try {
+    # Copy the MOD folder to its exact destination rather than copying `Contents`
+    # into the project. `Copy-Item <dir> <existing dir> -Recurse` nests the source
+    # inside the target, so that form produces Contents\Contents on any project
+    # that already had one -- which is every project except a brand new one.
+    Copy-Item (Join-Path $staging "Contents\mods\$ModId") $modsDir -Recurse -Force
+    foreach ($f in 'workshop.txt', 'preview.png') {
+        $src = Join-Path $staging $f
+        if (Test-Path $src) { Copy-Item $src $ProjectDir -Force; Say "updated $f" }
+    }
+} catch {
+    # Put it back exactly as it was before giving up.
+    if (Test-Path $modPath) { Remove-Item $modPath -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $backup)  { Move-Item $backup $modPath -Force -ErrorAction SilentlyContinue }
+    Die "install failed and the previous version was restored: $_"
 }
 Remove-Item $staging -Recurse -Force
 
@@ -171,6 +197,9 @@ Get-ChildItem $modPath -Recurse -File | ForEach-Object {
     '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.Substring(0, 16).ToLower(),
                   $_.FullName.Substring($modPath.Length + 1)
 } | ForEach-Object { Say $_ }
+
+# Only now is the old copy expendable.
+if (Test-Path $backup) { Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue }
 
 Write-Host "`nInstalled $before -> $after" -ForegroundColor Green
 Write-Host "Now upload it from the game: Workshop > $ModId > Update`n"

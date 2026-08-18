@@ -50,6 +50,7 @@ const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
 const { schedulePlayerCount } = require('./services/zomboid/playerCount');
+const { scheduleNewPlayers } = require('./services/zomboid/newPlayers');
 const { welcomeMember } = require('./services/welcome');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
@@ -236,6 +237,15 @@ client.once(Events.ClientReady, async () => {
     schedulePlayerCount(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule player count:', err?.message || err);
+  }
+
+  // Greet first-time arrivals on the game server. Seeds itself from the
+  // existing account roster on first run, so nobody already playing is
+  // announced.
+  try {
+    scheduleNewPlayers(client);
+  } catch (err) {
+    console.error('[Zomboid] Failed to schedule new-player announcements:', err?.message || err);
   }
 
   // Sweep stale offers off the trading board.

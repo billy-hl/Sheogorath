@@ -85,7 +85,8 @@
       },
       "playersDb": "/home/allisteras/gameservers/zomboid/data/Saves/Multiplayer/wabbajack/players.db",
       "usersDb": "/home/allisteras/gameservers/zomboid/data/db/wabbajack.db",
-      "gameDir": "/home/allisteras/gameservers/zomboid/gamefiles"
+      "gameDir": "/home/allisteras/gameservers/zomboid/gamefiles",
+      "onePerPerson": true
     },
     "welcomeMessage": "Welcome, {mention}. Read **#rules**, then **#server-info** has the connection details. Ask in **#help** if you get stuck."
   }

@@ -346,6 +346,46 @@ async function checkOnce(client, guildId, now = Date.now()) {
         eulogyUrl,
       }).catch((err) =>
         console.warn('[Zomboid] Could not retire a character sheet:', err?.message || err));
+
+      // One account per person.
+      //
+      // MaxAccountsPerUser=1 stops new alts but is not retroactive, and this
+      // server carries 111 surplus accounts across 79 Steam IDs. The account a
+      // character dies on is removed while its owner still holds more than one,
+      // so the backlog drains through ordinary play rather than a mass deletion.
+      //
+      // Hooked here, in the `finally`, rather than beside the eulogy above: a
+      // life too short to earn a eulogy hits `continue` and skips that block
+      // entirely, and those deaths count the same. altPrune re-reads the account
+      // list per call and never removes somebody's last one — see the header
+      // there for why a cached count would eventually do exactly that.
+      if (getGuildConfig(guildId)?.zomboid?.onePerPerson) {
+        try {
+          const { pruneOnDeath } = require('./altPrune');
+          const r = await pruneOnDeath(guildId, death.name, { dryRun: false });
+          if (r.acted) {
+            console.log(
+              `[Zomboid] one-per-person: removed account "${r.username}" ` +
+              `(${r.was} -> ${r.now} for that Steam ID).`,
+            );
+            // Deleting a character cannot be undone, so it is never done
+            // silently: staff get a line naming the account and what is left.
+            const logId = cfg.commandLogChannelId || getGuildConfig(guildId)?.channels?.commandLog;
+            if (logId) {
+              const ch = await client.channels.fetch(logId).catch(() => null);
+              if (ch?.isTextBased()) {
+                await ch.send(
+                  `🗑️ **One account per person** — \`${r.username}\` died and was removed ` +
+                  `(that player held **${r.was}**, now **${r.now}**).\n` +
+                  `_Remaining: ${r.siblings.filter((n) => n !== r.username).join(', ') || 'none'}_`,
+                ).catch(() => null);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[Zomboid] one-per-person prune failed:', err?.message || err);
+        }
+      }
     }
   }
 

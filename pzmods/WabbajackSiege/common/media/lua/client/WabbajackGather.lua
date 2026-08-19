@@ -44,20 +44,29 @@ available -- never something the recipe could not have used anyway.
 
 TAKE WHAT YOU CAN, THEN SAY WHAT YOU DID NOT
 Partial hauls are useful; an all-or-nothing rule would refuse to fetch nineteen
-of twenty planks. So it fills up to the weight it can carry and reports both
-what is still missing and what it left behind, because "nothing happened" and
-"you are too heavy to carry the rest" look identical otherwise.
+of twenty planks. So it loads you up -- past your carry limit, because the game
+allows that and hauling heavy to a build site is the point -- and then reports
+what is still missing and what it stopped short of, with the actual numbers.
+"Nothing happened" and "you are already over the limit" look identical
+otherwise, and a vague "too heavy" reads as broken when the player can pick the
+same item up by hand a second later.
 ]]
 
 local function log(msg) print("[WabbajackGather] " .. tostring(msg)) end
 
 --[[
-Leave this much carry weight spare.
+How far past the carry limit a gather is allowed to load you.
 
-Filling to exactly capacity leaves the player instantly overencumbered and
-unable to pick up the hammer, which is a worse outcome than one fewer plank.
+PZ DOES NOT FORBID BEING OVERWEIGHT. It slows you down and tires you out, but
+you can keep picking things up, and deliberately hauling an over-capacity load
+to a build site is ordinary play. Refusing to exceed capacity was stricter than
+the game itself: players were told "too heavy to carry the rest" and could then
+pick up the very same items by hand, which reads as the feature being broken.
+
+1.5 = up to fifty percent over. Slow, but walkable, and it still stops before
+somebody is pinned in place by four hundred nails.
 ]]
-local WEIGHT_HEADROOM = 2.0
+local OVERFILL = 1.5
 
 --[[
 Hard ceiling on queued transfers per click.
@@ -140,7 +149,21 @@ local function gatherFor(player, recipe)
 
     local inv = player:getInventory()
     local sources = nearbyContainers(player)
-    local free = inv:getCapacityWeight() - inv:getContentsWeight() - WEIGHT_HEADROOM
+
+    --[[
+    getCapacityWeight() IS THE CURRENT LOAD, NOT THE CAPACITY.
+
+    The name reads backwards and it cost a release. This was
+    `getCapacityWeight() - getContentsWeight()`, which is current minus current
+    -- near enough zero, then made negative by a headroom subtraction -- so the
+    very first item was always "too heavy" and nothing ever transferred.
+
+    ISHotbar.lua:572 settles it by using both in one expression:
+        getInventory():getCapacityWeight() ... > getInventory():getMaxWeight()
+    Current on the left, limit on the right. getMaxWeight() is the limit.
+    ]]
+    local ceiling = inv:getMaxWeight() * OVERFILL
+    local load = inv:getCapacityWeight()
 
     local took, queued, heavy, fluids = 0, 0, false, 0
     local missing = {}
@@ -171,13 +194,17 @@ local function gatherFor(player, recipe)
                                 if short <= 0 or queued >= MAX_TRANSFERS then break end
                                 local item = found:get(k)
                                 if item then
-                                    local w = item:getWeight() or 0
-                                    if w > free then
+                                    -- Unequipped weight: this is going into a
+                                    -- container, not onto the character, and it
+                                    -- is what vanilla's own transfer maths uses.
+                                    local w = (item.getUnequippedWeight and item:getUnequippedWeight())
+                                        or item:getWeight() or 0
+                                    if load + w > ceiling then
                                         heavy = true
                                     else
                                         ISTimedActionQueue.add(
                                             ISInventoryTransferAction:new(player, item, src, inv, nil))
-                                        free = free - w
+                                        load = load + w
                                         short = short - 1
                                         took = took + 1
                                         queued = queued + 1
@@ -199,7 +226,8 @@ local function gatherFor(player, recipe)
     end
 
     return { took = took, missing = missing, heavy = heavy, fluids = fluids,
-             capped = queued >= MAX_TRANSFERS }
+             capped = queued >= MAX_TRANSFERS,
+             load = load, max = inv:getMaxWeight() }
 end
 
 --- Runs a gather and reports it, for whichever slot type was clicked.
@@ -221,7 +249,11 @@ local function doGather(player, recipe)
         tell(player, "Still need: " .. table.concat(r.missing, ", "), false)
     end
     if r.heavy then
-        tell(player, "Too heavy to carry the rest.", false)
+        -- Say the actual numbers. "Too heavy" alone is what made this look
+        -- broken: the player could pick the same items up by hand a second
+        -- later, because the game allows what this had refused.
+        tell(player, string.format("Stopped at %.1f / %.0f - already over the limit.",
+            r.load or 0, r.max or 0), false)
     end
     if r.capped then
         tell(player, "Grabbed the first " .. MAX_TRANSFERS .. " - click again for more.", false)

@@ -36,11 +36,11 @@ forks automatically; a future tree that RENAMES a class would silently skip it.
 Hence the count logged on install -- silence would look identical to working.
 
 WHAT "NEARBY" MEANS
-Exactly what the crafting UI means by it. ISCraftingUI:getContainers() (and its
-copy in CraftTooltip) builds its list from the loot window's backpacks, which is
-the game's own answer to "what can this character reach". Taking from the same
-source means this gathers precisely the items the recipe would have counted as
-available -- never something the recipe could not have used anyway.
+ISInventoryPaneContextMenu.getContainers(), the same call vanilla's context menu
+and ISHandCraftPanel use, so this reaches exactly what the game says the
+character can reach. Critically it is ALSO the call ProximityInventory patches
+to strip its synthetic aggregate container -- see nearbyContainers() for why
+reading the loot window's `backpacks` directly instead was wrong twice over.
 
 TAKE WHAT YOU CAN, THEN SAY WHAT YOU DID NOT
 Partial hauls are useful; an all-or-nothing rule would refuse to fetch nineteen
@@ -93,15 +93,35 @@ The loot side only. The player's own inventory is the destination, not a source
 ]]
 local function nearbyContainers(player)
     local out = {}
-    local ok = pcall(function()
-        local pn = player:getPlayerNum()
-        local loot = getPlayerLoot(pn)
-        if not loot or not loot.inventoryPane or not loot.inventoryPane.inventoryPage then return end
-        for _, v in ipairs(loot.inventoryPane.inventoryPage.backpacks) do
-            if v and v.inventory then out[#out + 1] = v.inventory end
+    local mine = player:getInventory()
+
+    --[[
+    ISInventoryPaneContextMenu.getContainers() IS THE ONE TO ASK, NOT `backpacks`.
+
+    This used to walk getPlayerLoot(pn).inventoryPane.inventoryPage.backpacks
+    directly, which breaks badly with ProximityInventory installed. That mod
+    injects a synthetic aggregate container ("proxInv") into `backpacks` and
+    fills it with addAll() of the REAL item references from every nearby
+    container. Reading backpacks therefore saw every item twice -- once in its
+    true container and once in the aggregate -- and handed the transfer action a
+    container that does not actually hold the item, so the count was inflated
+    and nothing moved.
+
+    ProximityInventory's own CraftingFix.lua patches getContainers() to strip
+    that aggregate, under the comment "Very important file, it avoids duping in
+    SP and MP". Asking through the supported API gets that fix for free, and it
+    is the same call vanilla's context menu and ISHandCraftPanel use.
+    ]]
+    pcall(function()
+        local list = ISInventoryPaneContextMenu.getContainers(player)
+        if not list then return end
+        for i = 0, list:size() - 1 do
+            local c = list:get(i)
+            -- Skip the player's own inventory: it is the destination, and
+            -- anything already in their bags is counted by carried() anyway.
+            if c and c ~= mine then out[#out + 1] = c end
         end
     end)
-    if not ok then return {} end
     return out
 end
 
@@ -168,6 +188,17 @@ local function gatherFor(player, recipe)
     local took, queued, heavy, fluids = 0, 0, false, 0
     local missing = {}
 
+    --[[
+    Items already queued this click, by id.
+
+    A recipe input can list several acceptable types and the same item can be
+    reachable through more than one container view, so without this the same
+    physical object gets queued twice: the first transfer moves it, the second
+    silently fails against a container that no longer holds it, and the reported
+    count is larger than what actually arrives.
+    ]]
+    local claimed = {}
+
     for i = 0, inputs:size() - 1 do
         local input = inputs:get(i)
         -- Automation-only inputs belong to machines, not to a person carrying
@@ -182,6 +213,10 @@ local function gatherFor(player, recipe)
                 local need = input:getIntAmount() or 0
                 local types = acceptedTypes(input)
                 local short = need - carried(player, types)
+                -- Captured before the loop mutates `short`, so the log can say
+                -- how much was already carried versus how much this call took.
+                local short_before = short
+                local taken_here = 0
 
                 for _, ft in ipairs(types) do
                     if short <= 0 then break end
@@ -193,7 +228,22 @@ local function gatherFor(player, recipe)
                             for k = 0, found:size() - 1 do
                                 if short <= 0 or queued >= MAX_TRANSFERS then break end
                                 local item = found:get(k)
-                                if item then
+                                --[[
+                                ASK THE ITEM WHERE IT LIVES. Passing `src` --
+                                the container we happened to search -- is wrong
+                                whenever the item is really somewhere else: in a
+                                bag nested inside it, or aggregated into a view
+                                like ProximityInventory's. The transfer then
+                                tries to remove it from a container that does
+                                not hold it and silently does nothing.
+
+                                Every vanilla call site does it this way:
+                                  ISInventoryTransferAction:new(
+                                      player, fabric, fabric:getContainer(), ...)
+                                ]]
+                                local from = item and item.getContainer and item:getContainer()
+                                local id = item and item.getID and item:getID()
+                                if item and from and not (id and claimed[id]) then
                                     -- Unequipped weight: this is going into a
                                     -- container, not onto the character, and it
                                     -- is what vanilla's own transfer maths uses.
@@ -202,11 +252,13 @@ local function gatherFor(player, recipe)
                                     if load + w > ceiling then
                                         heavy = true
                                     else
+                                        if id then claimed[id] = true end
                                         ISTimedActionQueue.add(
-                                            ISInventoryTransferAction:new(player, item, src, inv, nil))
+                                            ISInventoryTransferAction:new(player, item, from, inv, nil))
                                         load = load + w
                                         short = short - 1
                                         took = took + 1
+                                        taken_here = taken_here + 1
                                         queued = queued + 1
                                     end
                                 end
@@ -215,10 +267,28 @@ local function gatherFor(player, recipe)
                     end
                 end
 
+                local label = (types[1] and getScriptManager():getItem(types[1])
+                    and getScriptManager():getItem(types[1]):getDisplayName())
+                    or input:getType() or "material"
+
+                --[[
+                One line per input, always.
+
+                Three rounds of this feature have now been debugged from a
+                player saying "it grabbed some of it", which cannot distinguish
+                "the recipe only wanted one" from "we found one" from "we queued
+                five and four were wiped by the transfer queue's merge". The
+                numbers that separate those live here and nowhere else.
+
+                Tag-based inputs are the specific worry: `item 1 tags[Sheet]` is
+                not a fulltype, so if getPossibleInputItems() comes back empty
+                for it, types is empty, nothing can ever be found, and it would
+                otherwise fail as a silent "missing 1 material".
+                ]]
+                log(string.format("input %s: need %d, carrying %d, types %d, queued %d",
+                    tostring(label), need, need - short_before, #types, taken_here))
+
                 if short > 0 then
-                    local label = (types[1] and getScriptManager():getItem(types[1])
-                        and getScriptManager():getItem(types[1]):getDisplayName())
-                        or input:getType() or "material"
                     missing[#missing + 1] = short .. " " .. tostring(label)
                 end
             end

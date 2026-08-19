@@ -1,6 +1,6 @@
 name=Wabbajack Server Toolkit
 id=WabbajackSiege
 author=Wabbajack
-modversion=1.16.1
+modversion=1.16.2
 versionMin=42.0.0
 description=Event and admin toolkit: siege events, base raids, a ground sweep, a login shield, roadside bushes that clear under wheels, and shift+right-click on a Shortcut slot to gather a recipe's materials from nearby containers. Events are server-side and place only vanilla items and zombies; the gather shortcut is client-side and needs TheShortcut, but the mod works without it.

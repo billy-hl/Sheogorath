@@ -255,7 +255,9 @@ async function play(connection, url, guildId, onFinish) {
   // Tear down any leftover processes from a previous song before starting.
   killProcesses(guildId);
 
-  const ytdlpBin = require('youtube-dl-exec').raw || 'yt-dlp';
+  // Deliberately the `yt-dlp` on PATH, not youtube-dl-exec's bundled copy: with
+  // YOUTUBE_DL_DIR pointed at the system install they are the same binary, and
+  // one upgrade keeps playback and search from drifting to different versions.
   const ytdlpProcess = spawn('yt-dlp', [
     '--no-playlist',
     '-f', 'bestaudio/best',

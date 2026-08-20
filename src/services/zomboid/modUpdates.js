@@ -40,7 +40,7 @@ const path = require('path');
 
 const { getGuildConfig, guildIds, hasFeature } = require('../../config/guilds');
 const { getGuildState, setGuildState } = require('../../storage/state');
-const { fetchWorkshopItems, readServerConfig } = require('./modCheck');
+const { fetchWorkshopItems, readServerConfig, fetchChangelog } = require('./modCheck');
 const { serverMessage, isReachable } = require('./rcon');
 
 const DEFAULTS = {
@@ -94,6 +94,29 @@ const DEFAULTS = {
   // How long to wait for the restart unit to finish before giving up on
   // reporting the outcome. The unit's own TimeoutStartSec is 1800.
   restartTimeoutMinutes: 35,
+
+  // -- change notes ---------------------------------------------------------
+  // Quote each updated mod's Workshop change notes under its line, so the
+  // channel says what changed and not just that something did.
+  changelogs: true,
+  // Entries per mod. More than a couple of pushes since our copy and the
+  // detail stops being worth the message length.
+  changelogEntries: 2,
+  // Per-mod caps. Authors paste entire release notes, occasionally hundreds of
+  // lines, and one verbose mod must not crowd out the rest of the list.
+  changelogLines: 5,
+  changelogChars: 400,
+  // Steam renders changelog dates in the *viewer's* timezone, which for an
+  // anonymous fetch is not guaranteed to match ours. Entries are therefore
+  // matched to "newer than our copy" with a day's slack in the inclusive
+  // direction: quoting one stale entry is a much smaller failure than dropping
+  // the one the announcement exists to show.
+  changelogSlackHours: 12,
+  // Steam answers the changelog endpoint with 429 under a fast burst, so the
+  // batch is serialised, paused between requests, and bounded. Beyond this many
+  // mods the message has no room for the notes anyway.
+  changelogMaxMods: 8,
+  changelogDelayMs: 400,
 };
 
 // ---------------------------------------------------------------------------
@@ -344,7 +367,73 @@ function readStagedApplied(file) {
 const WORKSHOP_URL = 'https://steamcommunity.com/sharedfiles/filedetails/?id=';
 const day = (epochSeconds) => new Date(epochSeconds * 1000).toISOString().slice(0, 10);
 
-function formatAnnouncement({ updates, missing, gone }, plan) {
+/** Discord's hard ceiling is 2000; leave room for the trailing plan line. */
+const MESSAGE_BUDGET = 1900;
+
+/**
+ * Clean one line of an author's change notes for quoting.
+ *
+ * Two things get neutralised. Leading `#` would render as a Discord header
+ * mid-announcement — authors write `### Core fixes` and mean a small heading,
+ * not a banner. And emoji are stripped to hold the standing no-emoji rule for
+ * this channel; the notes are quoted, but the announcement is still ours.
+ */
+function sanitizeNote(line) {
+  return line
+    .replace(/^\s*#+\s*/, '')
+    .replace(/\p{Extended_Pictographic}|️|⃣/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Render one mod's change notes as quoted lines.
+ *
+ * An entry with an empty body is not a failure — publishing with no notes is
+ * common — so a mod whose entries are all empty says so in one line rather
+ * than printing nothing and looking broken.
+ *
+ * The character budget is per *mod*, not per entry: two entries from one
+ * chatty author must not buy twice the space of a single-entry mod, or one
+ * mod's release notes crowd the rest of the list off the message.
+ */
+function changelogBlock(entries, cfg) {
+  if (!entries) return [];
+  const withText = entries.filter((e) => e.text).slice(0, cfg.changelogEntries);
+  if (!withText.length) return entries.length ? ['> no release notes'] : [];
+
+  const out = [];
+  let used = 0;
+  let truncated = false;
+
+  for (const entry of withText) {
+    const body = entry.text
+      .split('\n')
+      .map(sanitizeNote)
+      .filter(Boolean)
+      .slice(0, cfg.changelogLines);
+    if (!body.length) continue;
+
+    // Only worth dating when there are several, and then it is necessary —
+    // otherwise two updates' notes read as one run-on block.
+    const label = withText.length > 1 && entry.date ? `**${entry.date.split('@')[0].trim()}** ` : '';
+
+    for (const [i, line] of body.entries()) {
+      if (used + line.length > cfg.changelogChars) {
+        truncated = true;
+        break;
+      }
+      used += line.length;
+      out.push(`> ${i === 0 ? label : ''}${line}`);
+    }
+    if (truncated) break;
+  }
+
+  if (truncated) out.push('> ...');
+  return out;
+}
+
+function formatAnnouncement({ updates, missing, gone }, plan, cfg = DEFAULTS) {
   const lines = [];
 
   if (updates.length) {
@@ -352,6 +441,14 @@ function formatAnnouncement({ updates, missing, gone }, plan) {
     lines.push('');
     for (const u of updates) {
       lines.push(`- [${u.title}](<${WORKSHOP_URL}${u.id}>) — ours is from ${day(u.localAt)}, latest is ${day(u.steamAt)}`);
+      // Budgeted rather than appended blindly: with several mods updating at
+      // once the notes would otherwise run past Discord's limit and the old
+      // blanket truncation would take the plan line with it — the one line
+      // that tells players a restart is coming.
+      for (const note of changelogBlock(u.changelog, cfg)) {
+        if (lines.join('\n').length + note.length + plan.length + 8 > MESSAGE_BUDGET) break;
+        lines.push(note);
+      }
     }
   }
 
@@ -370,9 +467,91 @@ function formatAnnouncement({ updates, missing, gone }, plan) {
     }
   }
 
-  lines.push('');
-  lines.push(plan);
-  return lines.join('\n').slice(0, 1900);
+  // Trimmed before the plan is appended, never after, so the plan always
+  // survives however long the list above ran. Whole lines are dropped rather
+  // than the string being cut, which would otherwise end the message on half a
+  // word inside a quote block.
+  const room = MESSAGE_BUDGET - plan.length - 6;
+  let body = lines.join('\n');
+  if (body.length > room) {
+    const kept = [];
+    let used = 0;
+    for (const line of lines) {
+      if (used + line.length + 1 > room) break;
+      used += line.length + 1;
+      kept.push(line);
+    }
+    body = `${kept.join('\n')}\n...`;
+  }
+  return `${body}\n\n${plan}`;
+}
+
+/**
+ * A mod version's change notes never change, so they are fetched once per
+ * `id:steamAt` and kept. This is what stops a restart-report re-announcement,
+ * or a burst of mods sharing an author, from hitting Steam repeatedly.
+ */
+const changelogCache = new Map();
+const CHANGELOG_CACHE_MAX = 200;
+
+function cacheGet(key) {
+  return changelogCache.get(key);
+}
+
+function cacheSet(key, value) {
+  if (changelogCache.size >= CHANGELOG_CACHE_MAX) {
+    const oldest = changelogCache.keys().next().value;
+    if (oldest !== undefined) changelogCache.delete(oldest);
+  }
+  changelogCache.set(key, value);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Attach Workshop change notes to each update, in place.
+ *
+ * Only entries newer than the copy we have are kept — the point is what
+ * changed since our version, not the mod's whole history. When date parsing
+ * yields nothing usable the newest entry is used regardless, because the
+ * announcement fires on a just-detected update and that entry is almost
+ * certainly it.
+ *
+ * Requests are serialised with a pause between them, and the whole batch is
+ * capped. Steam answers this endpoint with **HTTP 429** under a fast burst —
+ * observed while testing this very function — and a rate-limited fetch costs
+ * the notes for every mod after it. A big patch day updating a dozen mods is
+ * exactly when that would bite.
+ *
+ * Never throws: change notes decorate an announcement that has to go out
+ * either way, so every failure path degrades to "no notes" rather than
+ * blocking the message.
+ */
+async function attachChangelogs(updates, cfg) {
+  if (!cfg.changelogs || !updates.length) return;
+  const slackMs = cfg.changelogSlackHours * 3600 * 1000;
+  const batch = updates.slice(0, cfg.changelogMaxMods);
+
+  for (const [i, u] of batch.entries()) {
+    const key = `${u.id}:${u.steamAt}`;
+    const hit = cacheGet(key);
+    if (hit) {
+      u.changelog = hit;
+      continue;
+    }
+
+    try {
+      if (i > 0) await sleep(cfg.changelogDelayMs);
+      const entries = await fetchChangelog(u.id, 10);
+      if (!entries.length) continue;
+      const cutoff = u.localAt * 1000 - slackMs;
+      const fresh = entries.filter((e) => e.at !== null && e.at > cutoff);
+      u.changelog = fresh.length ? fresh : entries.slice(0, 1);
+      cacheSet(key, u.changelog);
+    } catch (err) {
+      console.warn(`[Zomboid] Changelog lookup failed for ${u.id}:`, err?.message || err);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -489,7 +668,10 @@ async function checkOnce(client, guildId) {
   }
 
   if (fresh.length) {
-    await channel.send(formatAnnouncement(found, plan));
+    // Fetched only once the announcement is certain to be sent, so a quiet poll
+    // never touches the network.
+    await attachChangelogs(found.updates, cfg);
+    await channel.send(formatAnnouncement(found, plan, cfg));
   } else if (act) {
     // Announced on an earlier poll and held back then — by a running restart, a
     // close nightly slot or the cooldown — and only now clear to act. Say so,
@@ -611,6 +793,8 @@ module.exports = {
   compareVersions,
   settled,
   formatAnnouncement,
+  changelogBlock,
+  attachChangelogs,
   updateConfig,
   decide,
   checkOnce,

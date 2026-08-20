@@ -1,5 +1,9 @@
 --[[
-Login shield - five seconds of invisibility to zombies when you connect.
+Login shield - a few seconds of invisibility to zombies when you connect.
+
+The length, and whether it runs at all, are the shield.seconds and
+shield.enabled settings; five seconds is the default and the reasoning below is
+what picked it.
 
 WHY
 Measured, not guessed. After a restart on 2026-08-17 a player fully connected at
@@ -38,7 +42,38 @@ nothing in the vanilla Lua touches it server-side. Rule 2 costs almost nothing
 and makes the answer not matter.
 ]]
 
-local SHIELD_SECONDS = 5
+--[[
+Live settings, not constants -- `shield.enabled` and `shield.seconds`, which are
+the ShieldEnabled and ShieldSeconds sandbox options (Admin Panel -> Sandbox
+Options -> Wabbajack Server Toolkit).
+
+They are functions, and read where they are used rather than into a local up
+here, because a value captured at load stops tracking the admin panel. Zero seconds is
+treated as off: the shield would otherwise be applied and lapse on the same
+poll, which is a pair of pointless setInvisible calls per login.
+]]
+--[[
+The `WabbajackSettings_get and` guard is the blast radius, not paranoia.
+
+Six modules read settings from inside tick handlers. If the settings store or the
+schema ever fails to load -- a syntax error in one file, a file missed out of the
+zip -- an unguarded call is a nil call THIRTY TIMES A SECOND, in six modules at
+once. This mod has been there once already: a foliage bug threw once per tick at
+10Hz and produced six hundred stack traces a minute, and read to the admin as the
+feature silently doing nothing.
+
+Guarded, one broken file costs its own settings and nothing else: every accessor
+falls back to the value the module shipped with. The fallbacks are those shipped
+defaults, except where failing safe means something different from failing back
+-- see sweep.safeBuffer and baseraid.playerClearance.
+]]
+local function shieldSeconds()
+    return (WabbajackSettings_get and WabbajackSettings_get("shield.seconds")) or 5
+end
+local function shieldOn()
+    if not WabbajackSettings_get then return true end   -- shipped default is on
+    return WabbajackSettings_get("shield.enabled") == true and shieldSeconds() > 0
+end
 -- Ticks between polls. getOnlinePlayers() is cheap and this is ~4 times a
 -- second, which is a fraction of the window; the player who prompted this was
 -- hit two seconds in, so the detection delay has to be well under that.
@@ -77,8 +112,8 @@ local function shield(player, name, owed)
 
     if not pcall(function() player:setInvisible(true) end) then return end
     owed[name] = true
-    expiry[name] = nowMs() + SHIELD_SECONDS * 1000
-    log(name .. " shielded from zombies for " .. SHIELD_SECONDS .. "s")
+    expiry[name] = nowMs() + shieldSeconds() * 1000
+    log(name .. " shielded from zombies for " .. shieldSeconds() .. "s")
 end
 
 local function lapse(player, name, owed)
@@ -100,7 +135,7 @@ local function poll()
         local ok, name = pcall(function() return p:getUsername() end)
         if ok and name then
             present[name] = p
-            if not seen[name] then shield(p, name, owed) end
+            if not seen[name] and shieldOn() then shield(p, name, owed) end
         end
     end
 
@@ -137,4 +172,6 @@ Events.OnTick.Add(function()
     poll()
 end)
 
-log("loaded - " .. SHIELD_SECONDS .. "s zombie invisibility on login")
+-- No value in this line: settings are read at use, and reading one here would be
+-- reading it at load, before the settings store is guaranteed to exist.
+log("loaded - zombie invisibility on login")

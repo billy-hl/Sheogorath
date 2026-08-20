@@ -49,10 +49,16 @@ local RING_OUT_MIN, RING_OUT_MAX = 6, 12
 local CLUSTER_SCATTER = 4
 -- Clusters per raid. The horde arrives as a ring of groups rather than one
 -- lump, so it reads as converging on the building from every side.
-local CLUSTERS = 8
+local function clusters()
+    return (WabbajackSettings_get and WabbajackSettings_get("baseraid.clusters")) or 8
+end
 -- Never place a cluster this close to anybody, so no one has a horde appear on
 -- top of them - including a player standing in their own yard when it fires.
-local PLAYER_CLEARANCE = 12
+-- Fallback is the widest option, not zero: this is the number that stops a horde
+-- materialising on top of somebody, so failing open would put zombies in laps.
+local function playerClearance()
+    return (WabbajackSettings_get and WabbajackSettings_get("baseraid.playerClearance")) or 30
+end
 -- Attempts per zombie before that one is given up on. Same reasoning as the
 -- siege: a nil square is a silent failure, and one attempt each lost a third of
 -- the horde in production.
@@ -63,11 +69,14 @@ local TRIGGER_RADIUS = 60
 local function log(msg) print("[WabbajackRaid] " .. tostring(msg)) end
 local function state() return ModData.getOrCreate(MODDATA_KEY) end
 
-local REAL_MINUTES_PER_DAY = 120
+-- One setting shared with the siege and sweep modules; see world.realMinutesPerDay.
+local function realMinutesPerDay()
+    return (WabbajackSettings_get and WabbajackSettings_get("world.realMinutesPerDay")) or 120
+end
 local function realMinutesSince(worldAgeHours)
     if not worldAgeHours then return 0 end
     local elapsed = getGameTime():getWorldAgeHours() - worldAgeHours
-    return elapsed * (REAL_MINUTES_PER_DAY / 24)
+    return elapsed * (realMinutesPerDay() / 24)
 end
 
 -- ---------------------------------------------------------------- request io
@@ -232,7 +241,8 @@ local function arm(req)
 
     local pending = {}
     local named, armed, skipped = {}, 0, 0
-    local perCluster = math.max(1, math.floor(req.perPlayer / CLUSTERS))
+    local clusterCount = clusters()
+    local perCluster = math.max(1, math.floor(req.perPlayer / clusterCount))
 
     for name, _ in pairs(onlinePlayers()) do
         local claim = claimFor(name, list)
@@ -240,9 +250,9 @@ local function arm(req)
             skipped = skipped + 1
         else
             local made = 0
-            for _ = 1, CLUSTERS do
+            for _ = 1, clusterCount do
                 local x, y = perimeterPoint(claim)
-                if x and not tooCloseToAnyone(x, y, PLAYER_CLEARANCE) then
+                if x and not tooCloseToAnyone(x, y, playerClearance()) then
                     table.insert(pending, { x = x, y = y, z = 0, count = perCluster })
                     made = made + 1
                 end

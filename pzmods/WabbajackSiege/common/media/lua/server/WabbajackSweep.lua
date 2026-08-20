@@ -10,7 +10,7 @@ whole map" is impossible from inside the game, so this arms a sweep that runs
 for a while and cleans each area as somebody walks through it.
 
 WHAT IT WILL NOT TOUCH
-- anything inside a player claim, or within SAFE_BUFFER tiles of one
+- anything inside a player claim, or within sweep.safeBuffer tiles of one
 - anything in a container (this is loose ground items only)
 - anything a player is carrying
 
@@ -26,11 +26,25 @@ local SWEEP_KEY = "WabbajackSweep"
 -- Keep well clear of claims. A player's yard, their parked car, the crate they
 -- left by the door - none of that is litter, and the cost of skipping a square
 -- is nothing.
-local SAFE_BUFFER = 30
+--[[
+The `or` is unreachable while the schema ships with the mod; it is there for the
+state where it somehow does not, and so it fails in the safe direction. A buffer
+of zero would sweep right up to the edge of somebody's claim and take the crate
+by their door, so the fallback is the widest option rather than the narrowest.
+]]
+local function safeBuffer()
+    return (WabbajackSettings_get and WabbajackSettings_get("sweep.safeBuffer")) or 80
+end
 -- A sweep stops on its own after this many real hours, so a forgotten one does
 -- not quietly delete things for the rest of the wipe.
-local EXPIRE_HOURS = 6
-local REAL_MINUTES_PER_DAY = 120
+local function expireHours()
+    return (WabbajackSettings_get and WabbajackSettings_get("sweep.expireHours")) or 6
+end
+-- Shared with the siege and base raid modules, which each carried their own copy
+-- of this number until it became one setting. See world.realMinutesPerDay.
+local function realMinutesPerDay()
+    return (WabbajackSettings_get and WabbajackSettings_get("world.realMinutesPerDay")) or 120
+end
 
 local function log(msg) print("[WabbajackSweep] " .. tostring(msg)) end
 local function state() return ModData.getOrCreate(SWEEP_KEY) end
@@ -38,7 +52,7 @@ local function state() return ModData.getOrCreate(SWEEP_KEY) end
 local function realHoursSince(worldAgeHours)
     if not worldAgeHours then return 0 end
     local gameHours = getGameTime():getWorldAgeHours() - worldAgeHours
-    return gameHours * (REAL_MINUTES_PER_DAY / 24) / 60
+    return gameHours * (realMinutesPerDay() / 24) / 60
 end
 
 --[[
@@ -54,13 +68,14 @@ local function nearClaim(x, y)
     local ok, result = pcall(function()
         local list = SafeHouse.getSafehouseList()
         if not list then return false end
+        local buffer = safeBuffer()
         for i = 0, list:size() - 1 do
             local s = list:get(i)
             local sx, sy = s:getX(), s:getY()
             local sw, sh = s:getW(), s:getH()
             local dx = math.max(sx - x, 0, x - (sx + sw))
             local dy = math.max(sy - y, 0, y - (sy + sh))
-            if (dx * dx + dy * dy) < (SAFE_BUFFER * SAFE_BUFFER) then return true end
+            if (dx * dx + dy * dy) < (buffer * buffer) then return true end
         end
         return false
     end)
@@ -203,8 +218,8 @@ end
 local function tick()
     local st = state()
     if not st.active then return end
-    if realHoursSince(st.startedAt) >= EXPIRE_HOURS then
-        log("sweep expired after " .. EXPIRE_HOURS .. "h - removed "
+    if realHoursSince(st.startedAt) >= expireHours() then
+        log("sweep expired after " .. expireHours() .. "h - removed "
             .. tostring(st.removed or 0) .. " items")
         st.active = false
     end

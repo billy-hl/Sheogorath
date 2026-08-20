@@ -1,8 +1,15 @@
 --[[
-Wabbajack siege — in-game admin menu.
+Wabbajack — in-game admin menu.
 
-Right-click any square while logged in as staff and you get a "Siege" submenu
-that arms an event on the building you are standing on or pointing at.
+Right-click any square while logged in as staff and you get a "Wabbajack"
+submenu: siege events on the building you are standing on or pointing at, base
+raids, the ground sweep and the foliage check.
+
+EVENTS ONLY. Settings are not here -- they are sandbox options, at
+Admin Panel -> Sandbox Options -> Wabbajack Server Toolkit, which is where the
+rest of this server's mods keep theirs. The split is between acting on the world
+in front of you, which is what a right-click is for, and configuring how the
+server behaves, which is not.
 
 Menu-armed events ANNOUNCE, like any other siege. They were silent originally on
 the reasoning that announcing was the bot's job -- but that left arming one from
@@ -309,13 +316,13 @@ local function onFillMenu(playerNum, context, worldObjects, test)
         sendClientCommand(p, "WabbajackSiege", "sweepStop", {})
     end)
 
-    -- Roadside foliage has no arm or stop -- it runs unconditionally for every
-    -- driven vehicle on the server. A single flat option rather than a submenu
-    -- with one entry: there is nothing to choose between, only something to
-    -- check, and the size threshold is the thing worth checking.
+    -- Roadside foliage has no arm or stop -- it runs for every driven vehicle on
+    -- the server whenever it is switched on, and that switch is a sandbox
+    -- option. All that is left to do from here is check what a square holds.
     menu:addOption("Check roadside foliage here", player, function(p)
         sendClientCommand(p, "WabbajackSiege", "foliageCount", {})
     end)
+
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFillMenu)

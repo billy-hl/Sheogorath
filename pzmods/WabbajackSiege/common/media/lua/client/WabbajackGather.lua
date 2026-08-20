@@ -66,7 +66,12 @@ pick up the very same items by hand, which reads as the feature being broken.
 1.5 = up to fifty percent over. Slow, but walkable, and it still stops before
 somebody is pinned in place by four hundred nails.
 ]]
-local OVERFILL = 1.5
+-- Live settings; the client keeps a synced copy of what the server has them set
+-- to, falling back to the shipped default until the first sync arrives. Stored
+-- as a whole percent so the staff menu can offer it without float comparison.
+local function overfill()
+    return ((WabbajackSettings_client and WabbajackSettings_client("gather.overfillPercent")) or 150) / 100
+end
 
 --[[
 Hard ceiling on queued transfers per click.
@@ -74,7 +79,9 @@ Hard ceiling on queued transfers per click.
 Each item is its own ISInventoryTransferAction. A recipe wanting eighty nails
 would otherwise queue eighty timed actions the player cannot interrupt cleanly.
 ]]
-local MAX_TRANSFERS = 40
+local function maxTransfers()
+    return (WabbajackSettings_client and WabbajackSettings_client("gather.maxTransfers")) or 40
+end
 
 --- Floating feedback, falling back to speech if the halo helper is unavailable.
 local function tell(player, msg, good)
@@ -182,7 +189,7 @@ local function gatherFor(player, recipe)
         getInventory():getCapacityWeight() ... > getInventory():getMaxWeight()
     Current on the left, limit on the right. getMaxWeight() is the limit.
     ]]
-    local ceiling = inv:getMaxWeight() * OVERFILL
+    local ceiling = inv:getMaxWeight() * overfill()
     local load = inv:getCapacityWeight()
 
     local took, queued, heavy, fluids = 0, 0, false, 0
@@ -221,12 +228,12 @@ local function gatherFor(player, recipe)
                 for _, ft in ipairs(types) do
                     if short <= 0 then break end
                     for _, src in ipairs(sources) do
-                        if short <= 0 or queued >= MAX_TRANSFERS then break end
+                        if short <= 0 or queued >= maxTransfers() then break end
                         local found
                         pcall(function() found = src:getItemsFromFullType(ft) end)
                         if found then
                             for k = 0, found:size() - 1 do
-                                if short <= 0 or queued >= MAX_TRANSFERS then break end
+                                if short <= 0 or queued >= maxTransfers() then break end
                                 local item = found:get(k)
                                 --[[
                                 ASK THE ITEM WHERE IT LIVES. Passing `src` --
@@ -296,7 +303,7 @@ local function gatherFor(player, recipe)
     end
 
     return { took = took, missing = missing, heavy = heavy, fluids = fluids,
-             capped = queued >= MAX_TRANSFERS,
+             capped = queued >= maxTransfers(),
              load = load, max = inv:getMaxWeight() }
 end
 
@@ -326,7 +333,7 @@ local function doGather(player, recipe)
             r.load or 0, r.max or 0), false)
     end
     if r.capped then
-        tell(player, "Grabbed the first " .. MAX_TRANSFERS .. " - click again for more.", false)
+        tell(player, "Grabbed the first " .. maxTransfers() .. " - click again for more.", false)
     end
     if r.fluids > 0 then
         tell(player, r.fluids .. " fluid input(s) cannot be carried.", false)

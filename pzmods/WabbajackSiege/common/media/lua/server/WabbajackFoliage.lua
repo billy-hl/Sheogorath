@@ -16,15 +16,20 @@ server saw the position, because BaseVehicle$Authorization is Local/LocalCollide
 for a driven vehicle -- and then the bush dies. Roads clear themselves along the
 routes people actually drive. That is the whole feature.
 
-NO SWITCH. This runs unconditionally from the moment the mod loads, for every
-driven vehicle on the server, whoever is driving. There is deliberately no arm,
-no stop and no expiry: an earlier version defaulted to off and had to be turned
-on by staff from a context menu, which made it a staff tool that happened to
-help whoever was nearby. It is meant to be a property of the roads instead.
+NO ARM, NO STOP, NO EXPIRY. This runs for every driven vehicle on the server,
+whoever is driving, from the moment the mod loads. An earlier version defaulted
+to off and had to be turned on by staff from a context menu, which made it a
+staff tool that happened to help whoever was nearby; it is meant to be a
+property of the roads instead.
+
+There is now one server-wide switch, foliage.enabled, defaulting to on. That is
+not a walk-back of the paragraph above: it is a setting for the server, not a
+per-session arm for a member of staff, and nothing turns it on or off but a
+deliberate change from the settings menu.
 
 That removal is why the remaining gates matter more, not less. What still limits
 it: only vehicles with a driver, only bushes the engine itself flags plus trees
-at or below MAX_YOUNG_TREE_SIZE, never indoors, and never more than
+at or below the foliage.maxTreeSize setting, never indoors, and never more than
 MAX_KILLS_PER_PASS at a time.
 
 There is no speed floor. That one was a guess and a self-defeating one -- see
@@ -82,7 +87,7 @@ local TICK_EVERY = 6
 
 local function log(msg) print("[WabbajackFoliage] " .. tostring(msg)) end
 
---- Persisted tally only. There is no on/off state to keep any more.
+--- Persisted tally only. The on/off switch is a setting, not state kept here.
 local function state() return ModData.getOrCreate(FOLIAGE_KEY) end
 
 --[[
@@ -140,7 +145,19 @@ than a number picked because it felt safe. The count reports a full size
 histogram of nearby trees INCLUDING those above the cutoff, so raising it is a
 decision made against what is actually growing out there.
 ]]
-local MAX_YOUNG_TREE_SIZE = 2
+--[[
+Live settings -- `foliage.maxTreeSize` and `foliage.enabled`, which are the
+FoliageMaxTreeSize and FoliageEnabled sandbox options. Functions rather than
+locals so a change from the admin panel takes effect on the next pass instead of
+the next publish.
+]]
+local function maxTreeSize()
+    return (WabbajackSettings_get and WabbajackSettings_get("foliage.maxTreeSize")) or 2
+end
+local function foliageOn()
+    if not WabbajackSettings_get then return true end   -- shipped default is on
+    return WabbajackSettings_get("foliage.enabled") == true
+end
 
 --- A label when this object is roadside growth we clear, nil when it is not.
 local function clearable(o)
@@ -150,7 +167,7 @@ local function clearable(o)
     if ok and bush then return "bush" end
     if instanceof(o, "IsoTree") then
         local size = o:getSize()
-        if size and size <= MAX_YOUNG_TREE_SIZE then return "tree" end
+        if size and size <= maxTreeSize() then return "tree" end
     end
     return nil
 end
@@ -327,11 +344,14 @@ end
 
 local ticks = 0
 
---- Unconditional. The only gate is the tick divider.
+--- The only gates are the tick divider and the foliage.enabled setting.
 local function onTick()
     ticks = ticks + 1
     if ticks < TICK_EVERY then return end
     ticks = 0
+    -- Checked here rather than inside pass(): switched off should cost the tick
+    -- handler a table lookup, not a walk of every loaded vehicle's path.
+    if not foliageOn() then return end
     local n = pass()
     if n > 0 then
         local st = state()
@@ -386,7 +406,7 @@ function WabbajackFoliage_count(player)
                 point of the histogram: "nothing happened" and "that is a size 4
                 and we deliberately leave those" look identical in game. Seeing
                 the sizes that are actually out there is what turns raising
-                MAX_YOUNG_TREE_SIZE into a decision instead of another guess.
+                foliage.maxTreeSize into a decision instead of another guess.
                 ]]
                 if not sq:getRoom() then
                     local objs = sq:getObjects()
@@ -412,14 +432,14 @@ function WabbajackFoliage_count(player)
 
     log("count by " .. tostring(player:getUsername()) .. " - "
         .. (tally.bush or 0) .. " bushes, " .. (tally.tree or 0)
-        .. " young trees (<=" .. MAX_YOUNG_TREE_SIZE .. ") within "
+        .. " young trees (<=" .. maxTreeSize() .. ") within "
         .. COUNT_RADIUS .. " tiles | all trees: " .. histText)
 
     return found, squares, (tally.bush or 0), (tally.tree or 0), histText
 end
 
---- Running total since the mod was installed. Always live, so there is no
---- "active" to report.
+--- Running total since the mod was installed. There is no per-session "active"
+--- to report -- only the foliage.enabled setting, which the settings menu shows.
 function WabbajackFoliage_status()
     return state().felled or 0
 end
@@ -436,4 +456,6 @@ end
 
 Events.OnTick.Add(onTick)
 Events.EveryOneMinute.Add(tick)
-log("loaded - always on, bushes + trees size<=" .. MAX_YOUNG_TREE_SIZE .. ", any speed, driver required")
+-- No values in this line: settings are read at use, and reading one at load
+-- would read it before the settings store is guaranteed to exist.
+log("loaded - bushes and young trees, any speed, driver required")

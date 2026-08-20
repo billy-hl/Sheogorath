@@ -53,7 +53,9 @@ local BROKEN_AT = 0.85
 -- clear -- measured, not estimated, from a live run. Most of that was spent
 -- watching nothing happen, so it is now short enough to feel like a conclusion
 -- rather than a wait.
-local CLEANUP_MINUTES = 2
+local function cleanupMinutes()
+    return (WabbajackSettings_get and WabbajackSettings_get("siege.cleanupMinutes")) or 2
+end
 --[[
 Minutes from the first player setting foot in the house to the unclaimed loot
 going away.
@@ -65,7 +67,9 @@ indistinguishable from arriving to an empty house. Nine gives a latecomer a real
 run at it while still ending on a schedule. The horde, not the clock, is meant
 to be what stops you.
 ]]
-local LOOT_MINUTES = 9
+local function lootMinutes()
+    return (WabbajackSettings_get and WabbajackSettings_get("siege.lootMinutes")) or 9
+end
 -- How far from the centre we look when counting or removing our zombies.
 local SITE_RADIUS = 60
 --[[
@@ -78,7 +82,9 @@ parked there forever. ZombieRespawn is None on this server and nothing else ever
 clears zombies, so an event that is never completed would be a permanent scar on
 the map. After this long the site is cleaned up regardless of how the fight went.
 ]]
-local MAX_EVENT_MINUTES = 120
+local function maxEventMinutes()
+    return (WabbajackSettings_get and WabbajackSettings_get("siege.maxEventMinutes")) or 120
+end
 
 -- Ground clutter that sells "somebody was holed up in here". Vanilla only, and
 -- deliberately worthless - it is set dressing, not part of the reward. Boarded
@@ -133,14 +139,20 @@ Real minutes elapsed since a world-age timestamp.
 World age is measured in IN-GAME hours, but every timer here is expressed in
 real minutes because that is what the people standing in the house experience.
 This server runs 2-hour days (DayLength=5), so a full in-game day is 120 real
-minutes and one in-game hour is 5 real minutes. Change REAL_MINUTES_PER_DAY if
-the day length ever changes.
+minutes and one in-game hour is 5 real minutes. That number is the
+world.realMinutesPerDay setting, shared with the sweep and base raid modules;
+change it from the staff menu on the same day the sandbox var changes. Nothing
+detects a mismatch -- every timer here simply runs at the wrong speed.
 ]]
-local REAL_MINUTES_PER_DAY = 120
+-- One setting shared with the sweep and base raid modules, which each carried
+-- their own copy of this number until it became one. See world.realMinutesPerDay.
+local function realMinutesPerDay()
+    return (WabbajackSettings_get and WabbajackSettings_get("world.realMinutesPerDay")) or 120
+end
 local function realMinutesSince(worldAgeHours)
     if not worldAgeHours then return 0 end
     local elapsedGameHours = getGameTime():getWorldAgeHours() - worldAgeHours
-    return elapsedGameHours * (REAL_MINUTES_PER_DAY / 24)
+    return elapsedGameHours * (realMinutesPerDay() / 24)
 end
 
 -- ---------------------------------------------------------------- request io
@@ -551,7 +563,11 @@ local function findStockableNear(cx, cy, cz)
 end
 
 -- Share of the building's containers that end up holding something.
-local FILL_FRACTION = 0.6
+-- Stored as a whole percent so the menu can offer it without float comparison;
+-- see siege.fillPercent.
+local function fillFraction()
+    return ((WabbajackSettings_get and WabbajackSettings_get("siege.fillPercent")) or 60) / 100
+end
 local MIN_PER_CONTAINER, MAX_PER_CONTAINER = 1, 3
 
 --[[
@@ -569,7 +585,7 @@ So now the house is emptied first and restocked properly. Two rules:
   - every entry in the tier list lands at least once, so the headline pieces
     (the shotgun, the generator, the first aid kit) are guaranteed rather than
     left to the dice;
-  - then it tops up to FILL_FRACTION of the containers, drawing from the tier
+  - then it tops up to the siege.fillPercent share of the containers, from the tier
     list with repeats, so a big house is actually full rather than proportionally
     emptier than a small one.
 ]]
@@ -610,7 +626,7 @@ local function stockBuilding(square, tier)
         if e.c:AddItem(id) then total = total + 1; touched[e] = true end
     end
 
-    local fill = math.max(1, math.floor(#containers * FILL_FRACTION))
+    local fill = math.max(1, math.floor(#containers * fillFraction()))
     for i = 1, math.min(fill, #containers) do
         local n = MIN_PER_CONTAINER + ZombRand(MAX_PER_CONTAINER - MIN_PER_CONTAINER + 1)
         for _ = 1, n do
@@ -760,7 +776,7 @@ local function announce(ev)
     pcall(function()
         sendServerCommand("WabbajackSiege", "notify", {
             place = placeName(ev.x, ev.y),
-            minutes = tostring(LOOT_MINUTES),
+            minutes = tostring(lootMinutes()),
         })
     end)
 end
@@ -795,7 +811,9 @@ LootLevelMax 4, default 2), passed as forcedLootLevel so the crate matches the
 tier of the house rather than the server default.
 ]]
 local AIRDROP_LOOT_LEVEL = 4
-local AIRDROP_MINUTES = 30
+local function airdropMinutes()
+    return (WabbajackSettings_get and WabbajackSettings_get("siege.airdropMinutes")) or 30
+end
 
 local function callAirdrop(ev, sq)
     if ev.loot ~= "high" then return false end
@@ -807,7 +825,7 @@ local function callAirdrop(ev, sq)
     end
     local now = (getTimestampMs and getTimestampMs()) or (getTimestamp() * 1000)
     local ok, err = pcall(spawner.spawnAtSquare, sq, "siege-" .. tostring(ev.id),
-        now, now + AIRDROP_MINUTES * 60 * 1000, nil, nil, AIRDROP_LOOT_LEVEL)
+        now, now + airdropMinutes() * 60 * 1000, nil, nil, AIRDROP_LOOT_LEVEL)
     if ok then
         log("airdrop requested at " .. ev.x .. "," .. ev.y .. " (loot level " ..
             AIRDROP_LOOT_LEVEL .. ")")
@@ -1155,11 +1173,11 @@ local function tick()
         -- going away is the pressure, the zombies going away is the cleanup.
         if sq and not ev.enteredAt and playerInBuilding(sq) then
             ev.enteredAt = getGameTime():getWorldAgeHours()
-            log("event " .. ev.id .. " entered - loot clears in " .. LOOT_MINUTES .. " min")
+            log("event " .. ev.id .. " entered - loot clears in " .. lootMinutes() .. " min")
             writeStatus(ev)
         end
         if sq and ev.enteredAt and not ev.looted
-           and realMinutesSince(ev.enteredAt) >= LOOT_MINUTES then
+           and realMinutesSince(ev.enteredAt) >= lootMinutes() then
             if isClaimed(sq) then
                 -- Claimed since the event started. Their base, their contents -
                 -- leave it entirely alone.
@@ -1174,9 +1192,9 @@ local function tick()
 
         -- Hard expiry. Nothing forces players to fight the horde, so without
         -- this a looted-and-abandoned site leaves its zombies standing forever.
-        if realMinutesSince(ev.firedAt) >= MAX_EVENT_MINUTES then
+        if realMinutesSince(ev.firedAt) >= maxEventMinutes() then
             ev.expired = true
-            retire(st, ev, "expired after " .. MAX_EVENT_MINUTES .. " min")
+            retire(st, ev, "expired after " .. maxEventMinutes() .. " min")
             return
         end
     end
@@ -1201,14 +1219,14 @@ local function tick()
         if ev.spawned > 0 and killed >= ev.spawned * BROKEN_AT then
             ev.phase = "broken"
             ev.brokenAt = getGameTime():getWorldAgeHours()
-            log("event " .. ev.id .. " broken - cleanup in " .. CLEANUP_MINUTES .. " min")
+            log("event " .. ev.id .. " broken - cleanup in " .. cleanupMinutes() .. " min")
             writeStatus(ev)
         end
         return
     end
 
     if ev.phase == "broken" then
-        if realMinutesSince(ev.brokenAt) >= CLEANUP_MINUTES then
+        if realMinutesSince(ev.brokenAt) >= cleanupMinutes() then
             retire(st, ev, "horde broken")
         end
     end
@@ -1315,9 +1333,9 @@ local function onClientCommand(module, command, player, args)
     end
 
     -- Roadside foliage, reached through globals like the sweep and the raid.
-    -- There is no arm or stop: the module runs unconditionally for every driven
-    -- vehicle. This is the diagnostic that remains, and it is the only way to
-    -- check the size threshold against the actual world.
+    -- There is no arm or stop -- the module runs for every driven vehicle
+    -- whenever foliage.enabled is on. This is the diagnostic that remains, and
+    -- it is the only way to check the size threshold against the actual world.
     if command == "foliageCount" then
         if not WabbajackFoliage_count then
             reply("The foliage module is not installed on this server.")

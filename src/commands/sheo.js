@@ -8,7 +8,7 @@
  * mirrored to the staff log like everything else privileged, because "who moved
  * him to enforce" is exactly the question that gets asked afterwards.
  */
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const {
   MODES,
   DEFAULT_MODE,
@@ -36,7 +36,14 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('sheo')
     .setDescription("Manage what Sheogorath is allowed to do on his own")
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    // Deliberately NOT setDefaultMemberPermissions(Administrator), for the same
+    // reason /pz avoids it: that hides the command from anyone without Discord's
+    // own Administrator flag, and this guild's Owners hold `roles.admin`
+    // instead — the whole point of that role being to grant bot admin without
+    // granting server-wide Discord power. Gating visibility on a flag isAdmin()
+    // does not require made the command invisible to the very people it is for.
+    // Access is enforced centrally in utils/permissions.js (ADMIN_COMMANDS),
+    // so a refusal is still recorded as one in the audit log.
     .addSubcommand(sub =>
       sub.setName('status')
         .setDescription('What he is allowed to do, and what he has done this hour'))

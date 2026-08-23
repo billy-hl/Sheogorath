@@ -24,6 +24,7 @@ const { getAIResponse } = require('../../ai/grok');
 const { getGuildConfig } = require('../../config/guilds');
 const { linesSince, CHAT } = require('./logs');
 const { characterName } = require('./players');
+const { getLinkBySteamId } = require('./identity');
 
 // `[7656…][Name][x,y,z][Died][Hours Survived: 133].`
 const DIED = /^\[.+?\] \[(\d+)\]\[(.+?)\]\[([^\]]*)\]\[Died\]\[Hours Survived: (\d+)\]/;
@@ -378,6 +379,24 @@ async function checkOnce(client, guildId, now = Date.now()) {
                   `🗑️ **One account per person** — \`${r.username}\` died and was removed ` +
                   `(that player held **${r.was}**, now **${r.now}**).\n` +
                   `_Remaining: ${r.siblings.filter((n) => n !== r.username).join(', ') || 'none'}_`,
+                ).catch(() => null);
+              }
+            }
+
+            // Players never see the staff-only note above, so they hit
+            // Zomboid's generic "no more accounts" error with no idea which
+            // of their accounts survived. Tell them directly, in #help.
+            const helpId = getGuildConfig(guildId)?.channels?.help;
+            if (helpId) {
+              const helpCh = await client.channels.fetch(helpId).catch(() => null);
+              if (helpCh?.isTextBased()) {
+                const remaining = r.siblings.filter((n) => n !== r.username);
+                const link = getLinkBySteamId(guildId, r.steamid);
+                const who = link ? `<@${link.discordId}>` : `**${r.username}**'s player`;
+                await helpCh.send(
+                  `\u{1F44B} ${who} \u2014 your account \`${r.username}\` just died and was retired ` +
+                  `(one account per person). Log back in with \`${remaining[0] || '?'}\` \u2014 ` +
+                  `that's your account now. Shout here if that doesn't work.`,
                 ).catch(() => null);
               }
             }

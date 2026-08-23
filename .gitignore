@@ -16,7 +16,7 @@ pids
 *.seed
 *.pid.lock
 data/state.json
-data/
+data/*
 
 # Coverage directory used by tools like istanbul
 coverage/
@@ -191,7 +191,13 @@ temp/
 !tsconfig.json
 # Per-guild wiring (guild/channel/role IDs, not secrets). Must be deployable.
 !config/guilds.json
-data/
+# Runtime state — state.json, memories.json, saved playlists. Not deployable,
+# and rewritten by the bot as it runs.
+data/*
+# ...except the knowledge notes, which are written by hand and have to ship with
+# the bot. Spelled as `data/*` plus a negation because git never descends into a
+# directory excluded outright, so `data/` would make this re-include unreachable.
+!data/knowledge/
 src/data/
 *.data
 *.dat

@@ -29,13 +29,16 @@ const { addMemory } = require('./storage/memory');
 const { getAIResponse, getAIResponseWithHistory, extractMemoryFromMessage } = require('./ai/grok');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
-const { parseActions, executeActions } = require('./ai/actions');
+const { parseActions, executeActions, scrub } = require('./ai/actions');
+const { isApprovalButton, handleApprovalButton } = require('./ai/approvals');
+const { isBudgetError, setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
+const { isParlour, parlourPersona, PARLOUR_PROMPT, PARLOUR_HISTORY, PARLOUR_MAX_TOKENS } = require('./services/parlour');
 const { checkCooldown, setCooldown } = require('./utils/cooldowns');
 const { setClient, notifyError } = require('./utils/errorNotify');
 const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { startControlApi } = require('./api/server');
-const { getGuildConfig, guildIds, hasFeature } = require('./config/guilds');
+const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
 const {
   musicDenialReason,
   commandDenialReason,
@@ -44,6 +47,7 @@ const {
   STAFF_COMMANDS,
 } = require('./utils/permissions');
 const { logCommand, setClient: setAuditClient } = require('./utils/auditLog');
+const { setClient: setAiAuditClient } = require('./utils/aiAudit');
 const { scheduleRaidWatch } = require('./services/zomboid/raidWatch');
 const { scheduleModUpdates } = require('./services/zomboid/modUpdates');
 const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
@@ -59,6 +63,37 @@ let lastInteractionTime = Date.now();
 const conversationHistory = new Map();
 // Per-user timers that fire a note-summarization pass 5 min after last exchange
 const summarizeTimers = new Map();
+// Per-user timers for the help channel — see queueHelpReply().
+const helpTimers = new Map();
+
+/**
+ * How long to wait for someone to finish talking in #help before answering.
+ *
+ * People ask for help across three messages — "hey", "quick question", then the
+ * actual question — and answering each one separately is both noise and a reply
+ * to the wrong text. Every message resets the timer and its content is kept, so
+ * he answers the whole thought once.
+ */
+const HELP_DEBOUNCE_MS = 4000;
+
+/**
+ * Answers in #help get more room than banter does. A troubleshooting reply is
+ * steps, not a one-liner, and the persona keeps him brief enough that this is a
+ * ceiling he rarely reaches rather than an invitation to ramble.
+ */
+const HELP_MAX_TOKENS = 800;
+
+/**
+ * Minimum gap between one person's AI replies.
+ *
+ * The slash-command cooldown never covered this path — talking to him by name
+ * or in #help was unthrottled, and each reply is two billed requests. Six
+ * seconds is longer than it takes to type a follow-up but shorter than a Grok
+ * round-trip, so a real conversation never notices while a script hammering the
+ * channel does. Measured from the start of the previous request, not the reply.
+ */
+const AI_COOLDOWN_MS = 6000;
+const aiCooldowns = new Map(); // `${guildId}:${userId}` -> epoch ms of last request
 
 const SUMMARIZE_DELAY_MS = 5 * 60 * 1000; // 5 minutes idle before summarizing
 const SUMMARIZE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // once per 24 hours per user
@@ -160,6 +195,19 @@ for (const file of commandFiles) {
 client.once(Events.ClientReady, async () => {
   setClient(client); // Enable error notifications
   setAuditClient(client); // Enable the command-log channel mirror
+  setAiAuditClient(client); // Enable the AI action trail's staff-channel mirror
+
+  // Spend warnings go to every guild that has a staff channel. The budget is
+  // one ceiling over one API key, not one per guild, so everyone who could
+  // raise it should hear about it.
+  setBudgetNotifier(async (message) => {
+    const { notifyStaff } = require('./utils/aiAudit');
+    for (const id of guildIds()) await notifyStaff(id, message).catch(() => {});
+  });
+  {
+    const b = budgetStatus();
+    console.log(`[Budget] ${b.month}: $${b.spentUsd.toFixed(4)} of $${b.limitUsd.toFixed(2)} spent over ${b.calls} call(s).`);
+  }
 
   // Control API for the companion app. Started after ready so it never reports
   // healthy before the client can actually act on a request. Failure here must
@@ -349,6 +397,7 @@ client.on('messageCreate', async (message) => {
     message.content.toLowerCase().includes('@sherogorath')
   ) {
     console.log(`Mention detected in channel ${message.channelId} by ${message.author.username}: ${message.content}`);
+    clearPendingHelp(message);
     askChatGPT(message);
     return; // Prevent conversational triggers from also firing
   }
@@ -362,10 +411,72 @@ client.on('messageCreate', async (message) => {
     const triggerPattern = /\b(sheogorath|mad king)\b/i;
     
     if (triggerPattern.test(content)) {
+      clearPendingHelp(message);
       askChatGPT(message);
+      return;
     }
   }
+
+  // The help channel is the one place he doesn't wait to be called. Somebody
+  // asking a question there has already said what they want; making them say
+  // his name as well is a step that only exists because of how the bot is
+  // built. Reached last so a direct mention or a "Sheogorath" above still
+  // answers straight away rather than sitting through the debounce.
+  if (message.channelId === channelId(guildId, 'help')) {
+    queueHelpReply(message);
+    return;
+  }
+
+  // His own hall. Answered without being called, and without the help
+  // channel's debounce — someone talking to him here is having a conversation,
+  // and holding each line for four seconds to see if they'll add another makes
+  // it feel like talking to a form.
+  if (isParlour(guildId, message.channelId)) {
+    askChatGPT(message);
+  }
 });
+
+/**
+ * Answer someone in #help once they've stopped typing.
+ *
+ * Keyed per person, so two people asking at once get two answers rather than
+ * one merged into the other. The reply is attached to their latest message —
+ * that's where the conversation is — but carries everything they said in the
+ * burst, so the "hey / are you there / my game won't launch" pattern is
+ * answered on the last part instead of the first.
+ */
+function queueHelpReply(message) {
+  // A screenshot with no words is the one thing he genuinely cannot answer —
+  // he has no eyes on attachments — and guessing at one is worse than leaving
+  // it for a human who can look.
+  if (!message.content.trim()) return;
+
+  const key = `${message.channelId}:${message.author.id}`;
+  const pending = helpTimers.get(key);
+  if (pending) clearTimeout(pending.timer);
+
+  const lines = [...(pending?.lines || []), message.content].filter(Boolean);
+  const timer = setTimeout(() => {
+    helpTimers.delete(key);
+    askChatGPT(message, { contentOverride: lines.join('\n'), maxTokens: HELP_MAX_TOKENS });
+  }, HELP_DEBOUNCE_MS);
+
+  helpTimers.set(key, { timer, lines });
+}
+
+/**
+ * Drop a queued help reply because something more direct took over.
+ *
+ * Without this, saying his name partway through a burst in #help gets two
+ * answers: the immediate one, and the debounced one still counting down.
+ */
+function clearPendingHelp(message) {
+  const key = `${message.channelId}:${message.author.id}`;
+  const pending = helpTimers.get(key);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  helpTimers.delete(key);
+}
 
 /**
  * New forum post in #suggestions or #mod-requests.
@@ -395,6 +506,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     // Handle button interactions for music controls
     if (interaction.isButton()) {
+      // Sheogorath's Approve/Deny cards are routed first and return early.
+      // They carry their own Sheriff check, and the music gate below would
+      // refuse them out of hand — every button under it is a music control.
+      if (isApprovalButton(interaction)) {
+        await handleApprovalButton(interaction);
+        return;
+      }
+
       const { pausePlayer, resumePlayer, skipSong, stopPlayer } = require('./music/player');
       const { removeTrackFromRadio } = require('./commands/radio');
       const guildId = interaction.guild.id;
@@ -721,7 +840,27 @@ client.on('messageReactionAdd', async (reaction, user) => {
   }
 });
 
-async function askChatGPT(userMessage) {
+/**
+ * @param {import('discord.js').Message} userMessage the message to reply to
+ * @param {object} [opts]
+ * @param {string} [opts.contentOverride] text to answer instead of that
+ *   message's own content — used by the help debounce, which has several
+ *   messages' worth of question to hand and one message to reply to.
+ * @param {number} [opts.maxTokens] override the reply ceiling. Left undefined
+ *   everywhere but #help, so ordinary chat keeps the shared default.
+ */
+async function askChatGPT(userMessage, { contentOverride = null, maxTokens = undefined } = {}) {
+  const cooldownKey = `${userMessage.guildId}:${userMessage.author.id}`;
+  const lastAsk = aiCooldowns.get(cooldownKey) || 0;
+  if (Date.now() - lastAsk < AI_COOLDOWN_MS) {
+    // Silently, deliberately: a "you are on cooldown" notice in #help is worse
+    // than the pause it is explaining, and the debounce already merges the
+    // bursts this would otherwise catch.
+    console.log(`[AI] Skipped ${userMessage.author.username} — within the ${AI_COOLDOWN_MS}ms cooldown.`);
+    return;
+  }
+  aiCooldowns.set(cooldownKey, Date.now());
+
   // Keep the "is typing" indicator alive every 8s until we're done
   userMessage.channel.sendTyping();
   const typingInterval = setInterval(() => {
@@ -734,15 +873,22 @@ async function askChatGPT(userMessage) {
   // separate conversations rather than one bleeding into the other.
   const historyKey = `${guildId}:${userId}`;
   const history = conversationHistory.get(historyKey) || [];
+  const isHelpChannel = userMessage.channelId === channelId(guildId, 'help');
+  const inParlour = isParlour(guildId, userMessage.channelId);
+  // How much of the conversation he is handed, and how much room he gets to
+  // answer in. The parlour is the only place either is raised.
+  const historyDepth = inParlour ? PARLOUR_HISTORY : 5;
+  const replyTokens = inParlour ? PARLOUR_MAX_TOKENS : maxTokens;
 
   console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);
   
   try {
     // Clean up user mentions to use actual usernames
-    let cleanedContent = userMessage.content;
+    const sourceContent = contentOverride || userMessage.content;
+    let cleanedContent = sourceContent;
     const mentionRegex = /<@!?(\d+)>/g;
     let match;
-    while ((match = mentionRegex.exec(userMessage.content)) !== null) {
+    while ((match = mentionRegex.exec(sourceContent)) !== null) {
       try {
         const user = await client.users.fetch(match[1]);
         cleanedContent = cleanedContent.replace(match[0], `@${user.username}`);
@@ -760,12 +906,43 @@ async function askChatGPT(userMessage) {
     const { formatMemoriesForContext } = require('./storage/memory');
     const memoriesContext = formatMemoriesForContext(guildId, userId);
 
+    // What he actually knows: live server state, plus whichever reference
+    // material matches the question. Prefixed onto this turn rather than pushed
+    // into `history` below, so a fact true a minute ago isn't still being
+    // quoted as current five exchanges later.
+    let knowledgeContext = '';
+    try {
+
+      const { knowledgeFor } = require('./services/knowledge');
+      knowledgeContext = await knowledgeFor({
+        guildId,
+        guild: userMessage.guild,
+        question: cleanedContent,
+        isHelp: isHelpChannel,
+        // His own authority, and the asker's verified role tier. Both are
+        // looked up rather than taken from anything the message said.
+        guildConfig: getGuildConfig(guildId),
+        requester: userMessage.member,
+      });
+    } catch (err) {
+      // He answers from the persona alone rather than not answering. The
+      // grounding rule goes with the block, so this is the one path where he
+      // can still invent — logged loudly for that reason.
+      console.error('[Knowledge] Could not build context, answering ungrounded:', err?.message || err);
+    }
+
+    const prefix = [knowledgeContext, notesContext, memoriesContext].filter(Boolean).join('\n');
     const messages = [
-      ...history.slice(-5),
-      { role: 'user', content: notesContext + memoriesContext + (notesContext || memoriesContext ? '\n' : '') + cleanedContent }
+      ...history.slice(-historyDepth),
+      { role: 'user', content: prefix + (prefix ? '\n' : '') + cleanedContent }
     ];
     
-    const assistantReply = await getAIResponseWithHistory(messages);
+    const assistantReply = await getAIResponseWithHistory(messages, replyTokens, {
+      // In the parlour the persona is handed over with its length cap cut out,
+      // rather than intact with an instruction to ignore it.
+      systemBase: inParlour ? parlourPersona() : null,
+      systemSuffix: inParlour ? PARLOUR_PROMPT : '',
+    });
     const raw = assistantReply && assistantReply.trim()
       ? assistantReply
       : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";
@@ -774,31 +951,70 @@ async function askChatGPT(userMessage) {
 
     // Parse and execute any AI-initiated actions
     const { cleanResponse, actions } = parseActions(raw);
+    let actionResults = [];
+    // Filled by executors with prose that should follow his reply rather than
+    // precede it — the early chronicle, mainly. Drained after sendReply.
+    const followUps = [];
     if (actions.length > 0) {
       console.log(`[Actions] Detected ${actions.length} action(s):`, actions.map(a => `${a.type} for ${a.userId || 'N/A'}`));
-      await executeActions(actions, { guild: userMessage.guild, message: userMessage, guildId });
+      actionResults = await executeActions(actions, {
+        guild: userMessage.guild,
+        message: userMessage,
+        guildId,
+        followUps,
+        // Who Sheogorath is replying to, and their roles. The gate needs both:
+        // the first bounds who he may act on unasked, the second decides
+        // whether this person can point him at anyone else.
+        authorId: userMessage.author.id,
+        requester: userMessage.member,
+      });
     }
 
     // Final scrub — strip any remaining action tags regardless of parse result,
-    // and handle edge case where cleanResponse is empty string (falls back to raw)
-    const scrub = (text) => text
-      .replace(/\[ACTION:[^\]]*\]/gs, '')   // complete tags (s flag = dotall, matches newlines)
-      .replace(/\[ACTION:[^\]]*$/gm, '')    // truncated tags at end of line
-      .replace(/\[ACTION:.*/gs, '')         // any leftover prefix
-      .trim();
-
+    // and handle the edge case where cleanResponse came back empty (falls back
+    // to raw). Shared with actions.js so the two can't drift.
     const finalReply = scrub(cleanResponse) || scrub(raw);
+
+    // Say what actually happened, in code rather than in the prompt.
+    //
+    // Told twice, in two different places, to say "I have asked" rather than
+    // "it is done" for anything held for approval, he kept announcing held
+    // actions as completed — "restarting in five minutes!" for a restart no
+    // Sheriff had approved yet. The gate already knows the verdict, so there is
+    // no reason to be asking the model to remember it. This appends the truth
+    // regardless of how he phrased it, as Discord subtext so it reads as a note
+    // rather than as him talking.
+    const proposed = actionResults.filter(r => r.verdict === 'propose');
+    const refused = actionResults.filter(r => r.verdict === 'deny');
+    const notes = [];
+    if (proposed.length) {
+      notes.push(
+        `-# ⏳ Sent to the Sheriffs for approval — **nothing has happened yet**. ` +
+        `${proposed.length === 1 ? 'It runs' : 'They run'} only once a Sheriff approves in the log channel.`,
+      );
+    }
+    if (refused.length) {
+      notes.push(`-# ⛔ Refused: ${refused.map(r => r.reason).join('; ')}.`);
+    }
+    const sentReply = notes.length ? `${finalReply}\n\n${notes.join('\n')}` : finalReply;
     
     // Store conversation (keep last 15 exchanges)
     history.push(
       { role: 'user', content: cleanedContent },
       { role: 'assistant', content: finalReply }
     );
-    if (history.length > 30) history.splice(0, history.length - 30);
+    // Twice the depth he is handed, so the window can slide without the oldest
+    // turn vanishing the moment it is read.
+    const historyCap = historyDepth * 2;
+    if (history.length > historyCap) history.splice(0, history.length - historyCap);
     conversationHistory.set(historyKey, history);
 
-    // Background memory extraction — fire-and-forget, no blocking
-    extractMemoryFromMessage(userMessage.author.username, cleanedContent).then(fact => {
+    // Background memory extraction — fire-and-forget, no blocking.
+    //
+    // Skipped in #help: it is a second billed request on every single message,
+    // and a troubleshooting channel is the least likely place for someone to
+    // reveal a fact worth keeping. Halves the cost of the busiest channel.
+    if (!isHelpChannel) extractMemoryFromMessage(userMessage.author.username, cleanedContent).then(fact => {
       if (fact) {
         addMemory(guildId, userId, fact);
         console.log(`[Memory] Auto-extracted for ${userMessage.author.username}: ${fact}`);
@@ -816,9 +1032,29 @@ async function askChatGPT(userMessage) {
     
     clearInterval(typingInterval);
 
-    await sendReply(userMessage.channel, finalReply);
+    await sendReply(userMessage.channel, sentReply);
+
+    // Anything an action produced for the channel goes out after he has spoken,
+    // so the introduction reads as an introduction.
+    for (const part of followUps) {
+      await userMessage.channel.send(part).catch(err =>
+        console.warn('[Actions] Could not post follow-up:', err.message));
+    }
   } catch (error) {
     clearInterval(typingInterval);
+
+    // Out of allowance is a decision, not a fault. It gets a straight answer in
+    // his own voice rather than an error card, and it is not reported as a
+    // crash — the owner already knows, having been told at 50, 80 and 95%.
+    if (isBudgetError(error)) {
+      console.log(`[AI] Refused — monthly budget spent: ${error.message}`);
+      await userMessage.reply(
+        "The Mad God's coffers are empty for this month, mortal. Even madness runs on coin. " +
+        'Ask a Sheriff, and pester an Owner about my allowance.',
+      ).catch(() => {});
+      return;
+    }
+
     console.error('Error in askChatGPT:', error.message);
     notifyError(`askChatGPT failed for ${userMessage.author.username}`, error);
     await userMessage.reply('❌ An error occurred while trying to fetch the AI response. The Mad King is... temporarily indisposed.');

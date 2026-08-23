@@ -17,7 +17,10 @@
     "roles": {
       "admin": "602514337495646228"
     },
-    "zomboid": null
+    "zomboid": null,
+    "ai": {
+      "mode": "enforce"
+    }
   },
   "444601986160263189": {
     "name": "zomboid",
@@ -34,7 +37,11 @@
       "safehouseClaims": "1535064872956461076",
       "commandLog": "1535750358905651294",
       "characters": "1536868592342138930",
-      "welcome": "1533306144561303743"
+      "welcome": "1533306144561303743",
+      "modApprovals": null,
+      "help": "1533911917033291796",
+      "rules": "1533305807448576242",
+      "serverInfo": "1533306000428367942"
     },
     "roles": {
       "admin": "1408619717438210139",
@@ -88,6 +95,9 @@
       "gameDir": "/home/allisteras/gameservers/zomboid/gamefiles",
       "onePerPerson": true
     },
-    "welcomeMessage": "Welcome, {mention}. Read **#rules**, then **#server-info** has the connection details. Ask in **#help** if you get stuck."
+    "welcomeMessage": "Welcome, {mention}. Read **#rules**, then **#server-info** has the connection details. Ask in **#help** if you get stuck.",
+    "ai": {
+      "mode": "enforce"
+    }
   }
 }

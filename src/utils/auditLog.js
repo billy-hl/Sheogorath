@@ -44,24 +44,24 @@ function setClient(c) {
  * Same shape as the winston file transports so the logs directory stays
  * predictable to anyone poking at it.
  */
-function rotateIfNeeded() {
+function rotateIfNeeded(file) {
   let size;
   try {
-    size = fs.statSync(LOG_FILE).size;
+    size = fs.statSync(file).size;
   } catch {
     return; // No file yet.
   }
   if (size < MAX_BYTES) return;
 
   try {
-    fs.rmSync(`${LOG_FILE}.${KEEP_ROTATIONS}`, { force: true });
+    fs.rmSync(`${file}.${KEEP_ROTATIONS}`, { force: true });
     for (let i = KEEP_ROTATIONS - 1; i >= 1; i--) {
-      const from = `${LOG_FILE}.${i}`;
-      if (fs.existsSync(from)) fs.renameSync(from, `${LOG_FILE}.${i + 1}`);
+      const from = `${file}.${i}`;
+      if (fs.existsSync(from)) fs.renameSync(from, `${file}.${i + 1}`);
     }
-    fs.renameSync(LOG_FILE, `${LOG_FILE}.1`);
+    fs.renameSync(file, `${file}.1`);
   } catch (err) {
-    console.warn('[Audit] Could not rotate command log:', err.message);
+    console.warn('[Audit] Could not rotate', path.basename(file) + ':', err.message);
   }
 }
 
@@ -95,14 +95,26 @@ function formatInvocation(record) {
   return parts.join(' ');
 }
 
-function writeLine(record) {
+/**
+ * Append one record to a rotating JSONL file under logs/.
+ *
+ * Exported because the AI action trail in utils/aiAudit.js wants exactly the
+ * same durability story — same rotation size, same generations, same refusal to
+ * let a logging failure take down the thing being logged — for a different
+ * file. Duplicating it there would let the two drift.
+ */
+function appendRecord(file, record) {
   try {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
-    rotateIfNeeded();
-    fs.appendFileSync(LOG_FILE, JSON.stringify(record) + '\n', 'utf8');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    rotateIfNeeded(file);
+    fs.appendFileSync(file, JSON.stringify(record) + '\n', 'utf8');
   } catch (err) {
-    console.warn('[Audit] Could not write command log:', err.message);
+    console.warn('[Audit] Could not write', path.basename(file) + ':', err.message);
   }
+}
+
+function writeLine(record) {
+  appendRecord(LOG_FILE, record);
 }
 
 async function mirrorToDiscord(record) {
@@ -156,4 +168,4 @@ function logCommand(interaction, { status = 'ok', detail = null, privileged = fa
   return record;
 }
 
-module.exports = { logCommand, setClient, LOG_FILE };
+module.exports = { logCommand, setClient, appendRecord, LOG_FILE, LOG_DIR };

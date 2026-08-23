@@ -125,13 +125,22 @@ async function getAutoModStatus(guild) {
 
 /**
  * Timeout a guild member.
+ *
+ * The ceiling is a parameter rather than a constant because two callers want
+ * different ones: an unprompted AI timeout is capped at ten minutes by
+ * ai/capabilities.js before it ever reaches here, while a longer one a Sheriff
+ * has clicked Approve on should be allowed to be as long as it says. The
+ * ten-minute default keeps any caller that doesn't think about it on the
+ * cautious side.
+ *
  * @param {import('discord.js').Guild} guild
  * @param {string} userId
- * @param {number} durationMinutes - Max 10 minutes for AI-initiated
+ * @param {number} durationMinutes
  * @param {string} reason
+ * @param {object} [opts]
+ * @param {number} [opts.maxMinutes=10] hard ceiling applied to durationMinutes
  */
-async function timeoutUser(guild, userId, durationMinutes, reason) {
-  const maxMinutes = 10;
+async function timeoutUser(guild, userId, durationMinutes, reason, { maxMinutes = 10 } = {}) {
   const duration = Math.min(durationMinutes, maxMinutes);
   const member = await guild.members.fetch(userId);
 

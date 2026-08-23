@@ -31,6 +31,8 @@ const COMMAND_FEATURES = {
   leaderboard: 'zomboid',
   pz: 'zomboid',
   character: 'zomboid',
+
+  sheo: 'ai',
 };
 
 /** Music additionally requires admin, not just the feature. */
@@ -43,6 +45,17 @@ const MUSIC_COMMANDS = new Set(
  * admin. Admins pass these too — isStaff() subsumes isAdmin().
  */
 const STAFF_COMMANDS = new Set(['pz']);
+
+/**
+ * Commands that need full bot admin for every subcommand.
+ *
+ * `/sheo` sets how much Sheogorath may do unsupervised. A Sheriff is trusted to
+ * use his judgement and to rule on what he asks for — the whole approval flow
+ * rests on that — but deciding whether he needs to ask at all is a rung above,
+ * for the same reason `/pz access` is: a Sheriff who could move him to `enforce`
+ * could widen their own reach by proxy.
+ */
+const ADMIN_COMMANDS = new Set(['sheo']);
 
 /**
  * Subcommands that need full admin even though their parent command doesn't.
@@ -143,6 +156,9 @@ function commandDenialReason(commandName, guildId, member, subcommand = null) {
   if (STAFF_COMMANDS.has(commandName) && !isStaff(member)) {
     return '❌ Server admin commands are limited to Sheriffs and Owners.';
   }
+  if (ADMIN_COMMANDS.has(commandName) && !isAdmin(member)) {
+    return `❌ \`/${commandName}\` is Owners-only.`;
+  }
   if (subcommand && ADMIN_SUBCOMMANDS[commandName]?.has(subcommand) && !isAdmin(member)) {
     const why = ADMIN_SUBCOMMAND_REASONS[`${commandName} ${subcommand}`]
       || 'it is not bounded the way the rest of the staff commands are';
@@ -172,6 +188,7 @@ module.exports = {
   COMMAND_FEATURES,
   MUSIC_COMMANDS,
   STAFF_COMMANDS,
+  ADMIN_COMMANDS,
   ADMIN_SUBCOMMANDS,
   musicDenialReason,
   commandDenialReason,

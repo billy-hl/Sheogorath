@@ -75,6 +75,27 @@ function normalizeGuild(id, raw) {
       // greeted at all — the welcome handler stays inert rather than guessing
       // a channel.
       welcome: channels.welcome || null,
+      // Where Sheogorath posts what he wants permission to do, and what he did
+      // on his own. Falls back to `commandLog` when unset — a guild that
+      // already has one private staff channel shouldn't be made to create a
+      // second just to turn the moderator on.
+      modApprovals: channels.modApprovals || null,
+      // The one channel he answers in without being called by name. Unset means
+      // he waits to be addressed there like anywhere else.
+      help: channels.help || null,
+      // Reference channels Sheogorath reads before answering questions, so the
+      // rules and the connection details he quotes are the ones players can see
+      // rather than a second copy that drifts. Left unset, he looks for
+      // channels literally named `rules` and `server-info`.
+      //
+      // Whatever is posted in these becomes what he tells people, so they
+      // should be channels only staff can write to.
+      rules: channels.rules || null,
+      serverInfo: channels.serverInfo || null,
+      // The Mad God's parlour: the one room where the persona's "1-2 sentences"
+      // cap is lifted and he carries a real conversation. Created by
+      // `/sheo parlour`, which writes this key itself.
+      parlour: channels.parlour || null,
     },
     roles: {
       // The guild's role ladder, highest first. Only `admin` and `staff` gate
@@ -97,6 +118,12 @@ function normalizeGuild(id, raw) {
     welcomeMessage: typeof raw.welcomeMessage === 'string' && raw.welcomeMessage.trim()
       ? raw.welcomeMessage.trim()
       : null,
+    // How much rope the AI moderator gets in this guild. See ai/capabilities.js
+    // for what each mode means. Absent means `shadow`: a guild that has never
+    // been thought about should watch rather than act.
+    ai: {
+      mode: typeof raw.ai?.mode === 'string' ? raw.ai.mode : null,
+    },
     zomboid: raw.zomboid || null,
   };
 }

@@ -1,0 +1,66 @@
+Wabbajack Server Toolkit - changelog
+
+This file ships inside the mod, so whoever is looking at the files can see what
+changed. Steam's own change notes are a separate thing typed into the uploader
+when you publish - workshop.txt has no field for them, so this file cannot fill
+them in. Paste the relevant section below into that box.
+
+
+1.21.0
+------
+- Base raids can now run on a repeating schedule, counted in in-game nights:
+  off, every night, every 2, every 3 or every 7. Set it in Sandbox Options along
+  with the in-game hour it arms and how many zombies per online player.
+- Off by default. Every zombie a base raid places is permanent, so the schedule
+  has to be switched on deliberately.
+- A night with nobody online is skipped rather than saved up, so a raid that was
+  due at 22:00 never lands at 04:00 on whoever happens to log in.
+
+1.20.0
+------
+- Raid protection is back ON TEST, with the failure that pulled it in 1.18.0
+  fixed: membership is now decided from the safehouse itself rather than by
+  asking the function this mod replaces, so a member or owner can no longer be
+  locked out of their own base whatever else goes wrong. Worst case now is that
+  outsiders cannot raid, which is plain vanilla.
+- The answer is cached per square instead of being recomputed nine times for
+  every step you take, which is what made picking items up feel slow.
+- Added heartbeat instrumentation: each client reports how its half installed
+  and how many open-set broadcasts it has received, once a minute, into the
+  server log. This is temporary and comes out once the feature is trusted.
+- Sandbox options renamed and relabelled to say what they actually are:
+  ShieldEnabled is now LoginShieldEnabled, "Login shield - invisible to zombies
+  when you connect". It is not a siege shield and never was.
+- Raid protection has two sandbox options of its own again, at the top of the
+  page: whether it runs, and the grace period after the last member logs off.
+
+1.19.0
+------
+- Settings moved out of the right-click menu into sandbox options. They are now
+  at Admin Panel > Sandbox Options > Wabbajack Server Toolkit, with a tooltip on
+  each explaining what it is for and why its default is what it is.
+- The right-click menu is events only: siege, base raid, ground sweep, foliage
+  check. Everything that configures rather than acts has left it.
+- Event triggers are now restricted to a named account rather than to every
+  staff role. Sandbox options remain gated by the vanilla SandboxOptions
+  capability, set per role in Admin Panel > Roles.
+- Retired the mod's private settings store - its ModData persistence, wire
+  format, staff check, value whitelist and client-side cache are all gone,
+  replaced by SandboxVars, which the engine already syncs to clients.
+- Any setting previously changed from the old menu returns to its default. The
+  defaults themselves have not changed.
+
+1.18.0
+------
+- Raid protection disabled and commented out. It refused members and owners as
+  well as raiders, and slowed item pickup down; safehouses are back to vanilla
+  behaviour, which on this server means closed to everyone but their members.
+- Fixed: a player who belongs to more than one safehouse could only ever open
+  the oldest one, so a second membership could never be quit. The User Panel's
+  Safehouse button now offers a picker when you belong to more than one.
+
+1.17.0
+------
+- Raid protection: a safehouse could be looted while somebody who lived there
+  was online, and for five minutes after the last of them logged off.
+  Withdrawn in 1.18.0.

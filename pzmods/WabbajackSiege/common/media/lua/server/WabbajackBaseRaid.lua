@@ -415,7 +415,97 @@ function WabbajackBaseRaid_arm(perPlayer, whoName)
     return (ev and ev.armed) or 0, (ev and ev.pending and #ev.pending) or 0
 end
 
+-- --------------------------------------------------------- automatic nights
+
+--[[
+Base raids on a recurring schedule, counted in in-game nights.
+
+WHY NIGHTS AND NOT REAL HOURS
+A night is the unit players actually feel. This world runs a two-hour day, so
+"every 3 nights" is about six real hours and moves with the day-length setting
+instead of drifting away from it - change world.realMinutesPerDay and the
+schedule still means what it says, because it never mentions real time at all.
+
+getNightsSurvived() is a stored counter on GameTime that persists with the save,
+so the count survives restarts without this module keeping its own.
+
+WHY IT FIRES ONCE AND NEVER CATCHES UP
+The night index is written to ModData the moment the trigger hour comes round,
+BEFORE any decision about whether to actually arm. So:
+
+- a night can never fire twice, including across a restart inside that hour;
+- a night that is skipped, because nobody was online or it was not a multiple of
+  the interval, is skipped for good rather than fired late.
+
+That second one is deliberate. A raid that was due at 22:00 and instead lands at
+04:00 on the one person who happened to log in is not "every three nights", it
+is an ambush with a schedule's name on it.
+
+NOBODY ONLINE MEANS NO RAID
+Base raids arm at the claims of players who are online, so an empty server has
+nothing to arm against - and the whole premise is that raids land on people who
+can fight back. The night is still consumed.
+
+OFF BY DEFAULT, AND THAT IS NOT TIMIDITY
+Every zombie this places is permanent: ZombieRespawn is None here and no command
+removes them. A setting that quietly starts placing hundreds of them at
+everybody's base on a timer has to be switched on deliberately.
+]]
+
+-- Sandbox enum value -> nights between raids. 1 is Off; the rest are the
+-- intervals offered in Sandbox_EN.txt and must stay in the same order.
+local NIGHT_INTERVALS = { [1] = 0, [2] = 1, [3] = 2, [4] = 3, [5] = 7 }
+
+local function autoIntervalNights()
+    local choice = tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightInterval")) or 1
+    return NIGHT_INTERVALS[choice] or 0
+end
+
+local function autoHour()
+    local h = tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightHour")) or 22
+    return math.max(0, math.min(23, math.floor(h)))
+end
+
+local function autoPerPlayer()
+    return tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.autoPerPlayer")) or 40
+end
+
+local function autoTick()
+    local every = autoIntervalNights()
+    if every <= 0 then return end
+
+    local gt = getGameTime and getGameTime()
+    if not gt then return end
+
+    local ok, night, hour = pcall(function()
+        return gt:getNightsSurvived(), gt:getHour()
+    end)
+    if not ok or not night or not hour then return end
+    if hour ~= autoHour() then return end
+
+    local st = state()
+    if st.lastAutoNight == night then return end
+    -- Consume the night first. Everything below this line may decline to arm,
+    -- and none of it may cause a retry an hour later.
+    st.lastAutoNight = night
+
+    if (night % every) ~= 0 then return end
+
+    local online = 0
+    for _ in pairs(onlinePlayers()) do online = online + 1 end
+    if online == 0 then
+        log("scheduled raid due on night " .. tostring(night) .. " but nobody is online - skipped")
+        return
+    end
+
+    local armed = WabbajackBaseRaid_arm(autoPerPlayer(), "the schedule (every " ..
+        tostring(every) .. " night(s))")
+    log("scheduled raid armed on night " .. tostring(night) .. " across " ..
+        tostring(armed) .. " claim(s)")
+end
+
 Events.EveryOneMinute.Add(poll)
+Events.EveryOneMinute.Add(autoTick)
 Events.EveryOneMinute.Add(tick)
 Events.LoadGridsquare.Add(onLoadGridsquare)
 

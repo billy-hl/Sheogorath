@@ -102,31 +102,44 @@ local function log(msg)
 end
 
 --[[
-Whether a player counts as staff.
+Who may arm events.
 
-THE ROLE NAMES ARE LOWERCASE.
-getAccessLevel() returns a name from the server's own `role` table, and that
-table stores them lowercase: `admin`, `moderator`, `gm`, `observer`. This code
-compared against "Admin" and "Moderator" capitalised -- which is what the
-vanilla docs suggest -- so nothing ever matched: the in-game menu was invisible
-to everybody including the owner, and the server refused every command that did
-reach it. Comparison is lowercased now.
+ACCOUNT USERNAMES, not character names. getUsername() is the account -- the same
+name the logs and the Discord bridge use; the RP character name lives only in
+players.db and is not a permission handle.
 
-The custom roles on this server (`Wabbagang`, `Sheriff`) are deliberately NOT
-staff. They are cosmetic player groups, and arming a siege spawns hundreds of
-permanent zombies.
+DELIBERATELY AN ALLOWLIST, NOT A ROLE CHECK. This used to admit every
+admin/moderator/gm/overseer, and that is the wrong grain: `admin` is not a small
+group on this server, and arming a siege places hundreds of zombies that
+ZombieRespawn=None means nobody can ever take back. Adding somebody is editing
+this line and publishing, which is the friction this deserves.
+
+Compared LOWERCASED, and that is not fussiness. Account names on this server are
+typed by hand in three separate places, and the previous version of this check
+compared against "Admin" capitalised while the role table stores `admin` -- so
+the menu was invisible to everybody, including the owner. A permission test that
+fails closed on a capital letter is indistinguishable from the mod being broken.
 ]]
-local STAFF_ROLES = { admin = true, moderator = true, gm = true, overseer = true }
+-- BOTH of the owner's accounts are listed, because they are two separate
+-- accounts in the whitelist and only one of them is staff: `Allisteras` is role
+-- 2 (a plain user, and the one actually played on) and `AllisterasAdmin` is role
+-- 7. Listing only the admin account would have meant the menu never appearing
+-- during normal play; listing only the play account would have meant it missing
+-- from the account staff work is done on. Drop whichever is not wanted.
+local EVENT_HOSTS = { allisteras = true, allisterasadmin = true }
+
+local function isStaff(player)
+    if not player or not player.getUsername then return false end
+    local ok, name = pcall(function() return player:getUsername() end)
+    if not ok or not name then return false end
+    return EVENT_HOSTS[string.lower(tostring(name))] == true
+end
 
 local function accessLevel(player)
     if not player or not player.getAccessLevel then return "" end
     local ok, lvl = pcall(function() return player:getAccessLevel() end)
     if not ok or not lvl then return "" end
     return string.lower(tostring(lvl))
-end
-
-local function isStaff(player)
-    return STAFF_ROLES[accessLevel(player)] == true
 end
 
 local function state()

@@ -39,24 +39,37 @@ local ZOMBIE_CHOICES = { 100, 200, 300 }
 local RAID_CHOICES = { 20, 40, 80, 120, 160, 200 }
 
 --[[
-Whether the local player is staff.
+Who may arm events.
 
-THE ROLE NAMES ARE LOWERCASE. getAccessLevel() returns a name out of the
-server's `role` table, and that table stores `admin`, `moderator`, `gm` in lower
-case. This file compared against "Admin" and "Moderator" capitalised, so the
-menu was invisible to everyone -- including the owner, whose account is role 7,
-`admin`. That, not the context-menu test pass, is why the menu never appeared
-the second time round.
+ACCOUNT USERNAMES, not character names. getUsername() is the account -- the same
+name the logs and the Discord bridge use; the RP character name lives only in
+players.db and is not a permission handle.
 
-The server re-checks this on arrival; hiding a menu is not a permission check.
+DELIBERATELY AN ALLOWLIST, NOT A ROLE CHECK. This used to admit every
+admin/moderator/gm/overseer, and that is the wrong grain: `admin` is not a small
+group on this server, and arming a siege places hundreds of zombies that
+ZombieRespawn=None means nobody can ever take back. Adding somebody is editing
+this line and publishing, which is the friction this deserves.
+
+Compared LOWERCASED, and that is not fussiness. Account names on this server are
+typed by hand in three separate places, and the previous version of this check
+compared against "Admin" capitalised while the role table stores `admin` -- so
+the menu was invisible to everybody, including the owner. A permission test that
+fails closed on a capital letter is indistinguishable from the mod being broken.
 ]]
-local STAFF_ROLES = { admin = true, moderator = true, gm = true, overseer = true }
+-- BOTH of the owner's accounts are listed, because they are two separate
+-- accounts in the whitelist and only one of them is staff: `Allisteras` is role
+-- 2 (a plain user, and the one actually played on) and `AllisterasAdmin` is role
+-- 7. Listing only the admin account would have meant the menu never appearing
+-- during normal play; listing only the play account would have meant it missing
+-- from the account staff work is done on. Drop whichever is not wanted.
+local EVENT_HOSTS = { allisteras = true, allisterasadmin = true }
 
 local function isStaff(player)
-    if not player or not player.getAccessLevel then return false end
-    local ok, lvl = pcall(function() return player:getAccessLevel() end)
-    if not ok or not lvl then return false end
-    return STAFF_ROLES[string.lower(tostring(lvl))] == true
+    if not player or not player.getUsername then return false end
+    local ok, name = pcall(function() return player:getUsername() end)
+    if not ok or not name then return false end
+    return EVENT_HOSTS[string.lower(tostring(name))] == true
 end
 
 -- ------------------------------------------------------------- site marker
@@ -260,9 +273,11 @@ local function onFillMenu(playerNum, context, worldObjects, test)
     if test and ISWorldObjectContextMenu.Test then return true end
     local player = getSpecificPlayer(playerNum)
     if not player then return end
-    -- Staff only. isAdmin() covers the owner; isStaff picks up the admin,
-    -- moderator and gm tiers by their real, lowercase role names.
-    if not (isAdmin() or isStaff(player)) then return end
+    -- The one allowed account. isAdmin() is deliberately NOT accepted alongside
+    -- it: every admin on this server would pass that, which is exactly the door
+    -- this was narrowed to close. Hiding the menu is not the boundary anyway --
+    -- the server re-checks the same allowlist on arrival.
+    if not isStaff(player) then return end
 
     local square = squareFor(worldObjects, player)
     if not square then return end

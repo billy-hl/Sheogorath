@@ -19,64 +19,111 @@ VERSION = 1,
  * right-click submenu can only offer discrete options; a sandbox slider has no
  * such limit, so each min/max spans what the old list offered end to end.
  *
- * The raid-protection options are deliberately absent - that feature is
- * commented out. They come back with it.
+ * Raid protection is first because it is the feature currently under test.
  */
 
-option WabbajackSiege.ShieldEnabled
+option WabbajackSiege.RaidProtectionEnabled
 {
     type = boolean,
     default = true,
     page = WabbajackSiege,
-    translation = WabbajackSiege_ShieldEnabled,
+    translation = WabbajackSiege_RaidProtectionEnabled,
 }
 
-option WabbajackSiege.ShieldSeconds
+option WabbajackSiege.RaidProtectionGraceMinutes
+{
+    type = integer,
+    min = 0,
+    max = 60,
+    default = 5,
+    page = WabbajackSiege,
+    translation = WabbajackSiege_RaidProtectionGraceMinutes,
+}
+
+option WabbajackSiege.LoginShieldEnabled
+{
+    type = boolean,
+    default = true,
+    page = WabbajackSiege,
+    translation = WabbajackSiege_LoginShieldEnabled,
+}
+
+option WabbajackSiege.LoginShieldSeconds
 {
     type = integer,
     min = 0,
     max = 15,
     default = 5,
     page = WabbajackSiege,
-    translation = WabbajackSiege_ShieldSeconds,
+    translation = WabbajackSiege_LoginShieldSeconds,
 }
 
-option WabbajackSiege.FoliageEnabled
+option WabbajackSiege.RoadsideFoliageEnabled
 {
     type = boolean,
     default = true,
     page = WabbajackSiege,
-    translation = WabbajackSiege_FoliageEnabled,
+    translation = WabbajackSiege_RoadsideFoliageEnabled,
 }
 
-option WabbajackSiege.FoliageMaxTreeSize
+option WabbajackSiege.RoadsideFoliageMaxTreeSize
 {
     type = integer,
     min = 0,
     max = 3,
     default = 2,
     page = WabbajackSiege,
-    translation = WabbajackSiege_FoliageMaxTreeSize,
+    translation = WabbajackSiege_RoadsideFoliageMaxTreeSize,
 }
 
-option WabbajackSiege.SweepSafeBuffer
+option WabbajackSiege.GroundSweepSafeBuffer
 {
     type = integer,
     min = 10,
     max = 80,
     default = 30,
     page = WabbajackSiege,
-    translation = WabbajackSiege_SweepSafeBuffer,
+    translation = WabbajackSiege_GroundSweepSafeBuffer,
 }
 
-option WabbajackSiege.SweepExpireHours
+option WabbajackSiege.GroundSweepExpireHours
 {
     type = integer,
     min = 1,
     max = 24,
     default = 6,
     page = WabbajackSiege,
-    translation = WabbajackSiege_SweepExpireHours,
+    translation = WabbajackSiege_GroundSweepExpireHours,
+}
+
+option WabbajackSiege.BaseRaidNightInterval
+{
+    type = enum,
+    numValues = 5,
+    default = 1,
+    page = WabbajackSiege,
+    translation = WabbajackSiege_BaseRaidNightInterval,
+    valueTranslation = WabbajackSiege_BaseRaidNightInterval_value,
+}
+
+option WabbajackSiege.BaseRaidNightHour
+{
+    type = integer,
+    min = 0,
+    max = 23,
+    default = 22,
+    page = WabbajackSiege,
+    translation = WabbajackSiege_BaseRaidNightHour,
+}
+
+option WabbajackSiege.BaseRaidAutoPerPlayer
+{
+    type = integer,
+    min = 10,
+    max = 200,
+    default = 40,
+    page = WabbajackSiege,
+    translation = WabbajackSiege_BaseRaidAutoPerPlayer,
 }
 
 option WabbajackSiege.BaseRaidClusters

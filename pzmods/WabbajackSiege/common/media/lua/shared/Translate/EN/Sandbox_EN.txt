@@ -1,51 +1,71 @@
 Sandbox_EN = {
     Sandbox_WabbajackSiege = "Wabbajack Server Toolkit",
 
-    Sandbox_WabbajackSiege_ShieldEnabled = "Zombie invisibility on login",
-    Sandbox_WabbajackSiege_ShieldEnabled_tooltip = "A few seconds of invisibility to zombies when a player connects. Answers a measured problem: after a restart a player connected at 16:38:18 and was hit at 16:38:20, before their client was responsive. Off is here for completeness rather than because it is a good idea.",
+    Sandbox_WabbajackSiege_RaidProtectionEnabled = "Raid protection - ON TEST",
+    Sandbox_WabbajackSiege_RaidProtectionEnabled_tooltip = "A safehouse can be looted by outsiders only while somebody who lives there is online. Everyone offline, it is sealed. OFF means vanilla: sealed from outsiders at all times. Members and the owner can always loot their own base either way. This feature is under test - turn it off if bases start behaving oddly.",
 
-    Sandbox_WabbajackSiege_ShieldSeconds = "Invisible for (seconds)",
-    Sandbox_WabbajackSiege_ShieldSeconds_tooltip = "Five is short enough that it cannot be used as a tactic: relogging inside a horde buys about two steps, and the horde is still there when it lapses. Much past fifteen and the shield becomes a way to walk out of a fight, which would need cancel-on-move machinery this deliberately does without. Zero switches it off.",
+    Sandbox_WabbajackSiege_RaidProtectionGraceMinutes = "Raid protection - minutes a base stays open after the last member logs off",
+    Sandbox_WabbajackSiege_RaidProtectionGraceMinutes_tooltip = "Stops logging out being an escape from a raid already in progress. Zero seals the base the instant the last member disconnects.",
 
-    Sandbox_WabbajackSiege_FoliageEnabled = "Clear foliage under wheels",
-    Sandbox_WabbajackSiege_FoliageEnabled_tooltip = "Roadside bushes and young trees are felled by any vehicle that drives over them, dropping what felling them normally drops. Off leaves bushes exactly where they grew.",
+    Sandbox_WabbajackSiege_LoginShieldEnabled = "Login shield - invisible to zombies when you connect",
+    Sandbox_WabbajackSiege_LoginShieldEnabled_tooltip = "Nothing to do with sieges. It covers the few seconds after connecting, before your client responds to input. A player once connected at 16:38:18 and was bitten at 16:38:20 with no chance to react.",
 
-    Sandbox_WabbajackSiege_FoliageMaxTreeSize = "Largest tree size cleared",
-    Sandbox_WabbajackSiege_FoliageMaxTreeSize_tooltip = "Tree size the wheels will take down. 0 is bushes only. Raising it lets cars flatten progressively bigger saplings; the engine's own size scale, not tiles.",
+    Sandbox_WabbajackSiege_LoginShieldSeconds = "Login shield - how many seconds it lasts",
+    Sandbox_WabbajackSiege_LoginShieldSeconds_tooltip = "Zombies only, and only for this long - you can still be shot, and you are never invulnerable. Five buys about two steps, which is too short to relog out of a fight. Zero switches the shield off.",
 
-    Sandbox_WabbajackSiege_SweepSafeBuffer = "Ground sweep: keep clear of claims by (tiles)",
-    Sandbox_WabbajackSiege_SweepSafeBuffer_tooltip = "How far from any safehouse claim the ground sweep stops touching anything. The sweep removes dropped world items, so this is the margin that keeps it away from what people have deliberately laid out at their own base.",
+    Sandbox_WabbajackSiege_RoadsideFoliageEnabled = "Roadside foliage - cars flatten bushes they drive over",
+    Sandbox_WabbajackSiege_RoadsideFoliageEnabled_tooltip = "Bushes and young trees are felled by any vehicle, dropping what cutting them normally drops. Off leaves them where they grew.",
 
-    Sandbox_WabbajackSiege_SweepExpireHours = "Ground sweep: items expire after (hours)",
-    Sandbox_WabbajackSiege_SweepExpireHours_tooltip = "Real hours a dropped item survives on the ground before a sweep may remove it. Lower keeps the world tidier and the server lighter; higher is friendlier to people who stage loot outdoors.",
+    Sandbox_WabbajackSiege_RoadsideFoliageMaxTreeSize = "Roadside foliage - biggest tree a car can flatten",
+    Sandbox_WabbajackSiege_RoadsideFoliageMaxTreeSize_tooltip = "0 is bushes only. Higher lets cars take down progressively bigger saplings. This is the game's own tree size scale, not tiles.",
 
-    Sandbox_WabbajackSiege_BaseRaidClusters = "Base raid: groups per claim",
-    Sandbox_WabbajackSiege_BaseRaidClusters_tooltip = "How many separate groups the zombie count for a base raid is cut into. More groups means the horde arrives from more directions at once; fewer means one solid wall from one side.",
+    Sandbox_WabbajackSiege_GroundSweepSafeBuffer = "Ground sweep - stay this many tiles clear of safehouses",
+    Sandbox_WabbajackSiege_GroundSweepSafeBuffer_tooltip = "The sweep deletes items left lying on the ground. This is the margin that keeps it away from anything people have deliberately laid out at their own base.",
 
-    Sandbox_WabbajackSiege_BaseRaidPlayerClearance = "Base raid: keep clear of players by (tiles)",
-    Sandbox_WabbajackSiege_BaseRaidPlayerClearance_tooltip = "Minimum distance between a spawn point and any player. Raising it makes raids land further out; below about six, zombies start appearing where somebody is standing and watching.",
+    Sandbox_WabbajackSiege_GroundSweepExpireHours = "Ground sweep - hours before a dropped item can be swept",
+    Sandbox_WabbajackSiege_GroundSweepExpireHours_tooltip = "Real hours, not in-game. Lower keeps the world tidy and the server light; higher is kinder to people who stage loot outdoors.",
 
-    Sandbox_WabbajackSiege_SiegeLootMinutes = "Siege: loot stays for (minutes)",
-    Sandbox_WabbajackSiege_SiegeLootMinutes_tooltip = "Real minutes the loot placed by a siege event remains before cleanup takes it back. This is the window players have to actually reach the building and clear it out.",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval = "Base raid - run automatically every...",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_tooltip = "Arms a horde at the safehouse of every player who is online, on a repeating schedule counted in in-game nights. Nothing happens on a night when nobody is online, and a missed night is never made up later. OFF means base raids only happen when staff arm one by hand. Every zombie placed is PERMANENT - nothing on this server removes them.",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option1 = "Off - staff arm them by hand",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option2 = "Every night",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option3 = "Every 2 nights",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option4 = "Every 3 nights",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option5 = "Every 7 nights",
 
-    Sandbox_WabbajackSiege_SiegeCleanupMinutes = "Siege: cleanup delay (minutes)",
-    Sandbox_WabbajackSiege_SiegeCleanupMinutes_tooltip = "Grace between the loot window closing and the cleanup pass running, so somebody mid-fight is not robbed on a hard boundary.",
+    Sandbox_WabbajackSiege_BaseRaidNightHour = "Base raid - in-game hour the scheduled raid arms",
+    Sandbox_WabbajackSiege_BaseRaidNightHour_tooltip = "24-hour in-game clock. 22 is late evening. The horde does not appear at this moment - it is armed now and materialises when somebody comes home to it.",
 
-    Sandbox_WabbajackSiege_SiegeMaxEventMinutes = "Siege: abandon event after (minutes)",
-    Sandbox_WabbajackSiege_SiegeMaxEventMinutes_tooltip = "Hard ceiling on a single event. An event nobody turns up to has to end by itself, or it holds its building and its loot forever.",
+    Sandbox_WabbajackSiege_BaseRaidAutoPerPlayer = "Base raid - zombies per player for a scheduled raid",
+    Sandbox_WabbajackSiege_BaseRaidAutoPerPlayer_tooltip = "Only used by the automatic schedule; staff arming one by hand pick the number from the menu. This is PER ONLINE PLAYER, so 40 with eight people on is 320 permanent zombies placed at once.",
 
-    Sandbox_WabbajackSiege_SiegeFillPercent = "Siege: containers with loot (%)",
-    Sandbox_WabbajackSiege_SiegeFillPercent_tooltip = "Percentage of containers in the target building that get something in them. 100 would make every drawer worth opening, which reads as a vending machine rather than a place somebody lived.",
+    Sandbox_WabbajackSiege_BaseRaidClusters = "Base raid - how many groups the horde arrives in",
+    Sandbox_WabbajackSiege_BaseRaidClusters_tooltip = "This is the staff-armed horde event, NOT raid protection. More groups means they close in from more directions; fewer means one wall from one side.",
 
-    Sandbox_WabbajackSiege_SiegeAirdropMinutes = "Siege: airdrop arrives in (minutes)",
-    Sandbox_WabbajackSiege_SiegeAirdropMinutes_tooltip = "Real minutes between an airdrop being announced and it landing. The whole point of the delay is that everybody online gets a fair chance to travel to it.",
+    Sandbox_WabbajackSiege_BaseRaidPlayerClearance = "Base raid - keep spawns this many tiles from players",
+    Sandbox_WabbajackSiege_BaseRaidPlayerClearance_tooltip = "Below about six, zombies start appearing in front of somebody who is standing there watching. Higher makes the horde walk in from further out.",
 
-    Sandbox_WabbajackSiege_GatherMaxTransfers = "Gather shortcut: items per click",
-    Sandbox_WabbajackSiege_GatherMaxTransfers_tooltip = "Ceiling on how many items one shift+right-click gather will move out of nearby containers. Each transfer is a queued action, so a high number is a long uninterruptible queue.",
+    Sandbox_WabbajackSiege_SiegeLootMinutes = "Siege event - minutes the loot stays before cleanup",
+    Sandbox_WabbajackSiege_SiegeLootMinutes_tooltip = "Real minutes. This is the window players have to reach the building and clear it out, so it has to cover the travel.",
 
-    Sandbox_WabbajackSiege_GatherOverfillPercent = "Gather shortcut: carry up to (% capacity)",
-    Sandbox_WabbajackSiege_GatherOverfillPercent_tooltip = "How far over their inventory capacity a gather is allowed to push somebody, as a percentage. 100 refuses to overfill at all; higher trades a movement penalty for not having to make two trips.",
+    Sandbox_WabbajackSiege_SiegeCleanupMinutes = "Siege event - minutes between the loot closing and cleanup",
+    Sandbox_WabbajackSiege_SiegeCleanupMinutes_tooltip = "A grace period so somebody still fighting inside is not robbed on a hard boundary.",
 
-    Sandbox_WabbajackSiege_WorldRealMinutesPerDay = "Real minutes per in-game day",
-    Sandbox_WabbajackSiege_WorldRealMinutesPerDay_tooltip = "Must match the server's actual day length. This is not a setting that CHANGES anything - the modules read it to convert in-game time to real time. If the server's day length changes, change this to match or every timing in the mod drifts.",
+    Sandbox_WabbajackSiege_SiegeMaxEventMinutes = "Siege event - give up after this many minutes",
+    Sandbox_WabbajackSiege_SiegeMaxEventMinutes_tooltip = "A ceiling on one event. An event nobody turns up to has to end by itself, or it holds its building and its loot forever.",
+
+    Sandbox_WabbajackSiege_SiegeFillPercent = "Siege event - percent of containers holding loot",
+    Sandbox_WabbajackSiege_SiegeFillPercent_tooltip = "100 would make every drawer worth opening, which reads as a vending machine rather than somewhere people lived.",
+
+    Sandbox_WabbajackSiege_SiegeAirdropMinutes = "Siege event - minutes before an airdrop lands",
+    Sandbox_WabbajackSiege_SiegeAirdropMinutes_tooltip = "Time between the announcement and the drop landing, so everyone online gets a fair chance to travel to it.",
+
+    Sandbox_WabbajackSiege_GatherMaxTransfers = "Gather shortcut - most items one click will fetch",
+    Sandbox_WabbajackSiege_GatherMaxTransfers_tooltip = "Shift+right-click a Shortcut slot to pull a recipe's materials out of nearby containers. Each item is a queued action, so a big number is a long queue you have to sit through.",
+
+    Sandbox_WabbajackSiege_GatherOverfillPercent = "Gather shortcut - fill bags up to this percent of capacity",
+    Sandbox_WabbajackSiege_GatherOverfillPercent_tooltip = "100 refuses to overfill at all. Higher accepts a movement penalty instead of making you walk back for a second trip.",
+
+    Sandbox_WabbajackSiege_WorldRealMinutesPerDay = "World - real minutes in one in-game day",
+    Sandbox_WabbajackSiege_WorldRealMinutesPerDay_tooltip = "This does not change day length - it TELLS the mod what the day length already is, so it can convert in-game time to real time. If the server's day length changes, match it here or every timer in the mod drifts.",
 }

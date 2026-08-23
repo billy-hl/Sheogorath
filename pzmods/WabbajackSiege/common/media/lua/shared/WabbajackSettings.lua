@@ -47,12 +47,17 @@ change. Sandbox option names cannot carry a dot beyond the page prefix, hence
 the two spellings.
 ]]
 local FIELDS = {
-    ["shield.enabled"]          = { field = "ShieldEnabled",           fallback = true },
-    ["shield.seconds"]          = { field = "ShieldSeconds",           fallback = 5 },
-    ["foliage.enabled"]         = { field = "FoliageEnabled",          fallback = true },
-    ["foliage.maxTreeSize"]     = { field = "FoliageMaxTreeSize",      fallback = 2 },
-    ["sweep.safeBuffer"]        = { field = "SweepSafeBuffer",         fallback = 30 },
-    ["sweep.expireHours"]       = { field = "SweepExpireHours",        fallback = 6 },
+    ["raid.enabled"]            = { field = "RaidProtectionEnabled",      fallback = true },
+    ["raid.grace"]              = { field = "RaidProtectionGraceMinutes", fallback = 5 },
+    ["shield.enabled"]          = { field = "LoginShieldEnabled",           fallback = true },
+    ["shield.seconds"]          = { field = "LoginShieldSeconds",           fallback = 5 },
+    ["foliage.enabled"]         = { field = "RoadsideFoliageEnabled",          fallback = true },
+    ["foliage.maxTreeSize"]     = { field = "RoadsideFoliageMaxTreeSize",      fallback = 2 },
+    ["sweep.safeBuffer"]        = { field = "GroundSweepSafeBuffer",         fallback = 30 },
+    ["sweep.expireHours"]       = { field = "GroundSweepExpireHours",        fallback = 6 },
+    ["baseraid.nightInterval"]  = { field = "BaseRaidNightInterval",   fallback = 1 },
+    ["baseraid.nightHour"]      = { field = "BaseRaidNightHour",       fallback = 22 },
+    ["baseraid.autoPerPlayer"]  = { field = "BaseRaidAutoPerPlayer",   fallback = 40 },
     ["baseraid.clusters"]       = { field = "BaseRaidClusters",        fallback = 8 },
     ["baseraid.playerClearance"] = { field = "BaseRaidPlayerClearance", fallback = 12 },
     ["siege.lootMinutes"]       = { field = "SiegeLootMinutes",        fallback = 9 },
@@ -64,9 +69,6 @@ local FIELDS = {
     ["gather.overfillPercent"]  = { field = "GatherOverfillPercent",   fallback = 150 },
     ["world.realMinutesPerDay"] = { field = "WorldRealMinutesPerDay",  fallback = 120 },
 
-    -- raid.enabled and raid.grace are deliberately absent: the raid protection
-    -- is commented out, and a setting for a feature that does not run is a
-    -- switch that lies. They come back with the feature.
 }
 
 --[[

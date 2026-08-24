@@ -418,7 +418,7 @@ end
 -- --------------------------------------------------------- automatic nights
 
 --[[
-Base raids on a recurring schedule, counted in in-game nights.
+Base raids on a schedule, counted in in-game nights.
 
 WHY NIGHTS AND NOT REAL HOURS
 A night is the unit players actually feel. This world runs a two-hour day, so
@@ -429,17 +429,46 @@ schedule still means what it says, because it never mentions real time at all.
 getNightsSurvived() is a stored counter on GameTime that persists with the save,
 so the count survives restarts without this module keeping its own.
 
-WHY IT FIRES ONCE AND NEVER CATCHES UP
-The night index is written to ModData the moment the trigger hour comes round,
-BEFORE any decision about whether to actually arm. So:
+TWO SCHEDULES, ONE MECHANISM
+The interval modes fire on every Nth night. The random mode rolls a percentage
+instead, once per night, and that is the difference between a raid and an
+appointment: a horde due on a night everyone can name is met by a server that is
+home, stocked and standing on the roof. A one-in-three night nobody can predict
+is the thing this feature was for.
+
+Either way the hour is drawn fresh out of a window rather than fixed, so a night
+that does fire is not also "at ten o'clock, like last time".
+
+PLAN FIRST, FIRE LATER
+Each night is planned once, the first time this handler sees a new night
+counter: roll whether a raid happens at all, and if it does, draw the hour it
+arms at. The plan lives in ModData so it survives a restart, and the drawn hour
+is consumed the moment it comes round, BEFORE any decision about whether to
+actually arm. So:
 
 - a night can never fire twice, including across a restart inside that hour;
-- a night that is skipped, because nobody was online or it was not a multiple of
-  the interval, is skipped for good rather than fired late.
+- a night that is skipped, because the roll lost or nobody was online, is
+  skipped for good rather than fired late.
 
 That second one is deliberate. A raid that was due at 22:00 and instead lands at
 04:00 on the one person who happened to log in is not "every three nights", it
-is an ambush with a schedule's name on it.
+is an ambush with a schedule's name on it. A plan that is already in the past
+when it is drawn - the server was started late - is missed on the same grounds,
+and says so in the log.
+
+ONE PLAN PER IN-GAME DAY, AND THE WINDOW NEVER CROSSES MIDNIGHT
+The plan is keyed on the in-game date rather than on the night counter, even
+though the counter is what the intervals are counted in. A date turns over at
+midnight by definition, and getNightsSurvived() is an engine counter that turns
+over whenever the engine says so - if that ever landed inside the evening
+window, a plan would be redrawn halfway through the night it had already made a
+decision about, and one night could roll twice.
+
+Both ends of the window are hours on that one day, and a later end below the
+earlier is pushed up rather than wrapping. A window written 22 to 02 would be
+two different days either side of midnight, and the half past midnight would
+belong to a day already planned and consumed, so it would silently never fire.
+An evening window is what people mean by "tonight" in any case.
 
 NOBODY ONLINE MEANS NO RAID
 Base raids arm at the claims of players who are online, so an empty server has
@@ -452,44 +481,96 @@ removes them. A setting that quietly starts placing hundreds of them at
 everybody's base on a timer has to be switched on deliberately.
 ]]
 
--- Sandbox enum value -> nights between raids. 1 is Off; the rest are the
--- intervals offered in Sandbox_EN.txt and must stay in the same order.
-local NIGHT_INTERVALS = { [1] = 0, [2] = 1, [3] = 2, [4] = 3, [5] = 7 }
+-- Sandbox enum values. 1 is Off and 6 rolls a chance each night; 2-5 are the
+-- fixed intervals, in nights between raids. The order must match the value
+-- strings in Sandbox_EN.txt.
+local CHOICE_OFF      = 1
+local CHOICE_RANDOM   = 6
+local NIGHT_INTERVALS = { [2] = 1, [3] = 2, [4] = 3, [5] = 7 }
 
-local function autoIntervalNights()
-    local choice = tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightInterval")) or 1
-    return NIGHT_INTERVALS[choice] or 0
+local function autoChoice()
+    return tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightInterval")) or CHOICE_OFF
 end
 
-local function autoHour()
-    local h = tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightHour")) or 22
+local function autoChance()
+    local pct = tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightChance")) or 33
+    return math.max(0, math.min(100, math.floor(pct)))
+end
+
+local function clampHour(h, fallback)
+    h = tonumber(h)
+    if not h then return fallback end
     return math.max(0, math.min(23, math.floor(h)))
+end
+
+--- The window the arming hour is drawn from: earliest, latest, never wrapping.
+local function autoHourWindow()
+    local earliest = clampHour(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightHourEarliest"), 20)
+    local latest   = clampHour(WabbajackSettings_get and WabbajackSettings_get("baseraid.nightHourLatest"), 23)
+    if latest < earliest then latest = earliest end
+    return earliest, latest
 end
 
 local function autoPerPlayer()
     return tonumber(WabbajackSettings_get and WabbajackSettings_get("baseraid.autoPerPlayer")) or 40
 end
 
+local function scheduleName()
+    local choice = autoChoice()
+    if choice == CHOICE_RANDOM then
+        return "the schedule (" .. tostring(autoChance()) .. "% chance each night)"
+    end
+    return "the schedule (every " .. tostring(NIGHT_INTERVALS[choice] or 0) .. " night(s))"
+end
+
+--- The hour tonight arms at, or nil for a night that does not raid at all.
+local function rollNight(night)
+    local choice = autoChoice()
+    if choice == CHOICE_RANDOM then
+        if ZombRand(100) >= autoChance() then return nil end
+    else
+        local every = NIGHT_INTERVALS[choice]
+        if not every or every <= 0 then return nil end
+        if (night % every) ~= 0 then return nil end
+    end
+    local earliest, latest = autoHourWindow()
+    return earliest + ZombRand(latest - earliest + 1)
+end
+
 local function autoTick()
-    local every = autoIntervalNights()
-    if every <= 0 then return end
+    if autoChoice() == CHOICE_OFF then return end
 
     local gt = getGameTime and getGameTime()
     if not gt then return end
 
-    local ok, night, hour = pcall(function()
-        return gt:getNightsSurvived(), gt:getHour()
+    local ok, night, hour, day = pcall(function()
+        return gt:getNightsSurvived(), gt:getHour(),
+            gt:getYear() * 10000 + gt:getMonth() * 100 + gt:getDay()
     end)
-    if not ok or not night or not hour then return end
-    if hour ~= autoHour() then return end
+    if not ok or not night or not hour or not day then return end
+    hour = math.floor(hour)
 
     local st = state()
-    if st.lastAutoNight == night then return end
-    -- Consume the night first. Everything below this line may decline to arm,
-    -- and none of it may cause a retry an hour later.
-    st.lastAutoNight = night
+    local plan = st.autoPlan
+    if not plan or plan.day ~= day then
+        local at = rollNight(night)
+        plan = { day = day, night = night, hour = at or -1 }
+        st.autoPlan = plan
+        if at and at < hour then
+            -- Drawn into the past, which only happens when the server came up
+            -- after the window. Missed, not rescheduled; see the header.
+            plan.hour = -1
+            log("night " .. tostring(night) .. " drew " .. tostring(at) ..
+                ":00 but it is already " .. tostring(hour) .. ":00 - missed, not rescheduled")
+        elseif at then
+            log("night " .. tostring(night) .. " will arm a raid at " .. tostring(at) .. ":00")
+        end
+    end
 
-    if (night % every) ~= 0 then return end
+    if plan.hour < 0 or hour ~= plan.hour then return end
+    -- Consume the hour first. Everything below this line may decline to arm,
+    -- and none of it may cause a retry a minute later.
+    plan.hour = -1
 
     local online = 0
     for _ in pairs(onlinePlayers()) do online = online + 1 end
@@ -498,8 +579,7 @@ local function autoTick()
         return
     end
 
-    local armed = WabbajackBaseRaid_arm(autoPerPlayer(), "the schedule (every " ..
-        tostring(every) .. " night(s))")
+    local armed = WabbajackBaseRaid_arm(autoPerPlayer(), scheduleName())
     log("scheduled raid armed on night " .. tostring(night) .. " across " ..
         tostring(armed) .. " claim(s)")
 end

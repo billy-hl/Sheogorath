@@ -32,9 +32,9 @@
     "channels": {
       "music": null,
       "defaultVoice": null,
-      "suggestions": "1534255127278649446",
-      "trading": "1534552667597307904",
-      "safehouseClaims": "1535064872956461076",
+      "suggestions": "1541910479146983474",
+      "trading": "1541910479792767107",
+      "safehouseClaims": "1541910480208134236",
       "commandLog": "1535750358905651294",
       "characters": "1536868592342138930",
       "welcome": "1533306144561303743",
@@ -63,12 +63,12 @@
       "channels": {
         "storyTime": "1533322742407888896",
         "chatRelay": "1533903291405172810",
-        "modRequests": "1534255128339677205",
+        "modRequests": "1541641829810708511",
         "raidAlerts": "1533945700814033047",
         "events": null,
-        "modUpdates": "1533305942089924769",
+        "modUpdates": "1542601331238244503",
         "eulogies": "1535092551646847016",
-        "announcements": "1533305942089924769",
+        "announcements": "1542603050567335966",
         "playerCount": "1537469977156657194"
       },
       "storyTimeHour": 22,

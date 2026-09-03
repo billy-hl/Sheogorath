@@ -15,6 +15,7 @@
  */
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { isStaff } = require('../utils/permissions');
+const { aiTitles, getGuildConfig } = require('../config/guilds');
 const { logAiAction, staffChannel } = require('../utils/aiAudit');
 const { runAction, describeAction } = require('./executors');
 
@@ -132,7 +133,7 @@ async function handleApprovalButton(interaction) {
 
   if (!isStaff(interaction.member)) {
     return interaction.reply({
-      content: '❌ Only Sheriffs and Owners can rule on what Sheogorath asks for.',
+      content: `❌ Only ${aiTitles(getGuildConfig(interaction.guildId)).approvers} can rule on what Sheogorath asks for.`,
       flags: 64,
     });
   }

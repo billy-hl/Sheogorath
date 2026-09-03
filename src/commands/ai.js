@@ -15,7 +15,9 @@ module.exports = {
     await interaction.deferReply();
 
     try {
-      const response = await getAIResponse(prompt);
+      // Guild-scoped so the powers half of his prompt describes the server the
+      // command was run in, not whichever one the block was written for.
+      const response = await getAIResponse(prompt, { guildId: interaction.guildId });
 
       // Check if response is empty or too short
       if (!response || response.trim().length < 5) {

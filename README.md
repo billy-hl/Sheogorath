@@ -194,13 +194,31 @@ direction — flagging your own players for playing the game — would be worse 
 not having the feature. Verified against both kinds live: both jailbreak framings
 refused and flagged, both game questions answered with no flag.
 
+### How much he says
+
+The persona ends with a hard cap — "SHORT and punchy (1-2 sentences max)" — which
+is right for a bot that pipes up when its name is mentioned and wrong whenever
+somebody is actually talking to it. `src/ai/persona.js` owns the one edit worth
+making to it: the cap is **cut from the text and replaced**, never argued with.
+Appending "that rule doesn't apply here" loses, because the original is in
+capitals and says *max*.
+
+Two lengths come out of it:
+
+- **Conversational** — two to four sentences, used wherever he replies to
+  someone. Long enough to answer, short enough to read at a glance.
+- **Unclipped** — no rule at all, used in the parlour below.
+
+Only length directives are cut. "Always complete your thoughts" survives, because
+that one is about finishing sentences rather than rationing them. If a future
+edit to `CLIENT_INSTRUCTIONS` words the rule differently and the cut takes too
+much, both fall back to the untouched persona — terse, but still in character.
+
 ### The parlour
 
 `/sheo parlour` creates **#the-shivering-isles**, one room where Sheogorath is
-allowed to be long. Everywhere else he is deliberately clipped — the persona says
-"1-2 sentences max", which is right for a bot that answers when its name comes up
-in general chat and wrong for the one place people go specifically to talk to
-him.
+allowed to be long — no length rule at all, rather than the shorter one he
+carries everywhere else.
 
 In that channel only:
 
@@ -209,18 +227,12 @@ In that channel only:
   another follows makes conversation feel like filling in a form.
 - He carries **20 messages** of history instead of 5.
 - The reply ceiling is **1200 tokens** instead of 500.
-- The persona is handed over **with its length rule cut out** rather than intact
-  with an instruction to ignore it. Appending "that rule doesn't apply here" was
-  not enough — the capitalised "SHORT and punchy" in the base persona won the
-  argument and produced two-sentence replies in a room built for conversation.
-  `parlourPersona()` strips sentences that ration length and leaves everything
-  else, including "always complete your thoughts", which is about finishing
-  sentences rather than rationing them. If a future edit to `CLIENT_INSTRUCTIONS`
-  words the rule differently and nothing matches, it falls back to the untouched
-  persona — terse, but still in character.
+- The persona is handed over **with no length rule at all**, where the rooms
+  outside get the conversational one.
 
-Measured effect on the same question: 182 characters ordinarily, 1029 in the
-parlour, three paragraphs with a genuine turn in the middle and a question back.
+Measured effect on the same question: a few sentences ordinarily, 1029 characters
+in the parlour — three paragraphs with a genuine turn in the middle and a
+question back.
 About **$0.004** a reply against $0.0012, drawing on the same monthly ceiling as
 everything else.
 
@@ -305,7 +317,7 @@ it *asks* for and what *happens* are separate steps: every tag goes through
 | Verdict | What happens |
 | --- | --- |
 | `execute` | Performed now, and recorded |
-| `propose` | An Approve/Deny card in the staff channel; nothing moves until a Sheriff clicks |
+| `propose` | An Approve/Deny card in the staff channel; nothing moves until an approver clicks |
 | `shadow` | Recorded as what *would* have happened; nothing is performed |
 | `deny` | Refused, and the refusal recorded |
 
@@ -326,8 +338,23 @@ Modes are per guild, set as `ai.mode` in `config/guilds.json` or with `/sheo mod
 Every decision — performed, proposed, refused, or shadowed — is appended to
 `logs/ai-actions.jsonl` with the verdict and the reason for it. Executions and
 refusals also mirror to the guild's `channels.modApprovals`, falling back to
-`channels.commandLog`. **A guild with neither cannot approve anything**, so
-proposals there are recorded as refusals.
+`channels.commandLog`. **A guild with neither cannot approve anything**, so a
+held action there is refused outright and reported as a refusal — he never tells
+anyone a request is pending when there is nobody to consider it.
+
+### He is not the same thing in every server
+
+The powers he describes are assembled per guild, from that guild's own entry, so
+what he offers people is what the gate will actually let him deliver:
+
+- Powers needing a feature the guild doesn't run are gone. No `zomboid`, no game commands, no restarts, no chronicle.
+- Powers the guild hasn't granted in `ai.powers` are gone. Omit the key for all of them; list capability names to narrow him — `["note", "memory", "clearnotes", "flag"]` leaves him a mascot who remembers you and punishes nobody.
+- Powers that can only ever be proposed are gone where there is no staff channel to propose in.
+- The tiers are named as that guild names them. `ai.titles` sets the words; a guild with no `roles.staff` never hears about Sheriffs at all, because it has none — the approver there is the Owner.
+- `ai.standing` is one sentence about what he *is* there, handed to him verbatim: the warden of the game server, the figurehead of the social hall.
+
+`/sheo status` shows the resulting list for the guild it is run in, including
+what has been withheld.
 
 ## Configuration
 
@@ -337,7 +364,7 @@ See `.env.example` for the annotated list. In short: `DISCORD_TOKEN`, `CLIENT_ID
 
 ### Per-guild settings — `config/guilds.json`
 
-One entry per Discord server, holding that guild's `features` list, channel IDs, role IDs (`admin`, `staff`, and so on), the AI moderator's `ai.mode`, and — where the `zomboid` feature is enabled — the game server's log paths, ini path and RCON settings. Copy the placeholder entry to onboard a second guild.
+One entry per Discord server, holding that guild's `features` list, channel IDs, role IDs (`admin`, `staff`, and so on), the AI moderator's `ai.mode` / `ai.powers` / `ai.titles` / `ai.standing`, and — where the `zomboid` feature is enabled — the game server's log paths, ini path and RCON settings. Copy the placeholder entry to onboard a second guild.
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 

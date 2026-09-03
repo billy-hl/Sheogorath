@@ -35,7 +35,7 @@ module.exports = {
 
       const prompt = `Fact-check the following conversation. For each claim or statement of fact, say whether it's true, false, misleading, or unverifiable. Be concise and direct. If a message is just casual chat with no factual claims, skip it. Here are the messages:\n\n${transcript}`;
 
-      const response = await getAIResponse(prompt);
+      const response = await getAIResponse(prompt, { guildId: interaction.guildId });
 
       if (!response || response.trim().length < 5) {
         throw new Error('Empty response from AI');

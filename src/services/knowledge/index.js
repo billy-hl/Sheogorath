@@ -147,7 +147,7 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
   const sections = [];
 
   try {
-    const lines = selfFacts({ guildConfig, requester, isHelp });
+    const lines = selfFacts({ guildConfig, requester, isHelp, guildName: guild?.name || null });
     if (lines.length) sections.push(`WHAT YOU CAN DO HERE, AND WHO YOU ARE TALKING TO\n${lines.join('\n')}`);
   } catch (err) {
     console.warn('[Knowledge] Self facts failed:', err?.message || err);

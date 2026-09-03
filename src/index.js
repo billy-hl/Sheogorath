@@ -33,12 +33,13 @@ const { parseActions, executeActions, scrub } = require('./ai/actions');
 const { isApprovalButton, handleApprovalButton } = require('./ai/approvals');
 const { isBudgetError, setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
 const { isParlour, parlourPersona, PARLOUR_PROMPT, PARLOUR_HISTORY, PARLOUR_MAX_TOKENS } = require('./services/parlour');
+const { conversationalPersona } = require('./ai/persona');
 const { checkCooldown, setCooldown } = require('./utils/cooldowns');
 const { setClient, notifyError } = require('./utils/errorNotify');
 const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { startControlApi } = require('./api/server');
-const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
+const { getGuildConfig, guildIds, hasFeature, channelId, aiTitles } = require('./config/guilds');
 const {
   musicDenialReason,
   commandDenialReason,
@@ -54,8 +55,6 @@ const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
 const { schedulePlayerCount } = require('./services/zomboid/playerCount');
-const { scheduleNewPlayers } = require('./services/zomboid/newPlayers');
-const { welcomeMember } = require('./services/welcome');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
 
@@ -287,15 +286,6 @@ client.once(Events.ClientReady, async () => {
     console.error('[Zomboid] Failed to schedule player count:', err?.message || err);
   }
 
-  // Greet first-time arrivals on the game server. Seeds itself from the
-  // existing account roster on first run, so nobody already playing is
-  // announced.
-  try {
-    scheduleNewPlayers(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule new-player announcements:', err?.message || err);
-  }
-
   // Sweep stale offers off the trading board.
   try {
     scheduleTradeSweep(client);
@@ -423,6 +413,7 @@ client.on('messageCreate', async (message) => {
   // built. Reached last so a direct mention or a "Sheogorath" above still
   // answers straight away rather than sitting through the debounce.
   if (message.channelId === channelId(guildId, 'help')) {
+    if (await isAnsweringSomebodyElse(message)) return;
     queueHelpReply(message);
     return;
   }
@@ -435,6 +426,52 @@ client.on('messageCreate', async (message) => {
     askChatGPT(message);
   }
 });
+
+/**
+ * Whether a #help message is one person answering another, rather than asking.
+ *
+ * WHY THIS EXISTS
+ * help is the one channel he speaks in uninvited, and that rule was written for
+ * the person with the problem. It caught everybody: a regular who steps in to
+ * say "verify your files" got answered too, which is noise at best and talking
+ * over somebody at worst. The channel works better when the people helping are
+ * left alone to help.
+ *
+ * WHY THESE TWO SIGNALS AND NOT THE MODEL
+ * Both are structural facts about the message rather than readings of its text.
+ * Asking the model "is this person helping?" would be a judgement call made on
+ * input written by the person being judged, it would cost a call on every line
+ * in the channel, and it would be wrong often enough to be worse than silence.
+ * A Discord reply and an @ are things somebody DID, not things they claimed.
+ *
+ * A REPLY TO SHEOGORATH IS STILL A QUESTION FOR HIM. Replying to his own
+ * message is how a follow-up looks, so that case falls through and is answered.
+ * An unresolvable reference is treated as a reply to a person: staying quiet
+ * when we cannot tell is the recoverable mistake, since the asker can still say
+ * his name, while answering over a helper cannot be taken back.
+ */
+async function isAnsweringSomebodyElse(message) {
+  if (message.reference?.messageId) {
+    let target = null;
+    try {
+      target = await message.fetchReference();
+    } catch {
+      // Deleted, too old to fetch, or a cross-post. Assume it was a person.
+      return true;
+    }
+    if (target?.author?.id && target.author.id !== client.user.id) return true;
+  }
+
+  // Addressing another member by name is the same act as replying to them.
+  // His own mention is excluded because that is the one case that means the
+  // message is FOR him, and the mention branch above has already handled it.
+  const others = message.mentions?.users?.filter?.(
+    (u) => u.id !== client.user.id && u.id !== message.author.id,
+  );
+  if (others?.size > 0) return true;
+
+  return false;
+}
 
 /**
  * Answer someone in #help once they've stopped typing.
@@ -485,12 +522,6 @@ function clearPendingHelp(message) {
  * gateway replays when the bot gains access to an existing one — without it,
  * a reconnect would re-vet and re-tag the whole forum.
  */
-// Greet first-time joiners. Guilds without `channels.welcome` are ignored, and
-// anyone with a `welcomedAt` on record is a returning member, not a new one.
-client.on(Events.GuildMemberAdd, async (member) => {
-  await welcomeMember(client, member);
-});
-
 
 client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
   if (!newlyCreated) return;
@@ -940,10 +971,15 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     ];
     
     const assistantReply = await getAIResponseWithHistory(messages, replyTokens, {
-      // In the parlour the persona is handed over with its length cap cut out,
-      // rather than intact with an instruction to ignore it.
-      systemBase: inParlour ? parlourPersona() : null,
+      // The persona's own "1-2 sentences max" is cut either way and replaced
+      // with the right length for the room: none at all in the parlour, a few
+      // sentences everywhere else. Someone who has gone to the trouble of
+      // addressing him deserves more than a punchline.
+      systemBase: inParlour ? parlourPersona() : conversationalPersona(),
       systemSuffix: inParlour ? PARLOUR_PROMPT : '',
+      // Which server he is standing in. Decides which powers he is told he has
+      // and what this guild calls the people above him.
+      guildId,
     });
     const raw = assistantReply && assistantReply.trim()
       ? assistantReply
@@ -988,11 +1024,13 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // rather than as him talking.
     const proposed = actionResults.filter(r => r.verdict === 'propose');
     const refused = actionResults.filter(r => r.verdict === 'deny');
+    const titles = aiTitles(getGuildConfig(guildId));
     const notes = [];
     if (proposed.length) {
       notes.push(
-        `-# ⏳ Sent to the Sheriffs for approval — **nothing has happened yet**. ` +
-        `${proposed.length === 1 ? 'It runs' : 'They run'} only once a Sheriff approves in the log channel.`,
+        `-# ⏳ Sent to the ${titles.approver}s for approval — **nothing has happened yet**. ` +
+        `${proposed.length === 1 ? 'It runs' : 'They run'} only once ${
+          titles.approver.match(/^[aeiou]/i) ? 'an' : 'a'} ${titles.approver} approves in the log channel.`,
       );
     }
     if (refused.length) {
@@ -1050,9 +1088,10 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // crash — the owner already knows, having been told at 50, 80 and 95%.
     if (isBudgetError(error)) {
       console.log(`[AI] Refused — monthly budget spent: ${error.message}`);
+      const { approvers } = aiTitles(getGuildConfig(guildId));
       await userMessage.reply(
         "The Mad God's coffers are empty for this month, mortal. Even madness runs on coin. " +
-        'Ask a Sheriff, and pester an Owner about my allowance.',
+        `Go and pester the ${approvers} about my allowance.`,
       ).catch(() => {});
       return;
     }

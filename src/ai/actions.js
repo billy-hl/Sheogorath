@@ -193,6 +193,8 @@ async function executeActions(actions, context) {
       requester,
       targetMember,
       botMember,
+      // Needed by the help-channel rule in capabilities.js.
+      channelId: message?.channelId,
     });
 
     const base = {

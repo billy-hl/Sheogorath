@@ -83,6 +83,21 @@ const HELP_DEBOUNCE_MS = 4000;
 const HELP_MAX_TOKENS = 800;
 
 /**
+ * How many past entries of a conversation he is handed outside the parlour.
+ *
+ * Counted in entries, not exchanges — each turn stores two of them, the user's
+ * line and his reply — so the old value of 5 was two and a half exchanges, and
+ * he lost the thread of anything longer than a quick back-and-forth. Ten is
+ * five full turns: enough to follow a conversation that develops, still far
+ * short of the parlour's 20, which is his own room and priced accordingly.
+ *
+ * The cost of raising this is real but small — history is chat turns only, and
+ * the bulk of each request is the knowledge and notes prefixed onto the current
+ * turn. Kept even so, so the window never starts mid-exchange on his own reply.
+ */
+const CHAT_HISTORY = 10;
+
+/**
  * Minimum gap between one person's AI replies.
  *
  * The slash-command cooldown never covered this path — talking to him by name
@@ -912,7 +927,7 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
   const inParlour = isParlour(guildId, userMessage.channelId);
   // How much of the conversation he is handed, and how much room he gets to
   // answer in. The parlour is the only place either is raised.
-  const historyDepth = inParlour ? PARLOUR_HISTORY : 5;
+  const historyDepth = inParlour ? PARLOUR_HISTORY : CHAT_HISTORY;
   const replyTokens = inParlour ? PARLOUR_MAX_TOKENS : maxTokens;
 
   console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);

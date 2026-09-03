@@ -33,6 +33,7 @@ const COMMAND_FEATURES = {
   character: 'zomboid',
 
   sheo: 'ai',
+  roast: 'ai',
 };
 
 /** Music additionally requires admin, not just the feature. */

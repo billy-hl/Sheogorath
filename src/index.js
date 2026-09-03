@@ -398,7 +398,11 @@ client.on('messageCreate', async (message) => {
                     message.content.includes(`<@${client.user.id}>`);
   if (!isMention) {
     const content = message.content.toLowerCase();
-    const triggerPattern = /\b(sheogorath|mad king)\b/i;
+    // The names he actually answers to. "mad god" and "uncle sheo" are what the
+    // persona calls itself throughout CLIENT_INSTRUCTIONS, so leaving them out
+    // meant the two names he uses most for himself were the two that did not
+    // wake him. "mad king" stays because the server says it out of habit.
+    const triggerPattern = /\b(sheogorath|mad king|mad god|uncle sheo)\b/i;
     
     if (triggerPattern.test(content)) {
       clearPendingHelp(message);

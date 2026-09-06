@@ -417,7 +417,12 @@ client.on('messageCreate', async (message) => {
     // persona calls itself throughout CLIENT_INSTRUCTIONS, so leaving them out
     // meant the two names he uses most for himself were the two that did not
     // wake him. "mad king" stays because the server says it out of habit.
-    const triggerPattern = /\b(sheogorath|mad king|mad god|uncle sheo)\b/i;
+    //
+    // Bare "sheo" is the short form people actually type, and it is the loosest
+    // entry here — every match is a billed call, so it is the first thing to cut
+    // if the channel starts waking him by accident. Word boundaries keep it off
+    // "sheogorath" itself, which the first alternative already covers.
+    const triggerPattern = /\b(sheogorath|sheo|mad king|mad god|uncle sheo)\b/i;
     
     if (triggerPattern.test(content)) {
       clearPendingHelp(message);

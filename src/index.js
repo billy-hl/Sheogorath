@@ -1060,6 +1060,9 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // conversation he has been having with this one person. Fetched per turn
     // and never stored: a room asked about "right now" has to be read now.
     let chatContext = '';
+    // Whether this question is reaching back. Decided here rather than inside
+    // the block below because it also decides where the transcript SITS.
+    let deepRecall = false;
     try {
       const {
         transcriptFor, replyTargetFor, wantsRecall, PARLOUR_TRANSCRIPT, RECALL_TRANSCRIPT,
@@ -1070,6 +1073,7 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
       // asked about once a day, so it is bought per question rather than
       // carried on every reply.
       const deep = wantsRecall(cleanedContent);
+      deepRecall = deep;
       const window = deep ? RECALL_TRANSCRIPT : (inParlour ? PARLOUR_TRANSCRIPT : {});
       if (deep) console.log(`[Transcript] Deep recall for ${userMessage.author.username}`);
 
@@ -1092,8 +1096,27 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
       console.warn('[Deletions] Skipped:', err?.message || err);
     }
 
-    const prefix = [knowledgeContext, chatContext, deletionContext, pingContext, notesContext, memoriesContext]
-      .filter(Boolean).join('\n');
+    // Order is weight.
+    //
+    // Everything here is prefixed onto the turn, and what sits closest to the
+    // question pulls hardest on the answer — so the ordering is not
+    // housekeeping, it is how much each block matters. The transcript is the
+    // biggest by far and the least often relevant, and when it sat second he
+    // answered ordinary questions with the history of the conversation. It goes
+    // to the far end, where he can still hear the room without the room being
+    // the loudest thing in front of him.
+    //
+    // What ends up nearest the question is what bears on answering it: the
+    // server's facts and the grounding rule, then anything only present because
+    // it was asked for — the deletions block, and the IDs of people named in
+    // this message.
+    //
+    // Reversed when somebody asks him to look back, because then the log IS the
+    // question and belongs where the question is.
+    const blocks = deepRecall
+      ? [notesContext, memoriesContext, knowledgeContext, deletionContext, pingContext, chatContext]
+      : [chatContext, notesContext, memoriesContext, knowledgeContext, deletionContext, pingContext];
+    const prefix = blocks.filter(Boolean).join('\n');
     const messages = [
       ...history.slice(-historyDepth),
       { role: 'user', content: prefix + (prefix ? '\n' : '') + cleanedContent }

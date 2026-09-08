@@ -102,6 +102,23 @@ const CAPABILITIES = {
   timeout:    { tier: 'auto',    targets: 'author', immune: true,  perHour: 5,
                 autoMaxMinutes: 10, hardMaxMinutes: 7 * 24 * 60 },
 
+  // A title: a cosmetic role, invented on the spot and hung on somebody.
+  //
+  // The first power he has that GIVES something rather than taking it away,
+  // which is why it sits here rather than in the auto tier. It is bounded in
+  // the executor rather than in the words: the role it makes carries no
+  // permissions at all, is placed below his own, and an existing role is only
+  // reused when it is equally toothless — so the worst outcome is a stupid
+  // name under somebody's, which any Owner can strip in two clicks.
+  //
+  // `ownerTier` for the same reason `pzcommand` has it: an Owner asking in
+  // chat is the person the card would have been escalated to, and making them
+  // click their own request is ceremony. Anyone else's request is a card.
+  // Immunity is off because this takes nothing away — a Sheriff can be given a
+  // silly title the way anyone else can, and can remove it the same way.
+  title:      { tier: 'propose', ownerTier: 'auto', targets: 'member', immune: false, perHour: 10,
+                maxLength: 90 },
+
   // --- Everything below always asks, whoever is asking. ---
   kick:       { tier: 'propose', targets: 'member', immune: true,  perHour: 5 },
   ban:        { tier: 'propose', targets: 'member', immune: true,  perHour: 3,

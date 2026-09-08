@@ -30,6 +30,7 @@ const TAG_LINES = {
   timeout:    '  [ACTION:timeout:userId:minutes:reason]  — Time a user out',
   kick:       '  [ACTION:kick:userId:reason]             — Kick a user from the server',
   ban:        '  [ACTION:ban:userId:deleteDays:reason]   — Ban a user',
+  title:      '  [ACTION:title:userId:the title]           — Hang a title on someone (a cosmetic role, no powers)',
   storytime:  '  [ACTION:storytime:reason]               — Tell an early tale of the day so far',
   pzcommand:  '  [ACTION:pz:command]                     — Run a command on the game server',
   pzrestart:  '  [ACTION:pzrestart:minutes:reason]       — Restart the game server (0 = now)',

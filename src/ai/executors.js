@@ -74,6 +74,58 @@ async function runAction(action, ctx) {
       return 'deleted the message';
     }
 
+    case 'dm': {
+      // A letter, and whose errand it was.
+      //
+      // The signature is not decoration and is not optional: it is the entire
+      // reason this runs for everybody rather than only for Owners. Anyone can
+      // send a message through him; nobody can send one anonymously, so the
+      // worst use of it costs the sender their own name.
+      const member = await guild.members.fetch(action.userId);
+      const asker = ctx.requester?.displayName || ctx.requester?.user?.username || null;
+      const body = String(action.text).trim().slice(0, CAPABILITIES.dm.maxLength);
+
+      await member.send({
+        content: `${body}\n\n-# — Sheogorath, ${asker ? `at ${asker}'s bidding` : 'of his own accord'}, out of ${guild.name}`,
+        // The same rule his replies follow: people can be pinged, a room cannot.
+        allowedMentions: { parse: ['users'] },
+      }).catch((err) => {
+        // Closed DMs are the usual answer and are not a fault of his. Said
+        // plainly so he can tell the asker why the letter came back.
+        throw new Error(`<@${action.userId}> will not take letters from me (${err.message})`);
+      });
+
+      return `sent <@${action.userId}> a message${asker ? ` for ${asker}` : ''}`;
+    }
+
+    case 'say': {
+      // Speaking in a room he is not standing in.
+      //
+      // Resolved by name or ID against the guild's own channel list, so a
+      // channel he was told about but cannot see does not become a silent
+      // failure — and never outside this guild, whatever the tag said.
+      const wanted = String(action.channel).replace(/^#/, '').trim();
+      const target =
+        guild.channels.cache.get(wanted) ||
+        guild.channels.cache.find((c) => c.name === wanted && c.isTextBased?.());
+
+      if (!target || !target.isTextBased?.()) {
+        throw new Error(`there is no channel called "${action.channel}" that I can speak in`);
+      }
+      const me = guild.members.me || (await guild.members.fetchMe());
+      if (!target.permissionsFor(me)?.has(PermissionFlagsBits.SendMessages)) {
+        throw new Error(`I am not permitted to speak in ${target.name}`);
+      }
+
+      const asker = ctx.requester?.displayName || ctx.requester?.user?.username || null;
+      await target.send({
+        content: String(action.text).trim().slice(0, CAPABILITIES.say.maxLength) +
+          (asker ? `\n\n-# — carried from elsewhere at ${asker}'s bidding` : ''),
+        allowedMentions: { parse: ['users'] },
+      });
+      return `spoke in #${target.name}${asker ? ` for ${asker}` : ''}`;
+    }
+
     case 'title': {
       // Where the limits on this one actually live.
       //

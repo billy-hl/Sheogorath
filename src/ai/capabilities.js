@@ -102,6 +102,21 @@ const CAPABILITIES = {
   timeout:    { tier: 'auto',    targets: 'author', immune: true,  perHour: 5,
                 autoMaxMinutes: 10, hardMaxMinutes: 7 * 24 * 60 },
 
+  // --- Speech. He talks for a living; these are the rooms he can talk in. ---
+  //
+  // Both run for anybody, which is unusual for a power aimed at a third party,
+  // and the reason is that speaking is not punishing. The protection is not a
+  // gate but a signature: everything he sends on somebody's behalf says whose
+  // behalf it was, so nobody can use him as an anonymous mouthpiece. A card in
+  // a staff channel would not add to that — it would only mean "tell Fisher I
+  // said hello" fails for everyone but an Owner, which is the wall this pair
+  // exists to remove.
+  //
+  // The per-hour caps are the real brake. Low enough that a room turning him
+  // on somebody runs out of him quickly, and every send is in the audit log.
+  dm:         { tier: 'auto',    targets: 'member', immune: false, perHour: 12, maxLength: 1200 },
+  say:        { tier: 'auto',    targets: 'none',   immune: false, perHour: 15, maxLength: 1200 },
+
   // A title: a cosmetic role, invented on the spot and hung on somebody.
   //
   // The first power he has that GIVES something rather than taking it away,

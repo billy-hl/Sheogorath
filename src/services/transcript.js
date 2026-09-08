@@ -16,23 +16,48 @@
  * the person addressing him gets to ask him for things.
  */
 
-/** How many messages back he can see. Roughly the last few minutes of a busy room. */
-const TRANSCRIPT_LIMIT = 25;
+/**
+ * How many messages back he can see, and Discord's ceiling for one fetch.
+ *
+ * 25 was a few minutes of a busy room, and he said so out loud — "the room log
+ * only covers the last 25 messages and doesn't reach back to yesterday" — which
+ * is the honest answer to a question he should have been able to answer.
+ *
+ * 100 is where it stops for two reasons that happen to agree. It is what a
+ * single `messages.fetch` returns, so anything more costs a paginated request
+ * per hundred on every reply he makes. And the room measures ~93 characters a
+ * message, so a hundred of them is ~2,300 tokens — under a dollar a month at
+ * this server's rate, against roughly ten for a thousand. Beyond that the money
+ * stops being the objection and the dilution starts: the answer is nearly
+ * always in the last hundred, and burying it in nine hundred more makes him
+ * worse, not better.
+ */
+const TRANSCRIPT_LIMIT = 100;
+
+/** Discord returns at most this many per fetch; asking for more silently gets this. */
+const FETCH_CEILING = 100;
 
 /** Per-message cap. Long enough for a paragraph, short enough that one wall of text can't eat the block. */
 const LINE_CHARS = 300;
 
-/** Whole-block cap, so a burst of long messages can't crowd out the facts underneath it. */
-const BLOCK_CHARS = 3500;
+/**
+ * Whole-block cap.
+ *
+ * Sized so the limit above is the one that actually bites: a hundred messages
+ * of this room is ~9,300 characters, and a cap below that would trim the window
+ * back to a third of what was paid for.
+ */
+const BLOCK_CHARS = 10000;
 
 /**
  * What he is handed in his own hall instead.
  *
- * The parlour is the room where the thread of the conversation IS the subject,
- * and it already carries twice the history and twice the reply budget, so it
- * can afford to see further back as well.
+ * The message count is Discord's ceiling either way now, so what the parlour
+ * gets is room for longer ones — people write paragraphs at him in there, and
+ * the per-message clamp plus a tighter block cap would quietly drop the oldest
+ * half of a conversation that is itself the subject.
  */
-const PARLOUR_TRANSCRIPT = { limit: 40, maxChars: 6000 };
+const PARLOUR_TRANSCRIPT = { limit: FETCH_CEILING, maxChars: 15000 };
 
 /**
  * Turn one message into a line, or null if there is nothing to show.
@@ -81,7 +106,14 @@ async function transcriptFor(message, { limit = TRANSCRIPT_LIMIT, maxChars = BLO
   try {
     // Before the triggering message, not including it — that one is already the
     // question, and repeating it as context makes him answer it twice.
-    const fetched = await message.channel.messages.fetch({ limit, before: message.id });
+    //
+    // Clamped rather than paginated: Discord returns 100 at most, and a caller
+    // asking for 500 should be told by the code that it gets 100, instead of
+    // discovering it in a reply that quietly stops short.
+    const fetched = await message.channel.messages.fetch({
+      limit: Math.min(limit, FETCH_CEILING),
+      before: message.id,
+    });
 
     const meId = message.client.user.id;
     const lines = [...fetched.values()]

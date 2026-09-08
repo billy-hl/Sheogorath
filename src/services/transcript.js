@@ -119,4 +119,32 @@ async function transcriptFor(message, { limit = TRANSCRIPT_LIMIT, maxChars = BLO
   }
 }
 
-module.exports = { transcriptFor, TRANSCRIPT_LIMIT, PARLOUR_TRANSCRIPT, LINE_CHARS, BLOCK_CHARS };
+/**
+ * The message somebody is replying TO, when they are replying to something.
+ *
+ * The transcript usually contains it already — but "usually" is the whole
+ * problem: a reply reaches back as far as the person scrolled, and the thing
+ * being answered is the one message in the room guaranteed to be the subject.
+ * Handed over separately so it cannot fall off the top of the window.
+ */
+async function replyTargetFor(message) {
+  const id = message.reference?.messageId;
+  if (!id) return '';
+  try {
+    const target =
+      message.channel.messages.cache.get(id) ||
+      (await message.channel.messages.fetch(id));
+    const rendered = line(target, message.client.user.id);
+    if (!rendered) return '';
+    const mine = target.author.id === message.client.user.id;
+    return (
+      `[They are replying to ${mine ? 'something YOU said' : 'this message'}, which is what their ` +
+      `words are about — read it as the thing they are answering]:\n${rendered}\n`
+    );
+  } catch (err) {
+    console.warn('[Transcript] Could not read the replied-to message:', err?.message || err);
+    return '';
+  }
+}
+
+module.exports = { transcriptFor, replyTargetFor, TRANSCRIPT_LIMIT, PARLOUR_TRANSCRIPT, LINE_CHARS, BLOCK_CHARS };

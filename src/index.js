@@ -395,6 +395,20 @@ client.on('messageCreate', async (message) => {
 
   if (!hasFeature(guildId, 'ai')) return;
 
+  // Answering him counts as addressing him.
+  //
+  // Every trigger below reads the TEXT of the message, and a Discord reply
+  // carries its target in `reference` rather than in what was typed — so
+  // replying to something he said and asking "why?" woke nobody, and the
+  // conversation died on his own last word. Nobody types a name at somebody
+  // they are already looking at.
+  if (await isReplyToMe(message)) {
+    console.log(`Reply to me in channel ${message.channelId} by ${message.author.username}: ${message.content}`);
+    clearPendingHelp(message);
+    askChatGPT(message);
+    return;
+  }
+
   if (
     message.content.includes(`<@!${client.user.id}>`) ||
     message.content.includes(`<@${client.user.id}>`) ||
@@ -896,6 +910,28 @@ client.on('messageReactionAdd', async (reaction, user) => {
 });
 
 /**
+ * Is this message a reply to one of his own?
+ *
+ * Only the reference is trusted: a quoted line can be forged by typing it, and
+ * the reference cannot. Costs one cache hit, or one fetch when the target has
+ * aged out — and only on messages that are replies at all.
+ */
+async function isReplyToMe(message) {
+  const id = message.reference?.messageId;
+  if (!id) return false;
+  try {
+    const target =
+      message.channel.messages.cache.get(id) ||
+      (await message.channel.messages.fetch(id));
+    return target?.author?.id === client.user.id;
+  } catch {
+    // Deleted, or beyond what he may read. Not a reply to him as far as
+    // anyone can prove, so he stays quiet rather than guessing.
+    return false;
+  }
+}
+
+/**
  * @param {import('discord.js').Message} userMessage the message to reply to
  * @param {object} [opts]
  * @param {string} [opts.contentOverride] text to answer instead of that
@@ -1012,10 +1048,11 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // and never stored: a room asked about "right now" has to be read now.
     let chatContext = '';
     try {
-      const { transcriptFor, PARLOUR_TRANSCRIPT } = require('./services/transcript');
+      const { transcriptFor, replyTargetFor, PARLOUR_TRANSCRIPT } = require('./services/transcript');
       // He sees further back in his own hall, where the thread of the
       // conversation is the subject rather than the backdrop.
-      chatContext = await transcriptFor(userMessage, inParlour ? PARLOUR_TRANSCRIPT : {});
+      const room = await transcriptFor(userMessage, inParlour ? PARLOUR_TRANSCRIPT : {});
+      chatContext = [room, await replyTargetFor(userMessage)].filter(Boolean).join('');
     } catch (err) {
       console.warn('[Transcript] Skipped:', err?.message || err);
     }

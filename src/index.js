@@ -942,13 +942,32 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     const sourceContent = contentOverride || userMessage.content;
     let cleanedContent = sourceContent;
     const mentionRegex = /<@!?(\d+)>/g;
+    const mentioned = [];
     let match;
     while ((match = mentionRegex.exec(sourceContent)) !== null) {
       try {
         const user = await client.users.fetch(match[1]);
         cleanedContent = cleanedContent.replace(match[0], `@${user.username}`);
+        if (user.id !== client.user.id && !mentioned.some((m) => m.id === user.id)) {
+          mentioned.push({ id: user.id, name: user.username });
+        }
       } catch (e) { /* keep original mention */ }
     }
+
+    // Names come in readable and go out as pings, if he wants them to.
+    //
+    // "Tell @Fisher to stop" is a request to get Fisher's attention, and a
+    // plain @Fisher in his reply is just text — the man never hears it. He
+    // cannot guess the syntax without the ID, so the IDs of the people this
+    // message named are handed over with it. Only those: he is given the means
+    // to answer the summons in front of him, not a directory to shout into.
+    const pingContext = mentioned.length
+      ? `[People named in this message, and how to make their name light up if you want their ` +
+        `attention — write it exactly, including the angle brackets: ` +
+        `${mentioned.map((m) => `${m.name} = <@${m.id}>`).join(', ')}. ` +
+        `Optional. A ping is for when you actually want them to look]:\n`
+      : '';
+
     
     // Build notes context for this user
     const userNotes = getUserNotes(guildId, userId);
@@ -988,7 +1007,20 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
       console.error('[Knowledge] Could not build context, answering ungrounded:', err?.message || err);
     }
 
-    const prefix = [knowledgeContext, notesContext, memoriesContext].filter(Boolean).join('\n');
+    // The conversation happening around him, which is not the same thing as the
+    // conversation he has been having with this one person. Fetched per turn
+    // and never stored: a room asked about "right now" has to be read now.
+    let chatContext = '';
+    try {
+      const { transcriptFor, PARLOUR_TRANSCRIPT } = require('./services/transcript');
+      // He sees further back in his own hall, where the thread of the
+      // conversation is the subject rather than the backdrop.
+      chatContext = await transcriptFor(userMessage, inParlour ? PARLOUR_TRANSCRIPT : {});
+    } catch (err) {
+      console.warn('[Transcript] Skipped:', err?.message || err);
+    }
+
+    const prefix = [knowledgeContext, chatContext, pingContext, notesContext, memoriesContext].filter(Boolean).join('\n');
     const messages = [
       ...history.slice(-historyDepth),
       { role: 'user', content: prefix + (prefix ? '\n' : '') + cleanedContent }
@@ -1142,10 +1174,14 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     }
     
     for (let i = 0; i < chunks.length; i++) {
+      // People can be pinged; @everyone and role pings cannot. He is handed
+      // user IDs so he can answer "tell so-and-so..." properly, and talking him
+      // into a mass ping should not be one line of chat away.
+      const mentions = { allowedMentions: { parse: ['users'] } };
       if (i === 0) {
-        await userMessage.reply(chunks[i]);
+        await userMessage.reply({ content: chunks[i], ...mentions });
       } else {
-        await channel.send(chunks[i]);
+        await channel.send({ content: chunks[i], ...mentions });
       }
     }
   }

@@ -127,8 +127,28 @@ function selfFacts({ guildConfig, requester, isHelp = false, guildName = null })
   );
 
   if (canPunish) {
-    lines.push(`You can only act on the person you are replying to, unless ${approver} tells you otherwise. ${titles.approvers} cannot be acted on at all.`);
+    lines.push(
+      `You can only USE THOSE POWERS ON the person you are replying to, unless ${approver} tells you ` +
+      `otherwise. ${titles.approvers} cannot be acted on at all.`,
+    );
   }
+
+  // The line above is about punishing people, and he read it as being about
+  // talking to them. Asked to tell someone off on a third party's behalf he
+  // answered "I can't reach out and tell him anything, I only deal with the
+  // person right in front of me" — while standing in a public channel that the
+  // man in question can read. Nothing stops him saying it; he had simply
+  // confused the limits on his hands with limits on his mouth.
+  lines.push(
+    'WHO YOU MAY SPEAK TO: everyone. You are not whispering to one person — you are talking out ' +
+    'loud in a room, and everybody in it can read what you say, including whoever is being ' +
+    'discussed. So address anyone you like by name, answer on their behalf, tease them, take ' +
+    "their side, pass on a message, or deliver somebody's complaint to their face. Being asked " +
+    'to TELL someone something is a request to SAY it, and saying things is the one power you ' +
+    'always have. Never claim you cannot reach a person who is standing in the same room, and ' +
+    'never turn a request to speak into a refusal — the limits above are on what you may DO to ' +
+    'people, not on who you may talk to or about.',
+  );
   lines.push(`Current arrangement: ${mode} — ${MODE_MEANING(approver)[mode]}.`);
 
   // The thing he cannot see from the capability list: whether asking is even

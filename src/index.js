@@ -1060,6 +1060,8 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // conversation he has been having with this one person. Fetched per turn
     // and never stored: a room asked about "right now" has to be read now.
     let chatContext = '';
+    // The one message their words are actually about, when they are replying.
+    let replyContext = '';
     // Whether this question is reaching back. Decided here rather than inside
     // the block below because it also decides where the transcript SITS.
     let deepRecall = false;
@@ -1081,8 +1083,14 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
       // else it is background he happens to have, and saying so is the
       // difference between a bot that knows the room and one that cannot stop
       // reciting it.
-      const room = await transcriptFor(userMessage, { ...window, asSubject: deep });
-      chatContext = [room, await replyTargetFor(userMessage)].filter(Boolean).join('');
+      chatContext = await transcriptFor(userMessage, { ...window, asSubject: deep });
+
+      // Kept apart from the room, because the two belong at opposite ends of
+      // the prompt. The room is background; the message somebody is replying to
+      // is the thing their words are about, and when it travelled with the room
+      // to the far end he answered a reply by repeating his own last message —
+      // there was nothing near the question for him to answer.
+      replyContext = await replyTargetFor(userMessage);
     } catch (err) {
       console.warn('[Transcript] Skipped:', err?.message || err);
     }
@@ -1114,25 +1122,48 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // Reversed when somebody asks him to look back, because then the log IS the
     // question and belongs where the question is.
     const blocks = deepRecall
-      ? [notesContext, memoriesContext, knowledgeContext, deletionContext, pingContext, chatContext]
-      : [chatContext, notesContext, memoriesContext, knowledgeContext, deletionContext, pingContext];
+      ? [notesContext, memoriesContext, knowledgeContext, deletionContext, replyContext, pingContext, chatContext]
+      : [chatContext, notesContext, memoriesContext, knowledgeContext, deletionContext, replyContext, pingContext];
     const prefix = blocks.filter(Boolean).join('\n');
     const messages = [
       ...history.slice(-historyDepth),
       { role: 'user', content: prefix + (prefix ? '\n' : '') + cleanedContent }
     ];
     
-    const assistantReply = await getAIResponseWithHistory(messages, replyTokens, {
+    const askOnce = (extraSuffix = '') => getAIResponseWithHistory(messages, replyTokens, {
       // The persona's own "1-2 sentences max" is cut either way and replaced
       // with the right length for the room: none at all in the parlour, a few
       // sentences everywhere else. Someone who has gone to the trouble of
       // addressing him deserves more than a punchline.
       systemBase: inParlour ? parlourPersona() : conversationalPersona(),
-      systemSuffix: inParlour ? PARLOUR_PROMPT : '',
+      systemSuffix: (inParlour ? PARLOUR_PROMPT : '') + extraSuffix,
       // Which server he is standing in. Decides which powers he is told he has
       // and what this guild calls the people above him.
       guildId,
     });
+
+    let assistantReply = await askOnce();
+
+    // Said it already? Ask once more, with that fact in front of him.
+    //
+    // Told not to repeat himself he still did, because when the context barely
+    // changes between two turns the most probable reply is the one he just
+    // gave. A prompt rule cannot outvote that; being shown the duplicate can.
+    // One retry only — a repeated message is worse than a fresh one and much
+    // better than silence, so the second answer goes out either way.
+    try {
+      const { isRepeat, retryNudge, previousReply, remember } = require('./ai/repetition');
+      const check = isRepeat(userMessage.channelId, assistantReply);
+      if (check.repeated) {
+        console.warn(`[Repetition] ${Math.round(check.score * 100)}% the same as his last — asking again.`);
+        const second = await askOnce(retryNudge(previousReply(userMessage.channelId)));
+        if (second && second.trim()) assistantReply = second;
+      }
+      remember(userMessage.channelId, assistantReply);
+    } catch (err) {
+      console.warn('[Repetition] Check skipped:', err?.message || err);
+    }
+
     const raw = assistantReply && assistantReply.trim()
       ? assistantReply
       : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";

@@ -219,7 +219,17 @@ async function replyTargetFor(message) {
     const mine = target.author.id === message.client.user.id;
     return (
       `[They are replying to ${mine ? 'something YOU said' : 'this message'}, which is what their ` +
-      `words are about — read it as the thing they are answering]:\n${rendered}\n`
+      `words are about — read it as the thing they are answering]:\n${rendered}\n` +
+      (mine
+        // Handed his own last message with no instruction, he sent it again
+        // nearly word for word — someone answered a question he had asked, and
+        // he responded by re-asking it. What was missing was not the message,
+        // it was what to do with it.
+        ? `[That was YOUR message. They are carrying the conversation on, so answer what THEY have ` +
+          `now said. Do not repeat it, do not rephrase it, and do not ask again for something they ` +
+          `have just given you. If you asked a question and they have answered it, respond to their ` +
+          `answer like someone who was listening]:\n`
+        : '')
     );
   } catch (err) {
     console.warn('[Transcript] Could not read the replied-to message:', err?.message || err);

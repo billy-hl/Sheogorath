@@ -22,13 +22,19 @@ const PARLOUR_TOPIC =
   'in one-liners. He knows the state of the server, the rules, and you.';
 
 /**
- * How much of the conversation he carries here, against 5 everywhere else.
+ * How much of the conversation he carries here, against four everywhere else.
  *
- * Twenty messages is roughly ten exchanges — long enough to hold a thread of
- * argument, short enough that the oldest turns fall away before the context
- * cost becomes the dominant part of the bill.
+ * Was twenty, when replayed turns were the only memory he had. The transcript
+ * now hands him a hundred messages of this room on every reply, so twenty more
+ * of the same exchanges was the same minutes counted twice — and the room he
+ * talks in most is the one where being unable to stop referring backwards is
+ * least wanted.
+ *
+ * Eight is four exchanges: enough to hold the thread of an argument that the
+ * channel log alone would not attribute to him, and light enough that the
+ * conversation in front of him stays the loudest thing in the prompt.
  */
-const PARLOUR_HISTORY = 20;
+const PARLOUR_HISTORY = 8;
 
 /** Reply ceiling here, against the 500 default. */
 const PARLOUR_MAX_TOKENS = 1200;

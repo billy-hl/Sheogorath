@@ -92,11 +92,18 @@ const HELP_MAX_TOKENS = 800;
  * five full turns: enough to follow a conversation that develops, still far
  * short of the parlour's 20, which is his own room and priced accordingly.
  *
- * The cost of raising this is real but small — history is chat turns only, and
- * the bulk of each request is the knowledge and notes prefixed onto the current
- * turn. Kept even so, so the window never starts mid-exchange on his own reply.
+ * Cut from ten once the transcript existed, because the two overlap almost
+ * entirely and he was being handed the same recent minutes twice — once as the
+ * room's log and again as his own replayed turns. Weighted double like that,
+ * the immediate past outweighed the question in front of him, and it showed:
+ * asked what a word meant, he answered with who had used it and who had agreed.
+ *
+ * Four entries is two exchanges, which is all this needs to be now. The room is
+ * carried by the transcript; what history adds on top is only the thread of
+ * what HE said to THIS person, which the channel log alone can lose track of
+ * when several conversations are interleaved.
  */
-const CHAT_HISTORY = 10;
+const CHAT_HISTORY = 4;
 
 /**
  * Minimum gap between one person's AI replies.
@@ -1066,7 +1073,11 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
       const window = deep ? RECALL_TRANSCRIPT : (inParlour ? PARLOUR_TRANSCRIPT : {});
       if (deep) console.log(`[Transcript] Deep recall for ${userMessage.author.username}`);
 
-      const room = await transcriptFor(userMessage, window);
+      // Only a question that reaches back makes the log the subject. Everywhere
+      // else it is background he happens to have, and saying so is the
+      // difference between a bot that knows the room and one that cannot stop
+      // reciting it.
+      const room = await transcriptFor(userMessage, { ...window, asSubject: deep });
       chatContext = [room, await replyTargetFor(userMessage)].filter(Boolean).join('');
     } catch (err) {
       console.warn('[Transcript] Skipped:', err?.message || err);

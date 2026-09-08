@@ -23,12 +23,12 @@ const { players: rconPlayers, serverMessage } = require('../services/zomboid/rco
 const admin = require('../services/zomboid/admin');
 const access = require('../services/zomboid/access');
 const items = require('../services/zomboid/items');
+const restoreItems = require('../services/zomboid/restoreItems');
 const { characterName, playersDbPath } = require('../services/zomboid/players');
 const { collectPlayers, isAlive, knownSkills } = require('../services/zomboid/leaderboard');
 const restarts = require('../services/zomboid/restart');
 const xp = require('../services/zomboid/xp');
 const raid = require('../services/zomboid/raid');
-const siege = require('../services/zomboid/siege');
 const baseRaid = require('../services/zomboid/baseRaid');
 
 const COLOR = 0x8b1a1a;
@@ -188,6 +188,16 @@ module.exports = {
             .setRequired(false)))
     .addSubcommand((s) =>
       s
+        .setName('restore')
+        .setDescription('Give back what a player lost across the last wipe')
+        .addStringOption(playerOption('player', 'Whose items to restore'))
+        .addBooleanOption((o) =>
+          o
+            .setName('apply')
+            .setDescription('Actually grant the items (default: just show what is missing)')
+            .setRequired(false)))
+    .addSubcommand((s) =>
+      s
         .setName('addxp')
         .setDescription('Grant XP in one skill')
         .addStringOption(playerOption('player', 'Who gets the XP'))
@@ -222,6 +232,11 @@ module.exports = {
             .setRequired(true)
             .setMinValue(1)
             .setMaxValue(xp.MAX_LEVEL)))
+    .addSubcommand((s) =>
+      s
+        .setName('heal')
+        .setDescription('Heal a player to full health')
+        .addStringOption(playerOption('player', 'Player')))
     .addSubcommand((s) =>
       s
         .setName('godmode')
@@ -322,41 +337,7 @@ module.exports = {
               { name: 'players — spawned around them right now', value: 'players' },
             )))
     .addSubcommand((s) =>
-      s
-        .setName('siege')
-        .setDescription('Stock a random survivor house with loot and ring it with zombies')
-        .addStringOption((o) =>
-          o
-            .setName('town')
-            .setDescription('Restrict to one town (default: anywhere)')
-            .setRequired(false)
-            .setAutocomplete(true))
-        .addIntegerOption((o) =>
-          o
-            .setName('zombies')
-            .setDescription('How many surround it (default 200)')
-            .setMinValue(10)
-            .setMaxValue(500)
-            .setRequired(false))
-        .addStringOption((o) =>
-          o
-            .setName('loot')
-            .setDescription('Loot tier (default high)')
-            .setRequired(false)
-            .addChoices({ name: 'standard', value: 'standard' }, { name: 'high', value: 'high' }))
-        .addBooleanOption((o) =>
-          o
-            .setName('silent')
-            .setDescription('Place it with no announcement — players have to find it')
-            .setRequired(false)))
-    .addSubcommand((s) =>
-      s.setName('siege-status').setDescription('How the current siege is going'))
-    .addSubcommand((s) =>
-      s.setName('raid-status').setDescription('How the current base raid is going'))
-    .addSubcommand((s) =>
-      s
-        .setName('siege-cancel')
-        .setDescription('Call off the running siege and clear its loot and horde')),
+      s.setName('raid-status').setDescription('How the current base raid is going')),
 
   /**
    * Autocomplete for the player / item / skill options.
@@ -371,16 +352,7 @@ module.exports = {
     let choices = [];
 
     try {
-      if (focused.name === 'town') {
-        // Towns that actually have candidate houses in the map's spawnpoints —
-        // offering one with none would arm a siege that can never place loot.
-        const query = focused.value.toLowerCase();
-        choices = siege
-          .towns(guildId)
-          .filter((t) => t.toLowerCase().includes(query))
-          .slice(0, 25)
-          .map((t) => ({ name: t.slice(0, 100), value: t.slice(0, 100) }));
-      } else if (focused.name === 'player' && sub === 'access') {
+      if (focused.name === 'player' && sub === 'access') {
         // The only subcommand that reaches players who aren't logged in:
         // promoting someone when they ask, rather than waiting for them to be
         // online, is the normal case. Their current level rides along in the
@@ -565,6 +537,105 @@ module.exports = {
           return;
         }
 
+        // Restoring is deliberately two steps. The diff that drives it is a
+        // heuristic over a binary blob (see services/zomboid/restoreItems.js),
+        // and it is compared against what the player holds *now* — so a second
+        // run before they next save would hand out everything a second time.
+        // Showing the list first makes both of those a human's decision.
+        case 'restore': {
+          const apply = interaction.options.getBoolean('apply') || false;
+          const result = restoreItems.preview(guildId, player);
+          if (!result.ok) {
+            await interaction.editReply(`⚠️ ${result.reason}`);
+            return;
+          }
+          const who = label(dbPath, player);
+          if (!result.total) {
+            await interaction.editReply(
+              `✅ **${who}** is not missing anything from before the wipe ` +
+              `(\`${result.backup}\`).`,
+            );
+            return;
+          }
+          if (result.overCap) {
+            await interaction.editReply(
+              `⚠️ The diff for **${who}** came back with ${result.total} items, ` +
+              `over the ${result.maxItems} cap. That usually means it has gone ` +
+              'wrong rather than that they lost that much. Not restoring.',
+            );
+            return;
+          }
+
+          const lines = result.missing
+            .map((m) => `\`${m.id}\`${m.count > 1 ? ` ×${m.count}` : ''}`)
+            .join(', ');
+          // Discord caps a message at 2000 characters and these lists run long.
+          const shown = lines.length > 1500 ? `${lines.slice(0, 1500)}…` : lines;
+          const sizes =
+            `${result.beforeBytes.toLocaleString()} → ${result.nowBytes.toLocaleString()} bytes, ` +
+            `${result.beforeTokens} → ${result.nowTokens} item tokens`;
+          // THE CAVEAT IS UNCONDITIONAL AND THAT IS THE POINT.
+          // A player record holds what somebody CARRIES. Anything they stashed
+          // in a base container lives in the world, not in this blob — so
+          // "stored at home" and "lost in the wipe" look identical here. Two
+          // players were observed looting hard (record tripling) and then
+          // emptying it all into storage (record falling below its pre-wipe
+          // size) within half an hour. Restoring on that signal alone would
+          // duplicate a stash rather than replace one.
+          const caveat =
+            '\n\n⚠️ This is "carried before, not carried now" — which also ' +
+            'covers items they **stored in a base**, used, traded or dropped. ' +
+            'Confirm with the player before granting.' +
+            (result.grew
+              ? ' Their record has **grown** since the wipe, which points to ' +
+                'ordinary play rather than loss.'
+              : '');
+
+          if (!apply) {
+            await interaction.editReply(
+              `**${who}** — ${result.total} item(s) present before the wipe and ` +
+              `missing now.\n_${sizes}_\n\n${shown}${caveat}\n\n` +
+              'Run again with `apply: true` to grant these.',
+            );
+            return;
+          }
+
+          // rconPlayers resolves to { count, names } and throws when the
+          // server is not answering -- so a null here means "could not tell",
+          // which must not be treated as "offline".
+          const online = await rconPlayers(guildId).catch(() => null);
+          const names = Array.isArray(online?.names) ? online.names : null;
+          if (names && !names.includes(player)) {
+            await interaction.editReply(
+              `⚠️ **${who}** is not online. \`additem\` only reaches a connected ` +
+              'player, so this would silently do nothing. Ask them to log in first.',
+            );
+            return;
+          }
+
+          let granted = 0;
+          const failed = [];
+          for (const m of result.missing) {
+            try {
+              await admin.giveItem(guildId, player, m.id, m.count);
+              granted += 1;
+            } catch (err) {
+              failed.push(`${m.id} (${err.message})`);
+            }
+          }
+          const problems = failed.length
+            ? `\n\n⚠️ ${failed.length} failed: ${failed.slice(0, 5).join(', ')}`
+            : '';
+          await interaction.editReply(
+            `✅ Restored **${who}**: ${granted} of ${result.missing.length} entries ` +
+            `(${result.total} items) from \`${result.backup}\`.${problems}\n\n` +
+            '_Condition, ammo and container nesting are not preserved — items come ' +
+            'back fresh. If any of this was sitting in their base rather than lost, ' +
+            'they now have two of it._',
+          );
+          return;
+        }
+
         case 'addxp': {
           const skill = interaction.options.getString('skill');
           const amount = interaction.options.getInteger('amount');
@@ -607,6 +678,15 @@ module.exports = {
           );
           return;
         }
+
+        case 'heal':
+          // Takes a couple of seconds: god mode has to stay on long enough for
+          // a body-damage tick to land. See admin.heal for why.
+          await admin.heal(guildId, player);
+          await interaction.editReply(
+            `✅ Healed **${label(dbPath, player)}** to full.`,
+          );
+          return;
 
         case 'godmode':
           await admin.godMode(guildId, player, on);
@@ -748,18 +828,15 @@ module.exports = {
           // `players` is the original engine, kept because it is the only thing
           // that works when you want the horde to land NOW.
           if ((interaction.options.getString('target') ?? 'safehouse') === 'safehouse') {
-            if (!siege.modEnabled(guildId)) {
-              await interaction.editReply(
-                '❌ The `WabbajackSiege` server mod is not enabled — base raids run inside it.\n' +
-                  'Add it to `MOD_IDS` in the server `.env` and restart.',
-              );
-              return;
-            }
+            // One check, not two. The old pair asked "is the mod in MOD_IDS"
+            // and then "is the module on disk"; the first is strictly weaker —
+            // a listed mod whose files never downloaded passes it — so it only
+            // ever produced a second, less accurate way to fail.
             if (!baseRaid.moduleInstalled(guildId)) {
               await interaction.editReply(
-                '❌ The installed `WabbajackSiege` build has no base-raid module, so arming one ' +
+                '❌ The `WabbajackRaids` server mod is not installed, so arming a base raid ' +
                   'would write a request nothing reads.\n' +
-                  'Publish the Workshop update and restart, or use `target: players`.',
+                  'Add it to `MOD_IDS` in the server `.env` and restart, or use `target: players`.',
               );
               return;
             }
@@ -857,71 +934,6 @@ module.exports = {
           return;
         }
 
-        case 'siege': {
-          if (!siege.modEnabled(guildId)) {
-            await interaction.editReply(
-              '❌ The `WabbajackSiege` server mod is not enabled — a siege would do nothing.\n' +
-                'Add it to `MOD_IDS` in the server `.env` and restart.',
-            );
-            return;
-          }
-          const town = interaction.options.getString('town');
-          const zombies = interaction.options.getInteger('zombies') ?? 200;
-          const loot = interaction.options.getString('loot') ?? 'high';
-          const silent = interaction.options.getBoolean('silent') ?? false;
-
-          let ev;
-          try {
-            ev = siege.arm(guildId, { town, zombies, loot, silent });
-          } catch (err) {
-            await interaction.editReply(`❌ ${err.message}`);
-            return;
-          }
-
-          // Announced in the open: the coordinates ARE the event. Travelling
-          // there through the world is the first half of the risk, and a siege
-          // nobody is told about is just a horde nobody finds.
-          //
-          // Unless silent, which is the other legitimate mode: seed the house
-          // and let somebody stumble on it, with no race and no crowd.
-          // Town, not coordinates. Players have no coordinate readout, so the
-          // one concrete detail in the old announcement was the one they could
-          // not act on.
-          const where = `**${ev.town.replace(/, KY$/, '')}**`;
-          // No in-game message from here any more. The mod announces when the
-          // siege actually FIRES; this fired at ARM time, which on an armed
-          // event that nobody is near could be a long time before it exists.
-
-          const announceId = silent ? null : announceChannelId(cfg);
-          if (announceId) {
-            const ch = await interaction.client.channels.fetch(announceId).catch(() => null);
-            if (ch) {
-              await ch.send({
-                embeds: [new EmbedBuilder()
-                  .setColor(COLOR)
-                  .setTitle('A survivor holdout has been found')
-                  .setDescription(
-                    `Somebody was holed up at ${where} — and did not make it.\n\n` +
-                      'There are supplies still inside. There are also **' + ev.zombies +
-                      '** of them around it.\n\n' +
-                      '**Five minutes** from the moment the first person steps through the door, ' +
-                      'whatever has not been carried out is gone.',
-                  )
-                  .setTimestamp()],
-              }).catch(() => null);
-            }
-          }
-
-          await interaction.editReply(
-            `🏚️ Armed ${silent ? '**silent** ' : ''}siege \`${ev.id}\` in ` +
-              `**${ev.town.replace(/, KY$/, '')}** (${ev.x},${ev.y}) — ` +
-              `${ev.zombies} zombies, ${ev.loot} loot.\n` +
-              '_The mod places it the moment the area streams in — before anyone can see it. ' +
-              'Track it with `/pz siege-status`._',
-          );
-          return;
-        }
-
         case 'raid-status': {
           const st = baseRaid.status(guildId);
           if (!st) {
@@ -943,57 +955,6 @@ module.exports = {
               )
               .setTimestamp()],
           });
-          return;
-        }
-
-        case 'siege-cancel': {
-          if (!siege.modEnabled(guildId)) {
-            await interaction.editReply('❌ The `WabbajackSiege` server mod is not enabled.');
-            return;
-          }
-          const st = siege.status(guildId);
-          if (!st || st.phase === 'done') {
-            await interaction.editReply('Nothing to cancel — no siege is running.');
-            return;
-          }
-          const ev = siege.cancel(guildId);
-          await interaction.editReply(
-            `🛑 Cancel sent for the siege at **${st.x},${st.y}** (request \`${ev.id}\`).\n` +
-              '_The mod picks this up within a minute: it removes the horde, strips the house ' +
-              'and clears loose loot around it. Anything already carried out is kept._',
-          );
-          return;
-        }
-
-        case 'siege-status': {
-          const st = siege.status(guildId);
-          if (!st) {
-            await interaction.editReply('No siege has reported yet.');
-            return;
-          }
-          // The status file outlives the event that wrote it, so a finished
-          // siege reads as current until you notice the phase. Stamping the
-          // embed with the file's mtime rather than "now" makes an hour-old
-          // report look an hour old.
-          const reportedAt = siege.statusTime(guildId);
-          const phase = {
-            armed: '⏳ Armed — waiting for someone to get close enough to load the area',
-            active: '🔥 Active — loot and horde are placed',
-            broken: '🩸 Broken — the horde is beaten, cleanup pending',
-            done: '✅ Done — site cleaned up',
-          }[st.phase] || st.phase;
-          const embed = new EmbedBuilder()
-            .setColor(COLOR)
-            .setTitle('Siege status')
-            .setDescription(phase)
-            .addFields(
-              { name: 'Location', value: `${st.x}, ${st.y}`, inline: true },
-              { name: 'Spawned', value: `${st.spawned || 0}`, inline: true },
-              { name: 'Still alive', value: `${st.alive || 0}`, inline: true },
-            )
-            .setFooter({ text: `siege ${st.id || '?'} — last reported` })
-            .setTimestamp(reportedAt || undefined);
-          await interaction.editReply({ embeds: [embed] });
           return;
         }
 

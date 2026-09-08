@@ -64,16 +64,20 @@ function blank(steamid) {
  * assuming sequential reads.
  *
  * @param {string} logDir
+ * @param {number} [sinceMs=0] Ignore anything logged before this instant. Zero
+ *   is all-time, which is what every caller wanted until seasons existed; the
+ *   leaderboard passes the wipe date so last season's characters stop holding
+ *   records against people who started fresh.
  * @returns {Map<string, ReturnType<typeof blank>>}
  */
-function collectPlayers(logDir) {
+function collectPlayers(logDir, sinceMs = 0) {
   const players = new Map();
   const rec = (steamid) => {
     if (!players.has(steamid)) players.set(steamid, blank(steamid));
     return players.get(steamid);
   };
 
-  for (const { at, line } of linesSince(logDir, 'PerkLog', 0, ALL_HISTORY_DIRS)) {
+  for (const { at, line } of linesSince(logDir, 'PerkLog', sinceMs, ALL_HISTORY_DIRS)) {
     const dump = SKILL_DUMP.exec(line);
     if (dump) {
       const r = rec(dump[1]);

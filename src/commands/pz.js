@@ -23,6 +23,7 @@ const { players: rconPlayers, serverMessage } = require('../services/zomboid/rco
 const admin = require('../services/zomboid/admin');
 const access = require('../services/zomboid/access');
 const items = require('../services/zomboid/items');
+const restoreItems = require('../services/zomboid/restoreItems');
 const { characterName, playersDbPath } = require('../services/zomboid/players');
 const { collectPlayers, isAlive, knownSkills } = require('../services/zomboid/leaderboard');
 const restarts = require('../services/zomboid/restart');
@@ -188,6 +189,16 @@ module.exports = {
             .setRequired(false)))
     .addSubcommand((s) =>
       s
+        .setName('restore')
+        .setDescription('Give back what a player lost across the last wipe')
+        .addStringOption(playerOption('player', 'Whose items to restore'))
+        .addBooleanOption((o) =>
+          o
+            .setName('apply')
+            .setDescription('Actually grant the items (default: just show what is missing)')
+            .setRequired(false)))
+    .addSubcommand((s) =>
+      s
         .setName('addxp')
         .setDescription('Grant XP in one skill')
         .addStringOption(playerOption('player', 'Who gets the XP'))
@@ -222,6 +233,11 @@ module.exports = {
             .setRequired(true)
             .setMinValue(1)
             .setMaxValue(xp.MAX_LEVEL)))
+    .addSubcommand((s) =>
+      s
+        .setName('heal')
+        .setDescription('Heal a player to full health')
+        .addStringOption(playerOption('player', 'Player')))
     .addSubcommand((s) =>
       s
         .setName('godmode')
@@ -565,6 +581,106 @@ module.exports = {
           return;
         }
 
+        // Restoring is deliberately two steps. The diff that drives it is a
+        // heuristic over a binary blob (see services/zomboid/restoreItems.js),
+        // and it is compared against what the player holds *now* — so a second
+        // run before they next save would hand out everything a second time.
+        // Showing the list first makes both of those a human's decision.
+        case 'restore': {
+          const apply = interaction.options.getBoolean('apply') || false;
+          const result = restoreItems.preview(guildId, player);
+          if (!result.ok) {
+            await interaction.editReply(`⚠️ ${result.reason}`);
+            return;
+          }
+          const who = label(dbPath, player);
+          if (!result.total) {
+            await interaction.editReply(
+              `✅ **${who}** is not missing anything from before the wipe ` +
+              `(\`${result.backup}\`).`,
+            );
+            return;
+          }
+          if (result.overCap) {
+            await interaction.editReply(
+              `⚠️ The diff for **${who}** came back with ${result.total} items, ` +
+              `over the ${result.maxItems} cap. That usually means it has gone ` +
+              'wrong rather than that they lost that much. Not restoring.',
+            );
+            return;
+          }
+
+          const lines = result.missing
+            .map((m) => `\`${m.id}\`${m.count > 1 ? ` ×${m.count}` : ''}`)
+            .join(', ');
+          // Discord caps a message at 2000 characters and these lists run long.
+          const shown = lines.length > 1500 ? `${lines.slice(0, 1500)}…` : lines;
+          const sizes =
+            `${result.beforeBytes.toLocaleString()} → ${result.nowBytes.toLocaleString()} bytes, ` +
+            `${result.beforeTokens} → ${result.nowTokens} item tokens`;
+          // THE CAVEAT IS UNCONDITIONAL AND THAT IS THE POINT.
+          // A player record holds what somebody CARRIES. Anything they stashed
+          // in a base container lives in the world, not in this blob — so
+          // "stored at home" and "lost in the wipe" look identical here. Two
+          // players were observed looting hard (record tripling) and then
+          // emptying it all into storage (record falling below its pre-wipe
+          // size) within half an hour. Restoring on that signal alone would
+          // duplicate a stash rather than replace one.
+          const caveat =
+            '\n\n⚠️ This is "carried before, not carried now" — which also ' +
+            'covers items they **stored in a base**, used, traded or dropped. ' +
+            'Confirm with the player before granting.' +
+            (result.grew
+              ? ' Their record has **grown** since the wipe, which points to ' +
+                'ordinary play rather than loss.'
+              : '');
+
+          if (!apply) {
+            await interaction.editReply(
+              `**${who}** — ${result.total} item(s) present before the wipe and ` +
+              `missing now.\n_${sizes}_\n\n${shown}${caveat}\n\n` +
+              'Run again with `apply: true` to grant these.',
+            );
+            return;
+          }
+
+          // rconPlayers resolves to { count, names } and throws when the
+          // server is not answering -- so a null here means "could not tell",
+          // which must not be treated as "offline".
+          const online = await rconPlayers(guildId).catch(() => null);
+          const names = Array.isArray(online?.names) ? online.names : null;
+          if (names && !names.includes(player)) {
+            await interaction.editReply(
+              `⚠️ **${who}** is not online. \`additem\` only reaches a connected ` +
+              'player, so this would silently do nothing. Ask them to log in first.',
+            );
+            return;
+          }
+
+          let granted = 0;
+          const failed = [];
+          for (const m of result.missing) {
+            try {
+              await admin.giveItem(guildId, player, m.id, m.count);
+              granted += 1;
+            } catch (err) {
+              failed.push(`${m.id} (${err.message})`);
+            }
+          }
+          const problems = failed.length
+            ? `\n\n⚠️ ${failed.length} failed: ${failed.slice(0, 5).join(', ')}`
+            : '';
+          await interaction.editReply(
+            `✅ Restored **${who}**: ${granted} of ${result.missing.length} entries ` +
+            `(${result.total} items) from \`${result.backup}\`.${problems}\n\n` +
+            '_Condition, ammo and container nesting are not preserved — items come ' +
+            'back fresh. If any of this was sitting in their base rather than lost, ' +
+            'they now have two of it._',
+          );
+          return;
+        }
+
+
         case 'addxp': {
           const skill = interaction.options.getString('skill');
           const amount = interaction.options.getInteger('amount');
@@ -607,6 +723,15 @@ module.exports = {
           );
           return;
         }
+
+        case 'heal':
+          // Takes a couple of seconds: god mode has to stay on long enough for
+          // a body-damage tick to land. See admin.heal for why.
+          await admin.heal(guildId, player);
+          await interaction.editReply(
+            `✅ Healed **${label(dbPath, player)}** to full.`,
+          );
+          return;
 
         case 'godmode':
           await admin.godMode(guildId, player, on);

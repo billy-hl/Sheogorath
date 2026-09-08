@@ -102,6 +102,37 @@ function godMode(guildId, who, on) {
   return act(guildId, `godmodplayer ${q(who)} -${on ? 'true' : 'false'}`, who);
 }
 
+/**
+ * Heal a player to full, by flicking god mode on and straight back off.
+ *
+ * WHY THIS WORKS, AND WHY IT NEEDS THE PAUSE
+ * There is no heal command in PZ. `setGodMod` itself only sets a flag -- it does
+ * not touch health. The healing happens in BodyDamage.Update(), which checks
+ * isGodMod() and calls RestoreToFullHealth() on that pass. So the cure arrives
+ * on the next body-damage tick WHILE the flag is set, not when the flag is set.
+ *
+ * Toggling on and off back-to-back is therefore a race: it heals only if an
+ * update happens to land in the gap. At a healthy ~10 ticks/sec it usually does;
+ * at the 3.5 ticks/sec this server saw on 2026-08-28 it often would not, and the
+ * command would report success having done nothing. HOLD_MS is generous enough
+ * that even a struggling server gets several passes.
+ *
+ * God mode is turned off again even if the wait is interrupted, because leaving
+ * a player invincible on a PvP server is a far worse failure than not healing.
+ */
+const HEAL_HOLD_MS = 2500;
+
+async function heal(guildId, who) {
+  await act(guildId, `godmodplayer ${q(who)} -true`, who);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, HEAL_HOLD_MS));
+  } finally {
+    // Not inside the try: this must run whatever happened above.
+    await act(guildId, `godmodplayer ${q(who)} -false`, who);
+  }
+  return `Healed ${who}.`;
+}
+
 /** Invisibility to zombies. */
 function invisible(guildId, who, on) {
   return act(guildId, `invisibleplayer ${q(who)} -${on ? 'true' : 'false'}`, who);
@@ -118,6 +149,7 @@ module.exports = {
   giveItem,
   addXp,
   godMode,
+  heal,
   invisible,
   noclip,
 };

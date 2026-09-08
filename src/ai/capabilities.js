@@ -56,6 +56,13 @@ const DEFAULT_MODE = 'shadow';
  * `perHour` is a rolling per-guild cap on *executions* — proposals are not
  * rationed, because a proposal costs a Sheriff one glance and nothing else.
  */
+/**
+ * Auto-tier actions that take something away from the person they land on.
+ * Used by the help-channel rule below; everything else in the auto tier is
+ * bookkeeping and stays automatic everywhere.
+ */
+const PUNITIVE = new Set(['delete', 'warn', 'timeout']);
+
 const CAPABILITIES = {
   // --- Record-keeping. Nobody is punished by a note, so these run freely. ---
   note:       { tier: 'auto',    targets: 'member', immune: false, perHour: 30 },
@@ -96,9 +103,9 @@ const CAPABILITIES = {
   // `ownerTier` is the exception an Owner asking in chat earns: they are the
   // person the approval card would have been escalated to, so making them click
   // their own request is ceremony. It stops at Owners rather than extending to
-  // Sheriffs on purpose — permissions.js already holds `/pz access`, `/pz raid`
-  // and `/pz siege` above the Sheriff tier because they hand out power or
-  // spawn things that cannot be removed, and letting a Sheriff reach the same
+  // Sheriffs on purpose — permissions.js already holds `/pz access` and
+  // `/pz raid` above the Sheriff tier because they hand out power or spawn
+  // things that cannot be removed, and letting a Sheriff reach the same
   // commands by asking Sheogorath nicely would route straight around that.
   // A Sheriff's request still becomes a card; any Sheriff can approve it.
   pzcommand:  { tier: 'propose', ownerTier: 'auto', targets: 'none', immune: false, perHour: 10 },
@@ -296,6 +303,26 @@ function decide(action, ctx) {
     // a Sheriff to approve a fourth would be a worse use of their attention
     // than the word no.
     return out('deny', `${action.type} has already run ${cap.perDay} time(s) today`, patched);
+  }
+
+  // --- The help channel keeps its hands where we can see them. ---
+  // help is the one channel he answers in uninvited, and the people posting
+  // there are by definition confused, new, or having a bad time. Being deleted,
+  // warned or timed out for asking a question is a far worse outcome than a
+  // Sheriff clicking a card, so in help the punitive tier always asks first.
+  //
+  // This is a CHANNEL rule rather than a confidence one, and that is deliberate.
+  // The header of this file is the reason: nothing here consults the model's
+  // reasoning, because the input is written by the people being acted against.
+  // "Only act when sure" would be a gate a player can talk through simply by
+  // sounding certain; "not in this channel" is a gate they cannot reach at all.
+  //
+  // Note, memory, clearnotes, flag and storytime are untouched — they take
+  // nothing away from anybody, and gutting them would leave him answering help
+  // with no memory of who he was talking to.
+  if (PUNITIVE.has(action.type) && ctx.channelId
+      && ctx.channelId === ctx.guildConfig?.channels?.help) {
+    return out('propose', 'the help channel never punishes without a Sheriff', patched);
   }
 
   // `assist` is `enforce` with the auto tier taken away.

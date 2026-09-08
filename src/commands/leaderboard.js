@@ -286,7 +286,8 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    const logDir = getGuildConfig(interaction.guild.id)?.zomboid?.logDir;
+    const zomboid = getGuildConfig(interaction.guild.id)?.zomboid;
+    const logDir = zomboid?.logDir;
     if (!logDir) {
       await interaction.reply({
         content: 'No Project Zomboid server is configured for this guild.',
@@ -295,11 +296,31 @@ module.exports = {
       return;
     }
 
+    /*
+     * Where this season starts.
+     *
+     * The PerkLog and the pvp log both survive a wipe — they are files on disk,
+     * not save data — so an all-time board keeps last season's characters at the
+     * top forever, measured in hours nobody can catch any more. `seasonStart` in
+     * config/guilds.json is the wipe instant, and everything before it is simply
+     * not this season's record.
+     *
+     * Absent or unparseable means zero, which is all-time: a guild that has
+     * never wiped, or a typo in the date, gets the old behaviour rather than an
+     * empty board.
+     */
+    const seasonStart = (() => {
+      const raw = zomboid?.seasonStart;
+      if (!raw) return 0;
+      const t = Date.parse(raw);
+      return Number.isFinite(t) ? t : 0;
+    })();
+
     await interaction.deferReply();
 
     let players;
     try {
-      players = collectPlayers(logDir);
+      players = collectPlayers(logDir, seasonStart);
     } catch (err) {
       console.error('[Leaderboard] Failed to read PerkLog:', err?.message || err);
       await interaction.editReply("Couldn't read the server logs just now — try again shortly.");
@@ -313,7 +334,7 @@ module.exports = {
     let killData = null;
     if (needsKills) {
       try {
-        killData = collectKills(logDir);
+        killData = collectKills(logDir, seasonStart);
       } catch (err) {
         // Overall drops its kill field and carries on; a dedicated kill board
         // has nothing left, and says so below.

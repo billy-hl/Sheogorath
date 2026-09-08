@@ -54,7 +54,6 @@ const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
 const { schedulePlayerCount } = require('./services/zomboid/playerCount');
-const { scheduleNewPlayers } = require('./services/zomboid/newPlayers');
 const { welcomeMember } = require('./services/welcome');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
@@ -82,6 +81,21 @@ const HELP_DEBOUNCE_MS = 4000;
  * ceiling he rarely reaches rather than an invitation to ramble.
  */
 const HELP_MAX_TOKENS = 800;
+
+/**
+ * How many past entries of a conversation he is handed outside the parlour.
+ *
+ * Counted in entries, not exchanges — each turn stores two of them, the user's
+ * line and his reply — so the old value of 5 was two and a half exchanges, and
+ * he lost the thread of anything longer than a quick back-and-forth. Ten is
+ * five full turns: enough to follow a conversation that develops, still far
+ * short of the parlour's 20, which is his own room and priced accordingly.
+ *
+ * The cost of raising this is real but small — history is chat turns only, and
+ * the bulk of each request is the knowledge and notes prefixed onto the current
+ * turn. Kept even so, so the window never starts mid-exchange on his own reply.
+ */
+const CHAT_HISTORY = 10;
 
 /**
  * Minimum gap between one person's AI replies.
@@ -287,15 +301,6 @@ client.once(Events.ClientReady, async () => {
     console.error('[Zomboid] Failed to schedule player count:', err?.message || err);
   }
 
-  // Greet first-time arrivals on the game server. Seeds itself from the
-  // existing account roster on first run, so nobody already playing is
-  // announced.
-  try {
-    scheduleNewPlayers(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule new-player announcements:', err?.message || err);
-  }
-
   // Sweep stale offers off the trading board.
   try {
     scheduleTradeSweep(client);
@@ -408,7 +413,16 @@ client.on('messageCreate', async (message) => {
                     message.content.includes(`<@${client.user.id}>`);
   if (!isMention) {
     const content = message.content.toLowerCase();
-    const triggerPattern = /\b(sheogorath|mad king)\b/i;
+    // The names he actually answers to. "mad god" and "uncle sheo" are what the
+    // persona calls itself throughout CLIENT_INSTRUCTIONS, so leaving them out
+    // meant the two names he uses most for himself were the two that did not
+    // wake him. "mad king" stays because the server says it out of habit.
+    //
+    // Bare "sheo" is the short form people actually type, and it is the loosest
+    // entry here — every match is a billed call, so it is the first thing to cut
+    // if the channel starts waking him by accident. Word boundaries keep it off
+    // "sheogorath" itself, which the first alternative already covers.
+    const triggerPattern = /\b(sheogorath|sheo|mad king|mad god|uncle sheo)\b/i;
     
     if (triggerPattern.test(content)) {
       clearPendingHelp(message);
@@ -877,7 +891,7 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
   const inParlour = isParlour(guildId, userMessage.channelId);
   // How much of the conversation he is handed, and how much room he gets to
   // answer in. The parlour is the only place either is raised.
-  const historyDepth = inParlour ? PARLOUR_HISTORY : 5;
+  const historyDepth = inParlour ? PARLOUR_HISTORY : CHAT_HISTORY;
   const replyTokens = inParlour ? PARLOUR_MAX_TOKENS : maxTokens;
 
   console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);

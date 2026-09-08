@@ -19,7 +19,16 @@
     },
     "zomboid": null,
     "ai": {
-      "mode": "enforce"
+      "mode": "enforce",
+      "standing": "This is the Mad God's own hall, not a garrison. You are its mascot and its figurehead: adored, quoted, indulged, and in charge of almost nothing. You may snuff out a message or sit someone in the corner for a few minutes when they have earned it, and that is the whole of your reach \u2014 there is no ban, no exile, and nobody here to appeal to.",
+      "powers": [
+        "note",
+        "memory",
+        "clearnotes",
+        "flag",
+        "delete",
+        "timeout"
+      ]
     }
   },
   "444601986160263189": {
@@ -97,7 +106,8 @@
       "seasonStart": "2026-08-28T20:00:00-05:00"
     },
     "ai": {
-      "mode": "enforce"
+      "mode": "enforce",
+      "standing": "This is the survivors' server, and you are its warden as well as its god. You keep the peace here, and the Sheriffs keep you."
     }
   }
 }

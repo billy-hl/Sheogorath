@@ -25,16 +25,23 @@ Sandbox_EN = {
     Sandbox_WabbajackSiege_GroundSweepExpireHours = "Ground sweep - hours before a dropped item can be swept",
     Sandbox_WabbajackSiege_GroundSweepExpireHours_tooltip = "Real hours, not in-game. Lower keeps the world tidy and the server light; higher is kinder to people who stage loot outdoors.",
 
-    Sandbox_WabbajackSiege_BaseRaidNightInterval = "Base raid - run automatically every...",
-    Sandbox_WabbajackSiege_BaseRaidNightInterval_tooltip = "Arms a horde at the safehouse of every player who is online, on a repeating schedule counted in in-game nights. Nothing happens on a night when nobody is online, and a missed night is never made up later. OFF means base raids only happen when staff arm one by hand. Every zombie placed is PERMANENT - nothing on this server removes them.",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval = "Base raid - run automatically...",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_tooltip = "Arms a horde at the safehouse of every player who is online, on a schedule counted in in-game nights. The fixed intervals fire on every Nth night; RANDOM rolls the chance below once a night, so nobody can be waiting for it. Either way the hour it arms at is drawn from the window below. Nothing happens on a night when nobody is online, and a missed night is never made up later. OFF means base raids only happen when staff arm one by hand. Every zombie placed is PERMANENT - nothing on this server removes them.",
     Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option1 = "Off - staff arm them by hand",
     Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option2 = "Every night",
     Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option3 = "Every 2 nights",
     Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option4 = "Every 3 nights",
     Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option5 = "Every 7 nights",
+    Sandbox_WabbajackSiege_BaseRaidNightInterval_value_option6 = "Random - a chance every night",
 
-    Sandbox_WabbajackSiege_BaseRaidNightHour = "Base raid - in-game hour the scheduled raid arms",
-    Sandbox_WabbajackSiege_BaseRaidNightHour_tooltip = "24-hour in-game clock. 22 is late evening. The horde does not appear at this moment - it is armed now and materialises when somebody comes home to it.",
+    Sandbox_WabbajackSiege_BaseRaidNightChance = "Base raid - chance each night, in percent",
+    Sandbox_WabbajackSiege_BaseRaidNightChance_tooltip = "Only used by the RANDOM setting above; the fixed intervals ignore it. 33 is roughly one night in three, and the roll is independent each night - a quiet week and two raids running are both allowed to happen.",
+
+    Sandbox_WabbajackSiege_BaseRaidNightHourEarliest = "Base raid - earliest in-game hour it can arm",
+    Sandbox_WabbajackSiege_BaseRaidNightHourEarliest_tooltip = "24-hour in-game clock. A night that raids draws its hour at random between this and the latest hour below; set both the same for a fixed time. The horde does not appear at that moment - it is armed then, and materialises when somebody comes home to it.",
+
+    Sandbox_WabbajackSiege_BaseRaidNightHourLatest = "Base raid - latest in-game hour it can arm",
+    Sandbox_WabbajackSiege_BaseRaidNightHourLatest_tooltip = "Must be the same hour or later than the earliest; a smaller number is pushed up to it rather than wrapping past midnight. The window cannot cross midnight, because the night counter the schedule runs on turns over there.",
 
     Sandbox_WabbajackSiege_BaseRaidAutoPerPlayer = "Base raid - zombies per player for a scheduled raid",
     Sandbox_WabbajackSiege_BaseRaidAutoPerPlayer_tooltip = "Only used by the automatic schedule; staff arming one by hand pick the number from the menu. This is PER ONLINE PLAYER, so 40 with eight people on is 320 permanent zombies placed at once.",

@@ -14,6 +14,7 @@ const {
   DEFAULT_MODE,
   BREAKER_LIMIT,
   CAPABILITIES,
+  availableCapabilities,
   modeFor,
   isBreakerTripped,
   resetBreaker,
@@ -22,7 +23,7 @@ const {
 const { pendingCount } = require('../ai/approvals');
 const { status: budgetStatus } = require('../ai/budget');
 const { ensureParlour, PARLOUR_NAME } = require('../services/parlour');
-const { getGuildConfig, updateGuildConfig } = require('../config/guilds');
+const { getGuildConfig, updateGuildConfig, aiTitles } = require('../config/guilds');
 const { staffChannelId, LOG_FILE } = require('../utils/aiAudit');
 const { isAdmin } = require('../utils/permissions');
 
@@ -84,8 +85,13 @@ module.exports = {
       const byType = recent.reduce((acc, e) => ({ ...acc, [e.capability]: (acc[e.capability] || 0) + 1 }), {});
       const staffChannel = staffChannelId(guildId);
 
-      const auto = Object.entries(CAPABILITIES).filter(([, c]) => c.tier === 'auto').map(([n]) => n);
-      const ask = Object.entries(CAPABILITIES).filter(([, c]) => c.tier === 'propose').map(([n]) => n);
+      // What he has HERE, not what the table holds — the powers differ per
+      // guild, and a status card listing the other server's is worse than none.
+      const here = availableCapabilities(config);
+      const auto = Object.entries(here).filter(([, c]) => c.tier === 'auto').map(([n]) => n);
+      const ask = Object.entries(here).filter(([, c]) => c.tier === 'propose').map(([n]) => n);
+      const withheld = Object.keys(CAPABILITIES).filter((n) => !here[n]);
+      const titles = aiTitles(config);
 
       const embed = new EmbedBuilder()
         .setTitle('Sheogorath — leash status')
@@ -106,7 +112,13 @@ module.exports = {
               ? `🛑 **tripped** — everything is going to approval. \`/sheo unleash\` clears it.`
               : `running (trips past ${BREAKER_LIMIT} actions/hour)`,
           },
-          { name: 'Awaiting a Sheriff', value: `${pendingCount(guildId)} card(s)`, inline: true },
+          { name: `Awaiting ${titles.staff ? `a ${titles.staff}` : `an ${titles.admin}`}`, value: `${pendingCount(guildId)} card(s)`, inline: true },
+          {
+            name: 'Not his here',
+            value: withheld.length
+              ? `${withheld.join(', ')} — this guild's features and \`ai.powers\` do not grant them`
+              : 'nothing withheld',
+          },
           (() => {
             // Spend is one ceiling across every guild on this API key, so it is
             // reported the same in all of them rather than being split.

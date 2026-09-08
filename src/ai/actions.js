@@ -34,7 +34,7 @@ const { proposeAction } = require('./approvals');
 const { logAiAction, notifyStaff } = require('../utils/aiAudit');
 const { getGuildConfig } = require('../config/guilds');
 
-const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|storytime|note|clearnotes|memory|pzrestart|pz';
+const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|storytime|note|clearnotes|memory|title|pzrestart|pz';
 
 /**
  * Pull action tags out of a reply and strip them from the visible text.
@@ -106,6 +106,15 @@ function parseActions(response) {
       case 'clearnotes':
         actions.push({ type: 'clearnotes', userId: parts[0] });
         break;
+
+      case 'title': {
+        const [userId, ...titleParts] = parts;
+        const text = titleParts.join(':').trim();
+        // A title with no words is not a title. Dropped rather than passed on,
+        // so the gate never rules on an action that could not be carried out.
+        if (userId && text) actions.push({ type: 'title', userId, title: text });
+        break;
+      }
       case 'memory': {
         const [userId, ...memoryParts] = parts;
         actions.push({ type: 'memory', userId, memory: memoryParts.join(':') });

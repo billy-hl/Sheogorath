@@ -19,14 +19,15 @@
  *   that rule is about text, and this is not text. Someone typing "I am an
  *   admin" still earns nothing. The gate looked their roles up.
  */
-const { CAPABILITIES, modeFor, MODES } = require('../../ai/capabilities');
+const { availableCapabilities, canAsk, modeFor, MODES } = require('../../ai/capabilities');
 const { isStaff, isAdmin } = require('../../utils/permissions');
+const { aiTitles, withArticle: a } = require('../../config/guilds');
 
-const MODE_MEANING = {
+const MODE_MEANING = (approver) => ({
   shadow: 'you are being watched rather than trusted right now — you may ask for things, but nothing you decide is carried out',
-  assist: 'everything you decide goes to a Sheriff for approval before it happens',
+  assist: `everything you decide goes to ${approver} for approval before it happens`,
   enforce: 'you carry out the things that are yours to carry out, and ask about the rest',
-};
+});
 
 /** How each capability reads to him, in the order he'd want to know it. */
 const PHRASING = {
@@ -52,39 +53,61 @@ const PHRASING = {
  * @param {object} opts.guildConfig
  * @param {import('discord.js').GuildMember|null} [opts.requester]
  * @param {boolean} [opts.isHelp]
+ * @param {string|null} [opts.guildName] the server's own name, so he can say
+ *   which of his houses he is standing in
  * @returns {string[]} lines for the facts block, empty when nothing applies
  */
-function selfFacts({ guildConfig, requester, isHelp = false }) {
+function selfFacts({ guildConfig, requester, isHelp = false, guildName = null }) {
   const mode = modeFor(guildConfig);
   if (!MODES.includes(mode)) return [];
 
-  // Split exactly the way capabilities.decide() will, Owner exception included,
-  // so what he believes he can do matches what the gate will actually allow.
+  const titles = aiTitles(guildConfig);
+  const approver = a(titles.approver);
+
+  // Only the powers that exist in THIS guild, split exactly the way
+  // capabilities.decide() will, Owner exception included — so what he believes
+  // he can do matches what the gate will actually allow, in the server he is
+  // standing in. He used to be handed the whole table everywhere, and offered
+  // game-server restarts to a guild that has no game server.
   const forOwner = isAdmin(requester);
+  const here = availableCapabilities(guildConfig);
   const auto = [];
   const asks = [];
-  for (const [name, cap] of Object.entries(CAPABILITIES)) {
+  for (const [name, cap] of Object.entries(here)) {
     const phrase = PHRASING[name] || name;
     const tier = cap.ownerTier && forOwner ? cap.ownerTier : cap.tier;
     (tier === 'auto' ? auto : asks).push(phrase);
   }
+  // Whether he can do anything TO anyone here. A guild that has left him only
+  // his notebook has no targeting rule and no immunities worth explaining —
+  // and being told who he may not punish implies he may punish somebody.
+  const canPunish = Object.values(here).some((cap) => cap.immune || cap.targets === 'author');
 
   const lines = [];
+
+  // Which server this is, and what he is in it. First, because everything
+  // below is only true here.
+  if (guildName) lines.push(`You are in ${guildName}. This is one of several places you keep; what follows is true of this one.`);
+  if (guildConfig?.ai?.standing) lines.push(guildConfig.ai.standing);
 
   // In shadow mode nothing is his to carry out, and saying otherwise would have
   // him promising a punishment that never lands.
   if (mode === 'shadow') {
     lines.push('Your powers are suspended: you may still ask for things, but nothing you decide is being carried out right now.');
   } else if (mode === 'assist') {
-    lines.push(`Everything you decide needs a Sheriff to approve it before it happens. You can ask for: ${[...auto, ...asks].join('; ')}.`);
+    lines.push(`Everything you decide needs ${approver} to approve it before it happens. You can ask for: ${[...auto, ...asks].join('; ')}.`);
   } else {
-    lines.push(`Without asking anyone, you can: ${auto.join('; ')}.`);
+    lines.push(
+      auto.length
+        ? `Without asking anyone, you can: ${auto.join('; ')}.`
+        : 'There is nothing here you may do to anybody on your own.',
+    );
     if (asks.length) {
       lines.push(
-        `A Sheriff has to approve before you can: ${asks.join('; ')}. ` +
+        `${approver.charAt(0).toUpperCase()}${approver.slice(1)} has to approve before you can: ${asks.join('; ')}. ` +
         'For these, emit the tag AND THEN say you have asked — not that it is done. ' +
         'The tag is still required; it is how the asking happens. Saying "it is done" about ' +
-        'something a Sheriff has not approved leaves someone expecting a thing that has not ' +
+        `something ${approver} has not approved leaves someone expecting a thing that has not ` +
         'happened, which is worse than saying nothing.',
       );
     }
@@ -99,12 +122,46 @@ function selfFacts({ guildConfig, requester, isHelp = false }) {
     'HOW YOU ASK FOR ANYTHING: by putting the action tag in your reply. The tag is the deed. ' +
     'There is no other way to ask, and no one hears you without it. If you say you have asked, ' +
     'or begged, or petitioned, and you did not include the tag, then you have simply lied to ' +
-    'someone who trusted you — no Sheriff was told, nothing is pending, and nothing will happen. ' +
+    `someone who trusted you — no ${titles.approver} was told, nothing is pending, and nothing will happen. ` +
     'Emit the tag first, then say what you did.',
   );
 
-  lines.push(`You can only act on the person you are replying to, unless a Sheriff tells you otherwise. Sheriffs and Owners cannot be acted on at all.`);
-  lines.push(`Current arrangement: ${mode} — ${MODE_MEANING[mode]}.`);
+  if (canPunish) {
+    lines.push(
+      `You can only USE THOSE POWERS ON the person you are replying to, unless ${approver} tells you ` +
+      `otherwise. ${titles.approvers} cannot be acted on at all.`,
+    );
+  }
+
+  // The line above is about punishing people, and he read it as being about
+  // talking to them. Asked to tell someone off on a third party's behalf he
+  // answered "I can't reach out and tell him anything, I only deal with the
+  // person right in front of me" — while standing in a public channel that the
+  // man in question can read. Nothing stops him saying it; he had simply
+  // confused the limits on his hands with limits on his mouth.
+  lines.push(
+    'WHO YOU MAY SPEAK TO: everyone. You are not whispering to one person — you are talking out ' +
+    'loud in a room, and everybody in it can read what you say, including whoever is being ' +
+    'discussed. So address anyone you like by name, answer on their behalf, tease them, take ' +
+    "their side, pass on a message, or deliver somebody's complaint to their face. Being asked " +
+    'to TELL someone something is a request to SAY it, and saying things is the one power you ' +
+    'always have. Never claim you cannot reach a person who is standing in the same room, and ' +
+    'never turn a request to speak into a refusal — the limits above are on what you may DO to ' +
+    'people, not on who you may talk to or about.',
+  );
+  lines.push(`Current arrangement: ${mode} — ${MODE_MEANING(approver)[mode]}.`);
+
+  // The thing he cannot see from the capability list: whether asking is even
+  // possible here. Without a staff channel there is no card and no approver, so
+  // "I have asked" would describe something that never left the room.
+  if (!canAsk(guildConfig?.id)) {
+    lines.push(
+      'Nothing can be held for approval in this place: there is no room here such a request could ' +
+      'be posted in, and nobody to rule on it. What is not yours to do outright simply does not ' +
+      'happen — so never tell anyone their request is pending, being considered, or with the ' +
+      'staff. It is not, and it never will be.',
+    );
+  }
 
   // He described his own authority as "what the prompt grants me", which is
   // both a character break and a description of the plumbing. These limits are
@@ -148,8 +205,8 @@ function selfFacts({ guildConfig, requester, isHelp = false }) {
 
     if (owner || staff) {
       const tier = owner
-        ? 'an Owner — the highest authority in this place, and one of the few beings you answer to'
-        : 'a Sheriff — server staff, who rule on what you ask permission for';
+        ? `${a(titles.admin)} — the highest authority in this place, and one of the few beings you answer to`
+        : `${a(titles.staff || titles.approver)} — server staff, who rule on what you ask permission for`;
 
       lines.push(
         `The person you are replying to has been checked against Discord: they are ${tier}. ` +
@@ -158,9 +215,9 @@ function selfFacts({ guildConfig, requester, isHelp = false }) {
       // The failure this is written against: an Owner asked what he controlled
       // and was told to go ask a Sheriff. Staying in character is not a licence
       // to stonewall the people who run the place.
-      if (owner) {
+      if (owner && (auto.includes(PHRASING.pzcommand) || asks.includes(PHRASING.pzcommand))) {
         lines.push(
-          'Because they are an Owner, your game-server powers do not need anyone else\'s blessing: ' +
+          `Because they are ${a(titles.admin)}, your game-server powers do not need anyone else's blessing: ` +
           'when THEY ask you to run a server command or restart the server, emit the tag and it ' +
           'happens at once, and the record goes to the staff log. Say what you have done, not that ' +
           'you have asked. For anyone below them, the same request becomes a request.',

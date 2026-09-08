@@ -33,12 +33,13 @@ const { parseActions, executeActions, scrub } = require('./ai/actions');
 const { isApprovalButton, handleApprovalButton } = require('./ai/approvals');
 const { isBudgetError, setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
 const { isParlour, parlourPersona, PARLOUR_PROMPT, PARLOUR_HISTORY, PARLOUR_MAX_TOKENS } = require('./services/parlour');
+const { conversationalPersona } = require('./ai/persona');
 const { checkCooldown, setCooldown } = require('./utils/cooldowns');
 const { setClient, notifyError } = require('./utils/errorNotify');
 const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { startControlApi } = require('./api/server');
-const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
+const { getGuildConfig, guildIds, hasFeature, channelId, aiTitles } = require('./config/guilds');
 const {
   musicDenialReason,
   commandDenialReason,
@@ -54,7 +55,6 @@ const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
 const { schedulePlayerCount } = require('./services/zomboid/playerCount');
-const { welcomeMember } = require('./services/welcome');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
 
@@ -395,6 +395,20 @@ client.on('messageCreate', async (message) => {
 
   if (!hasFeature(guildId, 'ai')) return;
 
+  // Answering him counts as addressing him.
+  //
+  // Every trigger below reads the TEXT of the message, and a Discord reply
+  // carries its target in `reference` rather than in what was typed — so
+  // replying to something he said and asking "why?" woke nobody, and the
+  // conversation died on his own last word. Nobody types a name at somebody
+  // they are already looking at.
+  if (await isReplyToMe(message)) {
+    console.log(`Reply to me in channel ${message.channelId} by ${message.author.username}: ${message.content}`);
+    clearPendingHelp(message);
+    askChatGPT(message);
+    return;
+  }
+
   if (
     message.content.includes(`<@!${client.user.id}>`) ||
     message.content.includes(`<@${client.user.id}>`) ||
@@ -437,6 +451,7 @@ client.on('messageCreate', async (message) => {
   // built. Reached last so a direct mention or a "Sheogorath" above still
   // answers straight away rather than sitting through the debounce.
   if (message.channelId === channelId(guildId, 'help')) {
+    if (await isAnsweringSomebodyElse(message)) return;
     queueHelpReply(message);
     return;
   }
@@ -449,6 +464,52 @@ client.on('messageCreate', async (message) => {
     askChatGPT(message);
   }
 });
+
+/**
+ * Whether a #help message is one person answering another, rather than asking.
+ *
+ * WHY THIS EXISTS
+ * help is the one channel he speaks in uninvited, and that rule was written for
+ * the person with the problem. It caught everybody: a regular who steps in to
+ * say "verify your files" got answered too, which is noise at best and talking
+ * over somebody at worst. The channel works better when the people helping are
+ * left alone to help.
+ *
+ * WHY THESE TWO SIGNALS AND NOT THE MODEL
+ * Both are structural facts about the message rather than readings of its text.
+ * Asking the model "is this person helping?" would be a judgement call made on
+ * input written by the person being judged, it would cost a call on every line
+ * in the channel, and it would be wrong often enough to be worse than silence.
+ * A Discord reply and an @ are things somebody DID, not things they claimed.
+ *
+ * A REPLY TO SHEOGORATH IS STILL A QUESTION FOR HIM. Replying to his own
+ * message is how a follow-up looks, so that case falls through and is answered.
+ * An unresolvable reference is treated as a reply to a person: staying quiet
+ * when we cannot tell is the recoverable mistake, since the asker can still say
+ * his name, while answering over a helper cannot be taken back.
+ */
+async function isAnsweringSomebodyElse(message) {
+  if (message.reference?.messageId) {
+    let target = null;
+    try {
+      target = await message.fetchReference();
+    } catch {
+      // Deleted, too old to fetch, or a cross-post. Assume it was a person.
+      return true;
+    }
+    if (target?.author?.id && target.author.id !== client.user.id) return true;
+  }
+
+  // Addressing another member by name is the same act as replying to them.
+  // His own mention is excluded because that is the one case that means the
+  // message is FOR him, and the mention branch above has already handled it.
+  const others = message.mentions?.users?.filter?.(
+    (u) => u.id !== client.user.id && u.id !== message.author.id,
+  );
+  if (others?.size > 0) return true;
+
+  return false;
+}
 
 /**
  * Answer someone in #help once they've stopped typing.
@@ -499,12 +560,6 @@ function clearPendingHelp(message) {
  * gateway replays when the bot gains access to an existing one — without it,
  * a reconnect would re-vet and re-tag the whole forum.
  */
-// Greet first-time joiners. Guilds without `channels.welcome` are ignored, and
-// anyone with a `welcomedAt` on record is a returning member, not a new one.
-client.on(Events.GuildMemberAdd, async (member) => {
-  await welcomeMember(client, member);
-});
-
 
 client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
   if (!newlyCreated) return;
@@ -855,6 +910,28 @@ client.on('messageReactionAdd', async (reaction, user) => {
 });
 
 /**
+ * Is this message a reply to one of his own?
+ *
+ * Only the reference is trusted: a quoted line can be forged by typing it, and
+ * the reference cannot. Costs one cache hit, or one fetch when the target has
+ * aged out — and only on messages that are replies at all.
+ */
+async function isReplyToMe(message) {
+  const id = message.reference?.messageId;
+  if (!id) return false;
+  try {
+    const target =
+      message.channel.messages.cache.get(id) ||
+      (await message.channel.messages.fetch(id));
+    return target?.author?.id === client.user.id;
+  } catch {
+    // Deleted, or beyond what he may read. Not a reply to him as far as
+    // anyone can prove, so he stays quiet rather than guessing.
+    return false;
+  }
+}
+
+/**
  * @param {import('discord.js').Message} userMessage the message to reply to
  * @param {object} [opts]
  * @param {string} [opts.contentOverride] text to answer instead of that
@@ -901,13 +978,32 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     const sourceContent = contentOverride || userMessage.content;
     let cleanedContent = sourceContent;
     const mentionRegex = /<@!?(\d+)>/g;
+    const mentioned = [];
     let match;
     while ((match = mentionRegex.exec(sourceContent)) !== null) {
       try {
         const user = await client.users.fetch(match[1]);
         cleanedContent = cleanedContent.replace(match[0], `@${user.username}`);
+        if (user.id !== client.user.id && !mentioned.some((m) => m.id === user.id)) {
+          mentioned.push({ id: user.id, name: user.username });
+        }
       } catch (e) { /* keep original mention */ }
     }
+
+    // Names come in readable and go out as pings, if he wants them to.
+    //
+    // "Tell @Fisher to stop" is a request to get Fisher's attention, and a
+    // plain @Fisher in his reply is just text — the man never hears it. He
+    // cannot guess the syntax without the ID, so the IDs of the people this
+    // message named are handed over with it. Only those: he is given the means
+    // to answer the summons in front of him, not a directory to shout into.
+    const pingContext = mentioned.length
+      ? `[People named in this message, and how to make their name light up if you want their ` +
+        `attention — write it exactly, including the angle brackets: ` +
+        `${mentioned.map((m) => `${m.name} = <@${m.id}>`).join(', ')}. ` +
+        `Optional. A ping is for when you actually want them to look]:\n`
+      : '';
+
     
     // Build notes context for this user
     const userNotes = getUserNotes(guildId, userId);
@@ -947,17 +1043,36 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
       console.error('[Knowledge] Could not build context, answering ungrounded:', err?.message || err);
     }
 
-    const prefix = [knowledgeContext, notesContext, memoriesContext].filter(Boolean).join('\n');
+    // The conversation happening around him, which is not the same thing as the
+    // conversation he has been having with this one person. Fetched per turn
+    // and never stored: a room asked about "right now" has to be read now.
+    let chatContext = '';
+    try {
+      const { transcriptFor, replyTargetFor, PARLOUR_TRANSCRIPT } = require('./services/transcript');
+      // He sees further back in his own hall, where the thread of the
+      // conversation is the subject rather than the backdrop.
+      const room = await transcriptFor(userMessage, inParlour ? PARLOUR_TRANSCRIPT : {});
+      chatContext = [room, await replyTargetFor(userMessage)].filter(Boolean).join('');
+    } catch (err) {
+      console.warn('[Transcript] Skipped:', err?.message || err);
+    }
+
+    const prefix = [knowledgeContext, chatContext, pingContext, notesContext, memoriesContext].filter(Boolean).join('\n');
     const messages = [
       ...history.slice(-historyDepth),
       { role: 'user', content: prefix + (prefix ? '\n' : '') + cleanedContent }
     ];
     
     const assistantReply = await getAIResponseWithHistory(messages, replyTokens, {
-      // In the parlour the persona is handed over with its length cap cut out,
-      // rather than intact with an instruction to ignore it.
-      systemBase: inParlour ? parlourPersona() : null,
+      // The persona's own "1-2 sentences max" is cut either way and replaced
+      // with the right length for the room: none at all in the parlour, a few
+      // sentences everywhere else. Someone who has gone to the trouble of
+      // addressing him deserves more than a punchline.
+      systemBase: inParlour ? parlourPersona() : conversationalPersona(),
       systemSuffix: inParlour ? PARLOUR_PROMPT : '',
+      // Which server he is standing in. Decides which powers he is told he has
+      // and what this guild calls the people above him.
+      guildId,
     });
     const raw = assistantReply && assistantReply.trim()
       ? assistantReply
@@ -1002,11 +1117,13 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // rather than as him talking.
     const proposed = actionResults.filter(r => r.verdict === 'propose');
     const refused = actionResults.filter(r => r.verdict === 'deny');
+    const titles = aiTitles(getGuildConfig(guildId));
     const notes = [];
     if (proposed.length) {
       notes.push(
-        `-# ⏳ Sent to the Sheriffs for approval — **nothing has happened yet**. ` +
-        `${proposed.length === 1 ? 'It runs' : 'They run'} only once a Sheriff approves in the log channel.`,
+        `-# ⏳ Sent to the ${titles.approver}s for approval — **nothing has happened yet**. ` +
+        `${proposed.length === 1 ? 'It runs' : 'They run'} only once ${
+          titles.approver.match(/^[aeiou]/i) ? 'an' : 'a'} ${titles.approver} approves in the log channel.`,
       );
     }
     if (refused.length) {
@@ -1064,9 +1181,10 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // crash — the owner already knows, having been told at 50, 80 and 95%.
     if (isBudgetError(error)) {
       console.log(`[AI] Refused — monthly budget spent: ${error.message}`);
+      const { approvers } = aiTitles(getGuildConfig(guildId));
       await userMessage.reply(
         "The Mad God's coffers are empty for this month, mortal. Even madness runs on coin. " +
-        'Ask a Sheriff, and pester an Owner about my allowance.',
+        `Go and pester the ${approvers} about my allowance.`,
       ).catch(() => {});
       return;
     }
@@ -1093,10 +1211,14 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     }
     
     for (let i = 0; i < chunks.length; i++) {
+      // People can be pinged; @everyone and role pings cannot. He is handed
+      // user IDs so he can answer "tell so-and-so..." properly, and talking him
+      // into a mass ping should not be one line of chat away.
+      const mentions = { allowedMentions: { parse: ['users'] } };
       if (i === 0) {
-        await userMessage.reply(chunks[i]);
+        await userMessage.reply({ content: chunks[i], ...mentions });
       } else {
-        await channel.send(chunks[i]);
+        await channel.send({ content: chunks[i], ...mentions });
       }
     }
   }

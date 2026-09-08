@@ -6,6 +6,25 @@ when you publish - workshop.txt has no field for them, so this file cannot fill
 them in. Paste the relevant section below into that box.
 
 
+1.22.0
+------
+- Base raids can now be genuinely random: a new "Random - a chance every night"
+  setting rolls a percentage once a night instead of counting to a fixed
+  interval, so nobody can be standing on the roof waiting for it. The chance is
+  its own option and defaults to 33, about one night in three.
+- The hour a scheduled raid arms is now drawn at random too, between an earliest
+  and a latest in-game hour, for the random and fixed schedules alike. Set both
+  hours the same for the old fixed-time behaviour.
+- The single "in-game hour the scheduled raid arms" option is replaced by that
+  pair and returns to its default; the pair is 20 to 23 out of the box. The
+  window cannot cross midnight - a later hour below the earlier is pushed up to
+  it - because the schedule decides one night at a time and midnight is where a
+  night ends.
+- A night is still decided once and never made up later: the roll and the hour
+  are drawn together at the start of the in-game day, and a night that is missed
+  because the server was down, the roll lost, or nobody was online stays missed.
+  The server log says which of those it was, and names the hour it drew.
+
 1.21.0
 ------
 - Base raids can now run on a repeating schedule, counted in in-game nights:

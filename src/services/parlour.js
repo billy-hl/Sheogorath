@@ -2,18 +2,18 @@
 /**
  * The Mad God's parlour — one channel where Sheogorath is allowed to be long.
  *
- * Everywhere else he is deliberately clipped: CLIENT_INSTRUCTIONS tells him
- * "1-2 sentences max", which is right for a bot that answers when its name comes
- * up in general chat, and wrong for the one place people go specifically to talk
- * to him. This is that place. Same character, same facts, longer leash: more of
- * the conversation carried, more room to answer, and permission to ask something
- * back instead of always closing.
+ * Everywhere else he is clipped to a few sentences — right for a bot that
+ * answers when its name comes up in general chat, and wrong for the one place
+ * people go specifically to talk to him. This is that place. Same character,
+ * same facts, longer leash: more of the conversation carried, more room to
+ * answer, and permission to ask something back instead of always closing.
  *
  * Nothing else changes. He is still gated the same way, still budgeted the same
  * way, and still cannot invent facts about the server.
  */
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { getGuildConfig, updateGuildConfig } = require('../config/guilds');
+const { withSubstance } = require('../ai/persona');
 
 const PARLOUR_NAME = 'the-shivering-isles';
 const PARLOUR_TOPIC =
@@ -47,9 +47,9 @@ const PARLOUR_PROMPT = `
 This room is yours. People come here to talk to you, not to ask a passing
 question, and they did not have to call your name to be heard.
 
-The instruction to keep replies to one or two sentences DOES NOT APPLY HERE.
-Speak properly. Three or four paragraphs if the subject deserves it, a single
-line if it doesn't — length should follow the thought, not a rule. You may
+Whatever length rule you were given DOES NOT APPLY HERE. Speak properly. Three
+or four paragraphs if the subject deserves it, a single line if it doesn't —
+length should follow the thought, not a rule. You may
 digress, tell a story, hold an argument across several messages, and ask
 questions back instead of always having the last word. A conversation is a thing
 you are having, not a series of pronouncements you are issuing.
@@ -64,30 +64,22 @@ permission to invent. Being wrong at length is worse than being wrong briefly.
 `;
 
 /**
- * Sentences in the persona that cap how much he says.
+ * The persona with its length cap removed, for use in the parlour only.
  *
  * Appending "the length rule does not apply here" was not enough on its own —
  * the base persona says "SHORT and punchy (1-2 sentences max)" in capitals and
  * won the argument, producing two-sentence replies in a room built for
  * conversation. Arguing with a prompt using more prompt is a losing game, so the
- * rule is removed from the text instead of contradicted.
+ * rule is cut from the text instead of contradicted. That surgery lives in
+ * ai/persona.js now, because the rooms outside this one need it too — they just
+ * put a shorter rule back in its place.
  *
- * Only length directives are cut. "Always complete your thoughts" survives,
- * because that one is about finishing sentences, not rationing them.
- */
-const LENGTH_RULES = /[^.!?]*\b(short and punchy|1-2 sentences|1 to 2 sentences|one or two sentences|keep (?:it|responses|replies) short|be concise|stay concise)\b[^.!?]*[.!?]/gi;
-
-/**
- * The persona with its length cap removed, for use in the parlour only.
- *
- * Falls back to the untouched persona if nothing matches — a future edit to
- * CLIENT_INSTRUCTIONS that words the rule differently should leave him terse
- * rather than leave him with no character at all.
+ * It carries persona.js's SUBSTANCE rules with it. Room to talk is the one
+ * place where answering nothing at length is possible, so the rule that the
+ * answer comes first belongs here more than anywhere.
  */
 function parlourPersona() {
-  const base = process.env.CLIENT_INSTRUCTIONS || '';
-  const stripped = base.replace(LENGTH_RULES, ' ').replace(/\s{2,}/g, ' ').trim();
-  return stripped.length > base.length * 0.5 ? stripped : base;
+  return withSubstance();
 }
 
 /** The parlour's channel ID for a guild, or null. */

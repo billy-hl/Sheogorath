@@ -71,10 +71,6 @@ function normalizeGuild(id, raw) {
       // what staff did without reading logs/commands.jsonl on the host. Every
       // command is recorded to that file regardless of this setting.
       commandLog: channels.commandLog || null,
-      // Where first-time joiners are greeted. Unset means the guild is not
-      // greeted at all — the welcome handler stays inert rather than guessing
-      // a channel.
-      welcome: channels.welcome || null,
       // Where Sheogorath posts what he wants permission to do, and what he did
       // on his own. Falls back to `commandLog` when unset — a guild that
       // already has one private staff channel shouldn't be made to create a
@@ -112,17 +108,27 @@ function normalizeGuild(id, raw) {
       veteran: roles.veteran || null,
       member: roles.member || null,
     },
-    // Overrides the default greeting copy. `{mention}` is substituted with the
-    // new member. Guild-level because it is the guild's own voice, and the
-    // Zomboid guild's wording differs from a plain social server's.
-    welcomeMessage: typeof raw.welcomeMessage === 'string' && raw.welcomeMessage.trim()
-      ? raw.welcomeMessage.trim()
-      : null,
     // How much rope the AI moderator gets in this guild. See ai/capabilities.js
     // for what each mode means. Absent means `shadow`: a guild that has never
     // been thought about should watch rather than act.
     ai: {
       mode: typeof raw.ai?.mode === 'string' ? raw.ai.mode : null,
+      // One sentence about what he *is* in this guild, handed to him verbatim.
+      // The same bot is a warden on the game server and a mascot in the social
+      // hall, and nothing else in this file says so — features describe what
+      // the bot runs, not what he is to the people in the room.
+      standing: typeof raw.ai?.standing === 'string' ? raw.ai.standing.trim() : null,
+      // Which of his powers this guild wants him to have, by capability name
+      // (see ai/capabilities.js). Absent means all of them that this guild's
+      // features support — the existing behaviour — so only a guild that wants
+      // him narrower has to say anything.
+      powers: Array.isArray(raw.ai?.powers) ? raw.ai.powers.filter(p => typeof p === 'string') : null,
+      // What this guild calls its two tiers. Defaults live in aiTitles() rather
+      // than here so a guild that has never set them still reads correctly.
+      titles: {
+        admin: typeof raw.ai?.titles?.admin === 'string' ? raw.ai.titles.admin.trim() : null,
+        staff: typeof raw.ai?.titles?.staff === 'string' ? raw.ai.titles.staff.trim() : null,
+      },
     },
     zomboid: raw.zomboid || null,
   };
@@ -217,6 +223,45 @@ function hasFeature(guildId, feature) {
 }
 
 /**
+ * "a Sheriff" / "an Owner". The tier names are per-guild configuration, so the
+ * article has to be worked out rather than written into the sentence.
+ * @param {string} word
+ * @returns {string}
+ */
+function withArticle(word) {
+  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
+}
+
+/**
+ * What this guild calls the people above Sheogorath.
+ *
+ * Written against the *role ladder that actually exists here*, not against the
+ * vocabulary the bot grew up with. The Zomboid guild has a staff role between
+ * its owners and its members and calls them Sheriffs; the social guild has no
+ * such rung at all, and telling its members that something has "gone to the
+ * Sheriffs" names a tier they have never heard of and cannot go and find. Where
+ * there is no staff role, `isStaff()` already collapses to `isAdmin()`, so the
+ * words collapse the same way.
+ *
+ * @param {object|null} guildConfig
+ * @returns {{admin: string, staff: string|null, approver: string, approvers: string}}
+ */
+function aiTitles(guildConfig) {
+  const admin = guildConfig?.ai?.titles?.admin || 'Owner';
+  // A staff title is only real when a staff role is configured to hold it.
+  const staff = guildConfig?.roles?.staff
+    ? (guildConfig?.ai?.titles?.staff || 'Sheriff')
+    : null;
+  return {
+    admin,
+    staff,
+    // Who a held action is waiting on, singular and plural.
+    approver: staff || admin,
+    approvers: staff ? `${staff}s and ${admin}s` : `${admin}s`,
+  };
+}
+
+/**
  * Look up a configured channel ID.
  * @returns {string|null}
  */
@@ -293,6 +338,8 @@ module.exports = {
   getGuildConfig,
   guildIds,
   hasFeature,
+  aiTitles,
+  withArticle,
   channelId,
   primaryGuildId,
   reload,

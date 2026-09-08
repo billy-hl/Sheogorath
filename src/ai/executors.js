@@ -12,6 +12,7 @@ const { timeoutUser, warnUser, deleteMessage } = require('../services/automod');
 const { addUserNote, clearUserNotes } = require('../storage/state');
 const { addMemory } = require('../storage/memory');
 const { CAPABILITIES } = require('./capabilities');
+const { PermissionFlagsBits } = require('discord.js');
 
 /**
  * Perform one action.
@@ -71,6 +72,53 @@ async function runAction(action, ctx) {
       if (!message) throw new Error('the message this referred to is no longer to hand');
       await deleteMessage(message, action.reason);
       return 'deleted the message';
+    }
+
+    case 'title': {
+      // Where the limits on this one actually live.
+      //
+      // The gate upstream decides WHETHER he may hang a title on somebody; it
+      // knows nothing about Discord roles, and a role is the one object here
+      // that can carry real power. So every check that keeps a title cosmetic
+      // is made at the moment of doing it, against Discord's own answer rather
+      // than against anything the model said.
+      const me = guild.members.me || (await guild.members.fetchMe());
+      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        throw new Error('I have no authority over roles in this place — someone must grant me Manage Roles');
+      }
+
+      const name = String(action.title).replace(/\s+/g, ' ').trim().slice(0, CAPABILITIES.title.maxLength);
+      if (!name) throw new Error('that is not a title, it is a silence');
+
+      const member = await guild.members.fetch(action.userId);
+      const ceiling = me.roles.highest.position;
+
+      // Reuse a role of that name only when it is as toothless as one he would
+      // have made. An existing "Admin" role is a trap: same name, real power,
+      // and handing it out would be the whole game lost in one line of chat.
+      const existing = guild.roles.cache.find((r) => r.name === name && r.id !== guild.id);
+      if (existing && (existing.permissions.bitfield !== 0n || existing.managed || existing.position >= ceiling)) {
+        throw new Error(
+          `there is already a role called "${name}" that carries weight — I hand out titles, not power`,
+        );
+      }
+
+      const role = existing || await guild.roles.create({
+        name,
+        // No permissions, ever. Not a default, not a starting point.
+        permissions: [],
+        mentionable: false,
+        reason: `[Sheogorath] title granted to ${member.user.username}`,
+      });
+
+      // Made at the bottom of the list and left there: a cosmetic role that
+      // outranks anything is no longer cosmetic.
+      if (!existing) {
+        await role.setPosition(1).catch(() => {});
+      }
+
+      await member.roles.add(role, `[Sheogorath] title: ${name}`);
+      return `gave <@${action.userId}> the title "${name}"`;
     }
 
     case 'flag':

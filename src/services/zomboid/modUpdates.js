@@ -247,10 +247,25 @@ async function restartRunning(service) {
  */
 async function minutesUntilNightly(timer) {
   try {
-    const out = await run('systemctl', ['show', timer, '-p', 'NextElapseUSecRealtime']);
-    const usec = Number(out.split('=')[1]);
-    if (!Number.isFinite(usec) || usec <= 0) return null;
-    return (usec / 1000 - Date.now()) / 60000;
+    // systemd changed how it prints this property: older versions emit raw
+    // microseconds, newer ones a formatted timestamp. Leviathan runs 259, which
+    // prints `Mon 2026-09-07 03:50:00 CDT` — `Number()` on that is NaN, so this
+    // returned null on every call and the defer-to-nightly branch in decide()
+    // was silently dead. Found 2026-09-06 while tracing six restarts a day.
+    //
+    // `--timestamp=utc` pins the formatted form to `... UTC`, which Date.parse
+    // reads without depending on the host locale or on a timezone abbreviation
+    // (V8 parses `CDT` today, but abbreviations are not portable). The numeric
+    // branch stays for the old format.
+    const out = await run('systemctl', ['show', '--timestamp=utc', timer, '-p', 'NextElapseUSecRealtime']);
+    const raw = out.split('=').slice(1).join('=').trim();
+    // An inactive or disabled timer prints an empty value or `n/a`; both mean
+    // "no next run", which is a null answer rather than a parse failure.
+    if (!raw) return null;
+    const usec = Number(raw);
+    const ms = Number.isFinite(usec) && usec > 0 ? usec / 1000 : Date.parse(raw);
+    if (!Number.isFinite(ms) || ms <= 0) return null;
+    return (ms - Date.now()) / 60000;
   } catch {
     return null;
   }

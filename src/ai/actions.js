@@ -34,7 +34,8 @@ const { proposeAction } = require('./approvals');
 const { logAiAction, notifyStaff } = require('../utils/aiAudit');
 const { getGuildConfig } = require('../config/guilds');
 
-const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|storytime|note|clearnotes|memory|title|dm|say|pzrestart|pz';
+const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|storytime|note|clearnotes|memory|'
+  + 'title|untitle|dm|say|react|pin|thread|poll|nick|channel|pzrestart|pz';
 
 /**
  * Pull action tags out of a reply and strip them from the visible text.
@@ -106,6 +107,54 @@ function parseActions(response) {
       case 'clearnotes':
         actions.push({ type: 'clearnotes', userId: parts[0] });
         break;
+
+      case 'untitle': {
+        const [userId, ...titleParts] = parts;
+        const text = titleParts.join(':').trim();
+        if (userId && text) actions.push({ type: 'untitle', userId, title: text });
+        break;
+      }
+
+      case 'react': {
+        // One emoji, aimed at the message he is answering.
+        const emoji = parts.join(':').trim();
+        if (emoji) actions.push({ type: 'react', emoji });
+        break;
+      }
+
+      case 'pin':
+        actions.push({ type: 'pin', reason: parts.join(':').trim() || 'worth keeping' });
+        break;
+
+      case 'thread': {
+        const name = parts.join(':').trim();
+        if (name) actions.push({ type: 'thread', name });
+        break;
+      }
+
+      case 'poll': {
+        // question:option|option|option — the pipe keeps options apart without
+        // stealing the colon, which people put inside questions.
+        const [question, ...rest] = parts;
+        const options = rest.join(':').split('|').map((o) => o.trim()).filter(Boolean);
+        if (question && options.length >= 2) {
+          actions.push({ type: 'poll', question: question.trim(), options });
+        }
+        break;
+      }
+
+      case 'nick': {
+        const [userId, ...nameParts] = parts;
+        const name = nameParts.join(':').trim();
+        if (userId && name) actions.push({ type: 'nick', userId, name });
+        break;
+      }
+
+      case 'channel': {
+        const [name, ...topicParts] = parts;
+        if (name) actions.push({ type: 'channel', name: name.trim(), topic: topicParts.join(':').trim() });
+        break;
+      }
 
       case 'dm': {
         const [userId, ...textParts] = parts;

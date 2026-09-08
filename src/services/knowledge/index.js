@@ -18,6 +18,7 @@ const { aiTitles } = require('../../config/guilds');
 const { liveFacts, modsDoc } = require('./live');
 const { allDocs } = require('./sources');
 const { selfFacts } = require('./self');
+const { recentDeeds, deedLine, roleLines } = require('./deeds');
 
 /** Words too common to tell one document from another. */
 const STOPWORDS = new Set([
@@ -165,6 +166,34 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
     if (lines.length) sections.push(`WHAT YOU CAN DO HERE, AND WHO YOU ARE TALKING TO\n${lines.join('\n')}`);
   } catch (err) {
     console.warn('[Knowledge] Self facts failed:', err?.message || err);
+  }
+
+  try {
+    const deeds = await recentDeeds(guildId);
+    if (deeds.length) {
+      sections.push(
+        'WHAT YOU HAVE DONE IN THE LAST FEW HOURS (your own actions, in order)\n' +
+        `${deeds.map(deedLine).join('\n')}\n` +
+        'Asked whether you did something, answer from this and nothing else. ' +
+        'Note the difference between what you DID and what you were REFUSED or only ASKED PERMISSION FOR — ' +
+        'saying you did a thing that was refused is a lie told to someone who trusted you.',
+      );
+    }
+  } catch (err) {
+    console.warn('[Knowledge] Own deeds failed:', err?.message || err);
+  }
+
+  try {
+    const roles = roleLines(guild);
+    if (roles.length) {
+      sections.push(
+        `THE ROLES IN THIS SERVER (highest first)\n${roles.join('\n')}\n` +
+        'These are what people mean when they name a role at you. You may talk about them freely; ' +
+        'the ones you hand out as titles are the ones with no powers.',
+      );
+    }
+  } catch (err) {
+    console.warn('[Knowledge] Roles failed:', err?.message || err);
   }
 
   try {

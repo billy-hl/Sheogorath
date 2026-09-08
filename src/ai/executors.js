@@ -12,7 +12,38 @@ const { timeoutUser, warnUser, deleteMessage } = require('../services/automod');
 const { addUserNote, clearUserNotes } = require('../storage/state');
 const { addMemory } = require('../storage/memory');
 const { CAPABILITIES } = require('./capabilities');
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, ChannelType } = require('discord.js');
+
+/**
+ * The palette titles are drawn from — bright enough to read against both
+ * Discord themes, and deliberately short, so a server full of his titles still
+ * looks like it was decorated by one hand.
+ */
+const TITLE_COLOURS = [
+  0x9b59b6, 0xe67e22, 0x1abc9c, 0xe91e63, 0xf1c40f,
+  0x3498db, 0x2ecc71, 0xe74c3c, 0x00bcd4, 0xff7043,
+];
+
+/** Stable small hash, so one title keeps one colour across servers and restarts. */
+function hashOf(text) {
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/**
+ * Whether a role is one he could have made: cosmetic, unmanaged, beneath him.
+ *
+ * The same question is asked when handing a title out and when taking one back,
+ * and both answers have to agree — otherwise he can be talked into removing a
+ * role that means something by calling it a title.
+ */
+function isCosmetic(role, ceiling) {
+  return role
+    && role.permissions.bitfield === 0n
+    && !role.managed
+    && role.position < ceiling;
+}
 
 /**
  * Perform one action.
@@ -126,6 +157,123 @@ async function runAction(action, ctx) {
       return `spoke in #${target.name}${asker ? ` for ${asker}` : ''}`;
     }
 
+    case 'untitle': {
+      // Taking a title back, held to exactly the test that gave it out: he can
+      // only remove a role that he could have created. Calling a real role a
+      // "title" does not make it one.
+      const me = guild.members.me || (await guild.members.fetchMe());
+      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        throw new Error('I have no authority over roles in this place — someone must grant me Manage Roles');
+      }
+
+      const name = String(action.title).replace(/\s+/g, ' ').trim();
+      const member = await guild.members.fetch(action.userId);
+      const role = member.roles.cache.find((r) => r.name === name);
+      if (!role) throw new Error(`<@${action.userId}> is not carrying anything called "${name}"`);
+      if (!isCosmetic(role, me.roles.highest.position)) {
+        throw new Error(`"${name}" is not one of my titles — it is a real role, and not mine to take`);
+      }
+
+      await member.roles.remove(role, `[Sheogorath] title removed: ${name}`);
+
+      // Swept up when the last wearer puts it down. A server slowly filling
+      // with empty roles nobody holds is the litter this power would otherwise
+      // leave behind.
+      if (role.members.size === 0) {
+        await role.delete(`[Sheogorath] nobody left wearing "${name}"`).catch(() => {});
+      }
+      return `took "${name}" back off <@${action.userId}>`;
+    }
+
+    case 'react': {
+      if (!message) throw new Error('there is no message here to react to');
+      // Discord rejects anything that is not an emoji it knows, and the error
+      // is unreadable, so it is said plainly instead.
+      await message.react(action.emoji).catch(() => {
+        throw new Error(`${action.emoji} is not an emoji I can put on a message here`);
+      });
+      return `reacted ${action.emoji}`;
+    }
+
+    case 'pin': {
+      if (!message) throw new Error('there is no message here to pin');
+      const me = guild.members.me || (await guild.members.fetchMe());
+      if (!message.channel.permissionsFor(me)?.has(PermissionFlagsBits.ManageMessages)) {
+        throw new Error('I am not permitted to pin things in this channel');
+      }
+      // A full pin list is the usual failure and reads as a bug otherwise.
+      await message.pin(`[Sheogorath] ${action.reason}`).catch((err) => {
+        throw new Error(`I could not pin it (${err.message}) — the channel's pins may be full`);
+      });
+      return 'pinned the message';
+    }
+
+    case 'thread': {
+      if (!message) throw new Error('there is no message here to open a thread on');
+      const me = guild.members.me || (await guild.members.fetchMe());
+      if (!message.channel.permissionsFor(me)?.has(PermissionFlagsBits.CreatePublicThreads)) {
+        throw new Error('I am not permitted to open threads in this channel');
+      }
+      const name = String(action.name).replace(/\s+/g, ' ').trim().slice(0, CAPABILITIES.thread.maxLength);
+      const thread = await message.startThread({ name, reason: '[Sheogorath] a room of its own' });
+      return `opened a thread: ${thread.name}`;
+    }
+
+    case 'poll': {
+      if (!message) throw new Error('there is nowhere here to put a poll');
+      const options = action.options.slice(0, CAPABILITIES.poll.maxOptions);
+      await message.channel.send({
+        poll: {
+          question: { text: String(action.question).slice(0, 300) },
+          answers: options.map((text) => ({ text: String(text).slice(0, 55) })),
+          duration: 24,
+          allowMultiselect: false,
+        },
+      });
+      return `put a poll to the room: ${action.question}`;
+    }
+
+    case 'nick': {
+      const me = guild.members.me || (await guild.members.fetchMe());
+      if (!me.permissions.has(PermissionFlagsBits.ManageNicknames)) {
+        throw new Error('I cannot rename anyone here — someone must grant me Manage Nicknames');
+      }
+      const member = await guild.members.fetch(action.userId);
+
+      // Discord refuses this for anyone at or above him anyway; saying so is
+      // better than handing back a 50013 nobody can read.
+      if (member.roles.highest.position >= me.roles.highest.position) {
+        throw new Error(`<@${action.userId}> stands too high for me to rename`);
+      }
+      const name = String(action.name).replace(/\s+/g, ' ').trim().slice(0, CAPABILITIES.nick.maxLength);
+      const was = member.displayName;
+      await member.setNickname(name, '[Sheogorath] renamed');
+      return `renamed ${was} to "${name}"`;
+    }
+
+    case 'channel': {
+      const me = guild.members.me || (await guild.members.fetchMe());
+      if (!me.permissions.has(PermissionFlagsBits.ManageChannels)) {
+        throw new Error('I cannot make rooms here — someone must grant me Manage Channels');
+      }
+      // Discord lowercases and hyphenates text channel names itself; doing it
+      // here means the name he reports back is the name people will see.
+      const name = String(action.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '').slice(0, CAPABILITIES.channel.maxLength);
+      if (!name) throw new Error('that name leaves nothing a channel could be called');
+      if (guild.channels.cache.some((c) => c.name === name)) {
+        throw new Error(`there is already a #${name}`);
+      }
+      const channel = await guild.channels.create({
+        name,
+        type: ChannelType.GuildText,
+        topic: action.topic ? String(action.topic).slice(0, 1024) : undefined,
+        parent: message?.channel?.parentId || null,
+        reason: '[Sheogorath] a new room',
+      });
+      return `made #${channel.name}`;
+    }
+
     case 'title': {
       // Where the limits on this one actually live.
       //
@@ -149,7 +297,7 @@ async function runAction(action, ctx) {
       // have made. An existing "Admin" role is a trap: same name, real power,
       // and handing it out would be the whole game lost in one line of chat.
       const existing = guild.roles.cache.find((r) => r.name === name && r.id !== guild.id);
-      if (existing && (existing.permissions.bitfield !== 0n || existing.managed || existing.position >= ceiling)) {
+      if (existing && !isCosmetic(existing, ceiling)) {
         throw new Error(
           `there is already a role called "${name}" that carries weight — I hand out titles, not power`,
         );
@@ -160,6 +308,11 @@ async function runAction(action, ctx) {
         // No permissions, ever. Not a default, not a starting point.
         permissions: [],
         mentionable: false,
+        // A title nobody can see is half a title. The colour is what puts it in
+        // the member list and on the name, which is the whole point of being
+        // given one — picked from the name so the same title is the same colour
+        // wherever it turns up, rather than a new one each time.
+        color: TITLE_COLOURS[hashOf(name) % TITLE_COLOURS.length],
         reason: `[Sheogorath] title granted to ${member.user.username}`,
       });
 
@@ -252,6 +405,16 @@ function describeAction(action) {
     case 'clearnotes':return `Clear all notes for <@${action.userId}>`;
     case 'memory':    return `Remember about <@${action.userId}>: ${action.memory}`;
     case 'storytime': return `Tell an early tale of the day so far — ${action.reason || 'someone asked'}`;
+    case 'title':     return `Give <@${action.userId}> the title "${action.title}"`;
+    case 'untitle':   return `Take the title "${action.title}" back off <@${action.userId}>`;
+    case 'dm':        return `Send <@${action.userId}> a private message: ${action.text}`;
+    case 'say':       return `Speak in ${action.channel}: ${action.text}`;
+    case 'react':     return `React ${action.emoji} to the triggering message`;
+    case 'pin':       return `Pin the triggering message — ${action.reason}`;
+    case 'thread':    return `Open a thread called "${action.name}"`;
+    case 'poll':      return `Poll the room — "${action.question}" (${action.options.join(', ')})`;
+    case 'nick':      return `Rename <@${action.userId}> to "${action.name}"`;
+    case 'channel':   return `Make a channel called #${action.name}`;
     case 'pzcommand': return `Run on the game server: \`${action.command}\``;
     case 'pzrestart': return action.minutes > 0
       ? `Restart the game server in ${action.minutes} minute(s) — ${action.reason || 'no reason given'}`

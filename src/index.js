@@ -55,6 +55,7 @@ const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
 const { scheduleEulogies } = require('./services/zomboid/eulogy');
 const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
 const { schedulePlayerCount } = require('./services/zomboid/playerCount');
+const { watchDeletions } = require('./services/deletions');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
 
@@ -210,6 +211,11 @@ client.once(Events.ClientReady, async () => {
   setClient(client); // Enable error notifications
   setAuditClient(client); // Enable the command-log channel mirror
   setAiAuditClient(client); // Enable the AI action trail's staff-channel mirror
+
+  // Start watching what gets deleted. Has to be armed at startup rather than
+  // lazily on the first question about it: by the time somebody asks what was
+  // removed, the only record is the one we were already keeping.
+  watchDeletions(client);
 
   // Spend warnings go to every guild that has a staff channel. The budget is
   // one ceiling over one API key, not one per guild, so everyone who could
@@ -1048,16 +1054,35 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     // and never stored: a room asked about "right now" has to be read now.
     let chatContext = '';
     try {
-      const { transcriptFor, replyTargetFor, PARLOUR_TRANSCRIPT } = require('./services/transcript');
-      // He sees further back in his own hall, where the thread of the
-      // conversation is the subject rather than the backdrop.
-      const room = await transcriptFor(userMessage, inParlour ? PARLOUR_TRANSCRIPT : {});
+      const {
+        transcriptFor, replyTargetFor, wantsRecall, PARLOUR_TRANSCRIPT, RECALL_TRANSCRIPT,
+      } = require('./services/transcript');
+
+      // Three windows, and the question picks which. "What's going on" wants
+      // the room; "what happened yesterday" wants four times as much and is
+      // asked about once a day, so it is bought per question rather than
+      // carried on every reply.
+      const deep = wantsRecall(cleanedContent);
+      const window = deep ? RECALL_TRANSCRIPT : (inParlour ? PARLOUR_TRANSCRIPT : {});
+      if (deep) console.log(`[Transcript] Deep recall for ${userMessage.author.username}`);
+
+      const room = await transcriptFor(userMessage, window);
       chatContext = [room, await replyTargetFor(userMessage)].filter(Boolean).join('');
     } catch (err) {
       console.warn('[Transcript] Skipped:', err?.message || err);
     }
 
-    const prefix = [knowledgeContext, chatContext, pingContext, notesContext, memoriesContext].filter(Boolean).join('\n');
+    // What was taken back, and only when somebody is asking about it.
+    let deletionContext = '';
+    try {
+      const { deletionsFor } = require('./services/deletions');
+      deletionContext = deletionsFor(guildId, cleanedContent, userMessage.channelId);
+    } catch (err) {
+      console.warn('[Deletions] Skipped:', err?.message || err);
+    }
+
+    const prefix = [knowledgeContext, chatContext, deletionContext, pingContext, notesContext, memoriesContext]
+      .filter(Boolean).join('\n');
     const messages = [
       ...history.slice(-historyDepth),
       { role: 'user', content: prefix + (prefix ? '\n' : '') + cleanedContent }

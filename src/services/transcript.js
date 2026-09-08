@@ -34,8 +34,29 @@
  */
 const TRANSCRIPT_LIMIT = 100;
 
-/** Discord returns at most this many per fetch; asking for more silently gets this. */
+/** Discord returns at most this many per fetch; deeper windows are paged. */
 const FETCH_CEILING = 100;
+
+/**
+ * The catch-me-up window, and when he is allowed to reach for it.
+ *
+ * "Can you give us a run down of what happened in chat yesterday?" does not fit
+ * in a hundred messages, and paying for four hundred on every reply to buy the
+ * one question a day that needs them is the wrong trade — it is four times the
+ * standing cost for something asked once. So the deep window is spent only when
+ * the question is plainly asking for it, which costs four fetches and about a
+ * penny on the turns that use it and nothing at all on the rest.
+ */
+const RECALL_TRANSCRIPT = { limit: 400, maxChars: 30000 };
+
+/** Questions that are asking him to reach back rather than look around. */
+const RECALL_PATTERN =
+  /\b(yesterday|last night|this morning|earlier|catch (me|us) up|caught up|run ?down|recap|summar|what happened|what did i miss|missed|since i left|all day|overnight)\b/i;
+
+/** Whether a question wants the deep window. */
+function wantsRecall(text) {
+  return RECALL_PATTERN.test(text || '');
+}
 
 /** Per-message cap. Long enough for a paragraph, short enough that one wall of text can't eat the block. */
 const LINE_CHARS = 300;
@@ -107,16 +128,25 @@ async function transcriptFor(message, { limit = TRANSCRIPT_LIMIT, maxChars = BLO
     // Before the triggering message, not including it — that one is already the
     // question, and repeating it as context makes him answer it twice.
     //
-    // Clamped rather than paginated: Discord returns 100 at most, and a caller
-    // asking for 500 should be told by the code that it gets 100, instead of
-    // discovering it in a reply that quietly stops short.
-    const fetched = await message.channel.messages.fetch({
-      limit: Math.min(limit, FETCH_CEILING),
-      before: message.id,
-    });
+    // Discord returns 100 per fetch, so anything deeper is walked a page at a
+    // time. The ordinary path asks for 100 and pages exactly once; only a
+    // catch-me-up question pays for more.
+    const collected = [];
+    let before = message.id;
+    while (collected.length < limit) {
+      const page = await message.channel.messages.fetch({
+        limit: Math.min(limit - collected.length, FETCH_CEILING),
+        before,
+      });
+      if (!page.size) break;
+      const batch = [...page.values()];
+      collected.push(...batch);
+      before = batch[batch.length - 1].id;
+      if (page.size < FETCH_CEILING) break;
+    }
 
     const meId = message.client.user.id;
-    const lines = [...fetched.values()]
+    const lines = collected
       .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
       .map((m) => line(m, meId))
       .filter(Boolean);
@@ -179,4 +209,14 @@ async function replyTargetFor(message) {
   }
 }
 
-module.exports = { transcriptFor, replyTargetFor, TRANSCRIPT_LIMIT, PARLOUR_TRANSCRIPT, LINE_CHARS, BLOCK_CHARS };
+module.exports = {
+  transcriptFor,
+  replyTargetFor,
+  wantsRecall,
+  TRANSCRIPT_LIMIT,
+  PARLOUR_TRANSCRIPT,
+  RECALL_TRANSCRIPT,
+  FETCH_CEILING,
+  LINE_CHARS,
+  BLOCK_CHARS,
+};

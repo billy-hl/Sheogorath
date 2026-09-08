@@ -126,16 +126,55 @@ const CAPABILITIES = {
   // reused when it is equally toothless — so the worst outcome is a stupid
   // name under somebody's, which any Owner can strip in two clicks.
   //
-  // `ownerTier` for the same reason `pzcommand` has it: an Owner asking in
-  // chat is the person the card would have been escalated to, and making them
-  // click their own request is ceremony. Anyone else's request is a card.
-  // Immunity is off because this takes nothing away — a Sheriff can be given a
-  // silly title the way anyone else can, and can remove it the same way.
-  title:      { tier: 'propose', ownerTier: 'auto', targets: 'member', immune: false, perHour: 10,
+  // Anyone may title anyone, which is a wider door than it looks and is opened
+  // on purpose. This server's favourite thing to do with him is ask for titles
+  // — for themselves, for their friends, for a man who has just said something
+  // stupid — and behind an approval card that whole game is Owners-only, which
+  // is not a server, it is a queue. What makes it affordable is that a title
+  // takes nothing away, wears its author in the audit log, and comes off again
+  // in one line. Immunity is off for the same reason: a Sheriff can be given a
+  // silly name like anybody else.
+  title:      { tier: 'auto',    targets: 'member', immune: false, perHour: 10,
+                maxLength: 90 },
+
+  // Taking one back, which is narrower than giving one — `author` means your
+  // own comes off on your say-so, and stripping somebody else's needs staff.
+  // The asymmetry is the point: being given a daft name by a friend is the
+  // game, and having one quietly removed by a stranger is a slight.
+  untitle:    { tier: 'auto',    targets: 'author', immune: false, perHour: 10 },
+
+  // --- Furniture. Small, visible, and undone by hand in seconds. ---
+  //
+  // All auto, all rationed, none of them able to remove anything from anybody.
+  // A reaction is the cheapest thing he can do and the one people expect most
+  // from something that behaves like a person in the room.
+  react:      { tier: 'auto',    targets: 'none',   immune: false, perHour: 30 },
+  pin:        { tier: 'auto',    targets: 'none',   immune: false, perHour: 10 },
+  thread:     { tier: 'auto',    targets: 'none',   immune: false, perHour: 5, maxLength: 90 },
+  poll:       { tier: 'auto',    targets: 'none',   immune: false, perHour: 5, maxOptions: 8 },
+
+  // Renaming somebody is where "harmless and reversible" stops being obviously
+  // true: it changes how a person appears to everyone, and unlike a title it
+  // replaces something they chose. Owners rename freely; everyone else's
+  // request is a card, and staff are immune, because a room that can rename its
+  // moderators through him has been handed the keys sideways.
+  nick:       { tier: 'propose', ownerTier: 'auto', targets: 'member', immune: true, perHour: 10,
+                maxLength: 32 },
+
+  // A new room is the one piece of furniture that persists whether or not
+  // anybody wanted it, so it stays an Owner's to make.
+  channel:    { tier: 'propose', ownerTier: 'auto', targets: 'none',   immune: false, perHour: 3,
                 maxLength: 90 },
 
   // --- Everything below always asks, whoever is asking. ---
-  kick:       { tier: 'propose', targets: 'member', immune: true,  perHour: 5 },
+  //
+  // Kick carries the Owner exception now, asked for in as many words: "are you
+  // able to kick. You know, for the future?" — then "that needs to change". It
+  // is the first power he has that removes a person, and in a guild with no
+  // staff channel a proposal is a refusal, so without the exception the answer
+  // to an Owner would stay no forever. It stops at Owners for that reason and
+  // no further.
+  kick:       { tier: 'propose', ownerTier: 'auto', targets: 'member', immune: true,  perHour: 5 },
   ban:        { tier: 'propose', targets: 'member', immune: true,  perHour: 3,
                 maxDeleteDays: 7 },
 

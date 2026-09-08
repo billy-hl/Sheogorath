@@ -13,7 +13,7 @@
  */
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { getGuildConfig, updateGuildConfig } = require('../config/guilds');
-const { withoutLengthRules } = require('../ai/persona');
+const { withSubstance } = require('../ai/persona');
 
 const PARLOUR_NAME = 'the-shivering-isles';
 const PARLOUR_TOPIC =
@@ -73,9 +73,13 @@ permission to invent. Being wrong at length is worse than being wrong briefly.
  * rule is cut from the text instead of contradicted. That surgery lives in
  * ai/persona.js now, because the rooms outside this one need it too — they just
  * put a shorter rule back in its place.
+ *
+ * It carries persona.js's SUBSTANCE rules with it. Room to talk is the one
+ * place where answering nothing at length is possible, so the rule that the
+ * answer comes first belongs here more than anywhere.
  */
 function parlourPersona() {
-  return withoutLengthRules();
+  return withSubstance();
 }
 
 /** The parlour's channel ID for a guild, or null. */

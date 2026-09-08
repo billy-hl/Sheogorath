@@ -14,6 +14,7 @@
  * what he may do with them. He keeps every bit of the voice. He loses only the
  * freedom to make the substance up.
  */
+const { aiTitles } = require('../../config/guilds');
 const { liveFacts, modsDoc } = require('./live');
 const { allDocs } = require('./sources');
 const { selfFacts } = require('./self');
@@ -106,8 +107,18 @@ function retrieve(docs, question, budget) {
  * Deliberately gives him the whole of the voice and none of the substance. The
  * failure this is written against is not him being too mad — it is him being
  * helpfully, fluently wrong, which a new player cannot tell from being right.
+ *
+ * Built per guild, because the sentence that sends someone to a human names a
+ * rank, and the rank is not the same everywhere. It said "Ask a Sheriff" in a
+ * server that has never had one — which is its own kind of confidently wrong,
+ * and sends a person looking for a role that does not exist. aiTitles() already
+ * knows what each guild calls its tiers, and falls back to the Owner where no
+ * staff role is configured to hold a title at all.
  */
-const GROUNDING_RULE = `
+function groundingRule(guildConfig) {
+  const { approver } = aiTitles(guildConfig);
+  const an = /^[aeiou]/i.test(approver) ? 'an' : 'a';
+  return `
 HOW TO USE WHAT IS ABOVE
 
 Everything above is true as of this moment, and it is the whole of what you know
@@ -117,13 +128,15 @@ yourself are permitted to do here. Answer from it.
 It does not govern who you are. Your name, your nature, your opinions and your
 manner are yours, and questions about them are not "not covered" — answer those
 freely, as yourself. A question about your own powers IS covered: it is answered
-above, so answer it, rather than sending someone off to ask a Sheriff what you
-are.
+above, so answer it, rather than sending someone off to ask ${an} ${approver}
+what you are.
 
-Where it does not cover what was asked, say so and send them to the staff. Do it
-in your own voice — be as insufferable about it as you like — but say it
+Where it does not cover what was asked, say so and send them to ${an} ${approver}.
+Do it in your own voice — be as insufferable about it as you like — but say it
 plainly enough that they understand you don't know. "Even the Mad God's memory
-has holes, mortal. Ask a Sheriff." is a fine answer. A made-up one is not.
+has holes, mortal. Ask ${an} ${approver}." is a fine answer. A made-up one is
+not. Never invent a rank: ${approver} is what the people above you are called
+here, whatever they are called anywhere else.
 
 Never invent a port, an address, a password, a rule, a mod name, a command, a
 player count or a restart time. If it is not written above, you do not know it,
@@ -132,6 +145,7 @@ someone unable to connect.
 
 Your madness is in HOW you say things. WHAT you say comes from the facts above.
 `.trim();
+}
 
 /**
  * Build the knowledge block for one question.
@@ -180,7 +194,7 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
 
   if (!sections.length) return '';
 
-  return `--- WHAT YOU ACTUALLY KNOW ---\n\n${sections.join('\n\n')}\n\n${GROUNDING_RULE}\n--- END ---\n`;
+  return `--- WHAT YOU ACTUALLY KNOW ---\n\n${sections.join('\n\n')}\n\n${groundingRule(guildConfig)}\n--- END ---\n`;
 }
 
-module.exports = { knowledgeFor, retrieve, score, terms, GROUNDING_RULE, HELP_DOC_BUDGET, DEFAULT_DOC_BUDGET };
+module.exports = { knowledgeFor, retrieve, score, terms, groundingRule, HELP_DOC_BUDGET, DEFAULT_DOC_BUDGET };

@@ -20,15 +20,29 @@
     "zomboid": null,
     "ai": {
       "mode": "enforce",
-      "standing": "This is the Mad God's own hall, not a garrison. You are its mascot and its figurehead: adored, quoted, indulged, and in charge of almost nothing. You may snuff out a message or sit someone in the corner for a few minutes when they have earned it, and that is the whole of your reach \u2014 there is no ban, no exile, and nobody here to appeal to.",
+      "standing": "This is the Mad God's own hall, not a garrison. You are its mascot and its figurehead: adored, quoted, indulged, and in charge of almost nothing. You may snuff out a message or sit someone in the corner for a few minutes when they have earned it, and you may hang a title on anyone who amuses you \u2014 a name, not a rank, carrying nothing but itself. You may also carry a message to someone privately, or speak in any room of this place without being in it - every such message is signed with whose errand it was. That is the whole of your reach \u2014 there is no ban, no exile, and nobody here to appeal to.",
       "powers": [
         "note",
         "memory",
         "clearnotes",
         "flag",
         "delete",
-        "timeout"
-      ]
+        "timeout",
+        "title",
+        "dm",
+        "say",
+        "untitle",
+        "react",
+        "pin",
+        "thread",
+        "poll",
+        "nick",
+        "channel",
+        "kick"
+      ],
+      "titles": {
+        "admin": "Creator"
+      }
     }
   },
   "444601986160263189": {
@@ -47,10 +61,10 @@
       "commandLog": "1535750358905651294",
       "characters": "1536868592342138930",
       "modApprovals": null,
-      "help": "1543619738595233824",
       "rules": "1533305807448576242",
       "serverInfo": "1533306000428367942",
-      "parlour": "1541092000567398462"
+      "parlour": "1541092000567398462",
+      "help_disabled_20260831": "1543619738595233824"
     },
     "roles": {
       "admin": "1408619717438210139",
@@ -107,7 +121,10 @@
     },
     "ai": {
       "mode": "enforce",
-      "standing": "This is the survivors' server, and you are its warden as well as its god. You keep the peace here, and the Sheriffs keep you."
+      "standing": "This is the survivors' server, and you are its warden as well as its god. You keep the peace here, and the Sheriffs keep you.",
+      "titles": {
+        "admin": "Creator"
+      }
     }
   }
 }

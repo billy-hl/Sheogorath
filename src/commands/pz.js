@@ -636,6 +636,7 @@ module.exports = {
           return;
         }
 
+
         case 'addxp': {
           const skill = interaction.options.getString('skill');
           const amount = interaction.options.getInteger('amount');

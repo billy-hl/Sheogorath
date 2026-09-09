@@ -118,6 +118,11 @@ const TREE = [
       { name: 'staff-chat', topic: 'Warden and Owner only.' },
       { name: 'command-log', configKey: 'commandLog',
         topic: 'Privileged command invocations, and what Sheogorath wants permission to do.' },
+      // Discord's own moderator notices, required as the public-updates channel
+      // once the guild is a Community server. Kept apart from command-log,
+      // which staff are expected to act on.
+      { name: 'mod-updates',
+        topic: 'Discord posts moderator and community notices here. Not the bot.' },
     ] },
 ];
 

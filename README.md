@@ -102,7 +102,7 @@ Every subcommand is limited to Sheriffs and Owners. Invocations — including re
 - `/mod warn|kick|ban|timeout <user> ...` - Moderation actions *(requires the `moderation` feature and Administrator)*
 - `/stats` - Show bot statistics *(requires the `moderation` feature and Administrator)*
 - `/automod status` - View current AutoMod status *(requires the `automod` feature and Administrator)*
-- `/automod words <on|off>` - Toggle the blocked words filter
+- `/automod words <on|off> [words]` - Toggle the blocked words filter. Pass `words` as a comma-separated list to set the terms it blocks; omit it to keep the current list. The filter stays off until the server has at least one term.
 - `/automod antispam <on|off>` - Toggle the mention spam filter
 
 ### 📊 Utility

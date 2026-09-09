@@ -8,10 +8,39 @@ const {
 const { getGuildState, setGuildState } = require('../storage/state');
 const { getGuildConfig } = require('../config/guilds');
 
-// Default blocked words list
-const DEFAULT_BLOCKED_WORDS = [
-  // Add slurs and offensive terms here as needed
-];
+// Discord's limits on a Keyword rule's filter list.
+const MAX_KEYWORDS = 1000;
+const MAX_KEYWORD_LENGTH = 60;
+
+/**
+ * Turn an admin-supplied comma-separated string into a keyword filter list.
+ * Returns the accepted terms alongside anything dropped, so the caller can
+ * tell the admin exactly what did and did not make it into the rule.
+ * @param {string} input
+ * @returns {{ accepted: string[], rejected: string[] }}
+ */
+function parseWordList(input) {
+  const accepted = [];
+  const rejected = [];
+  const seen = new Set();
+
+  for (const raw of String(input || '').split(',')) {
+    const word = raw.trim();
+    if (!word) continue;
+
+    const key = word.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (word.length > MAX_KEYWORD_LENGTH || accepted.length >= MAX_KEYWORDS) {
+      rejected.push(word);
+    } else {
+      accepted.push(word);
+    }
+  }
+
+  return { accepted, rejected };
+}
 
 /**
  * Set up or update Discord native AutoMod rules for a guild.
@@ -19,7 +48,8 @@ const DEFAULT_BLOCKED_WORDS = [
  * @param {Object} options
  * @param {boolean} [options.blockWords] - Enable keyword filter
  * @param {boolean} [options.antiSpam] - Enable mention spam filter
- * @param {string[]} [options.customWords] - Additional words to block
+ * @param {string[]} [options.customWords] - Replaces the guild's stored word list;
+ *   omit to re-use whatever was configured last
  */
 async function setupAutoMod(guild, options = {}) {
   const automodState = getGuildState(guild.id).automod || {};
@@ -33,9 +63,21 @@ async function setupAutoMod(guild, options = {}) {
       const existingKeywordRule = existingRules.find(r => r.name === 'Sheogorath-BlockedWords');
 
       if (options.blockWords) {
-        const words = [...DEFAULT_BLOCKED_WORDS, ...(options.customWords || [])];
+        // An explicit list replaces the stored one; omitting it re-uses what the
+        // guild configured last, so `off` then `on` doesn't lose the list. The
+        // live rule is the last resort, for when state.json has been lost.
+        const stored = automodState.blockedWords || [];
+        const live = existingKeywordRule?.triggerMetadata?.keywordFilter || [];
+        const words = options.customWords ? [...options.customWords]
+          : stored.length ? [...stored]
+            : [...live];
+
         if (words.length === 0) {
+          // Nothing to filter on. Leave the rule untouched and record that the
+          // filter is off, so callers never report a filter the guild lacks.
           console.log('No blocked words configured, skipping keyword filter.');
+          automodState.blockWords = false;
+          automodState.blockedWords = [];
         } else if (existingKeywordRule) {
           await existingKeywordRule.edit({
             enabled: true,
@@ -56,11 +98,17 @@ async function setupAutoMod(guild, options = {}) {
             enabled: true,
           });
         }
-        automodState.blockWords = true;
+
+        if (words.length > 0) {
+          automodState.blockWords = true;
+          automodState.blockedWords = words;
+        }
       } else {
         if (existingKeywordRule) {
           await existingKeywordRule.edit({ enabled: false });
         }
+        // A list supplied alongside `off` is still worth keeping for next time.
+        if (options.customWords) automodState.blockedWords = [...options.customWords];
         automodState.blockWords = false;
       }
     }
@@ -119,11 +167,12 @@ async function getAutoModStatus(guild) {
 
     return {
       blockWords: keywordRule?.enabled || false,
+      blockedWords: keywordRule?.triggerMetadata?.keywordFilter || [],
       antiSpam: spamRule?.enabled || false,
     };
   } catch (error) {
     console.error('Failed to fetch AutoMod status:', error.message);
-    return { blockWords: false, antiSpam: false };
+    return { blockWords: false, blockedWords: [], antiSpam: false };
   }
 }
 
@@ -324,6 +373,7 @@ module.exports = {
   applyBaseline,
   BASELINE,
   getAutoModStatus,
+  parseWordList,
   timeoutUser,
   warnUser,
   deleteMessage,

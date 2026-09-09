@@ -20,7 +20,7 @@
     "zomboid": null,
     "ai": {
       "mode": "enforce",
-      "standing": "This is the Mad God's own hall, not a garrison. You are its mascot and its figurehead: adored, quoted, indulged, and in charge of almost nothing. You may snuff out a message or sit someone in the corner for a few minutes when they have earned it, and you may hang a title on anyone who amuses you \u2014 a name, not a rank, carrying nothing but itself. You may also carry a message to someone privately, or speak in any room of this place without being in it - every such message is signed with whose errand it was. That is the whole of your reach \u2014 there is no ban, no exile, and nobody here to appeal to.",
+      "standing": "This is the Mad God's own hall, not a garrison. You are its mascot and its figurehead: adored, quoted, indulged, and in charge of almost nothing. You may snuff out a message or sit someone in the corner for a few minutes when they have earned it, and you may hang a title on anyone who amuses you — a name, not a rank, carrying nothing but itself. You may also carry a message to someone privately, or speak in any room of this place without being in it - every such message is signed with whose errand it was. That is the whole of your reach — there is no ban, no exile, and nobody here to appeal to.",
       "powers": [
         "note",
         "memory",
@@ -125,6 +125,89 @@
       "titles": {
         "admin": "Creator"
       }
+    }
+  },
+  "1547233037765578822": {
+    "name": "wabbajack-community",
+    "features": [
+      "ai",
+      "music",
+      "moderation",
+      "instagram",
+      "textImageMod",
+      "automod"
+    ],
+    "channels": {
+      "rules": "1547235338752106618",
+      "help": "1547235343454052432",
+      "music": "1547235344116621373",
+      "defaultVoice": "1547233039384584266",
+      "commandLog": "1547235358239100949",
+      "suggestions": null,
+      "selfRoles": "1547238758242328666"
+    },
+    "roles": {
+      "member": "1547235333802950717",
+      "veteran": "1547235334947864606",
+      "staff": "1547235335459831929",
+      "admin": "1547235335983857684",
+      "onJoin": "1547235333802950717"
+    },
+    "zomboid": null,
+    "ai": {
+      "mode": "shadow",
+      "standing": "This is the Wabbajack Community's common room — a social hall that gathers around whatever game is current, Wardogs for the moment. You are its host and its resident lunatic: you greet, you needle, you remember what people tell you, and you keep the room civil without ever being the reason someone leaves it. The Wardens hold the authority here; you hold the room’s attention.",
+      "powers": [
+        "note",
+        "memory",
+        "clearnotes",
+        "flag",
+        "delete",
+        "timeout",
+        "title",
+        "untitle",
+        "dm",
+        "say",
+        "react",
+        "pin",
+        "thread",
+        "poll",
+        "nick",
+        "channel"
+      ],
+      "titles": {
+        "admin": "Creator",
+        "staff": "Warden"
+      }
+    },
+    "selfRoles": [
+      {
+        "role": "1547235333047849043",
+        "label": "Wardogs",
+        "emoji": "🐕",
+        "description": "Pinged when people are getting a Wardogs group together."
+      },
+      {
+        "role": "1547239382824784015",
+        "label": "Streams",
+        "emoji": "🔴",
+        "description": "Pinged when Allisteras or Fish go live on Twitch."
+      }
+    ],
+    "twitch": {
+      "channel": "1547239386993790981",
+      "pingRole": "1547239382824784015",
+      "pollMinutes": 3,
+      "streamers": [
+        {
+          "login": "allisteras",
+          "name": "Allisteras"
+        },
+        {
+          "login": "stickmanfish",
+          "name": "Fish"
+        }
+      ]
     }
   }
 }

@@ -174,6 +174,23 @@ function normalizeGuild(id, raw) {
             }))
         : [],
     } : null,
+    // New-upload announcements. Same shape as `twitch` and the same reasoning:
+    // the feed needs no credentials, so there is nothing global to configure —
+    // only who is watched, and where it lands.
+    youtube: raw.youtube && typeof raw.youtube === 'object' ? {
+      channel: raw.youtube.channel || null,
+      pingRole: raw.youtube.pingRole || null,
+      pollMinutes: Number(raw.youtube.pollMinutes) > 0 ? Number(raw.youtube.pollMinutes) : 15,
+      feeds: Array.isArray(raw.youtube.feeds)
+        ? raw.youtube.feeds
+            .filter((f) => f && typeof f.channelId === 'string' && /^UC[A-Za-z0-9_-]{22}$/.test(f.channelId.trim()))
+            .map((f) => ({
+              channelId: f.channelId.trim(),
+              name: typeof f.name === 'string' && f.name.trim() ? f.name.trim() : f.channelId.trim(),
+              handle: typeof f.handle === 'string' ? f.handle.trim() : null,
+            }))
+        : [],
+    } : null,
     zomboid: raw.zomboid || null,
   };
 }

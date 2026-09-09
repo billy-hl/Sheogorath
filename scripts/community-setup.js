@@ -125,6 +125,8 @@ const TREE = [
         topic: 'Now-playing cards and music controls.' },
       { name: 'live', twitchChannel: true, locked: true,
         topic: 'Twitch announcements. Take the Streams role in #roles if you want the ping.' },
+      { name: 'youtube', youtubeChannel: true, locked: true,
+        topic: 'New uploads land here. Locked because it is a feed, not a conversation.' },
     ] },
   { category: 'WARDOGS', channels: [
       { name: 'wardogs-general', topic: 'Wardogs talk.' },
@@ -149,6 +151,10 @@ const TREE = [
       { name: 'mod-updates',
         topic: 'Discord posts moderator and community notices here. Not the bot.' },
     ] },
+];
+
+const YOUTUBE_FEEDS = [
+  { channelId: 'UCimHc9QeZGIDuwZsyj5MTQA', name: 'Allisteras', handle: '@Allisteras' },
 ];
 
 const STREAMERS = [
@@ -217,6 +223,7 @@ async function apply(guild) {
   const roleIds = {};
   const selfRoles = [];
   let liveChannelId = null;
+  let youtubeChannelId = null;
   let streamsRoleId = null;
   const teamRoleIds = {};
   const created = { roles: 0, channels: 0 };
@@ -338,6 +345,7 @@ async function apply(guild) {
       }
       if (ch.configKey) channelIds[ch.configKey] = channel.id;
       if (ch.twitchChannel) liveChannelId = channel.id;
+      if (ch.youtubeChannel) youtubeChannelId = channel.id;
     }
   }
 
@@ -352,6 +360,13 @@ async function apply(guild) {
     roles: { ...(prev.roles || {}), ...roleIds },
     zomboid: null,
     selfRoles,
+    youtube: {
+      channel: youtubeChannelId,
+      // No ping by default: an upload is not the interrupt that going live is.
+      pingRole: null,
+      pollMinutes: 15,
+      feeds: YOUTUBE_FEEDS,
+    },
     twitch: {
       channel: liveChannelId,
       pingRole: streamsRoleId,
@@ -378,7 +393,7 @@ async function apply(guild) {
   };
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n', 'utf8');
 
-  return { created, moved, reordered, roleIds, channelIds, selfRoles, liveChannelId, streamsRoleId, teamRoleIds };
+  return { created, moved, reordered, roleIds, channelIds, selfRoles, liveChannelId, youtubeChannelId, streamsRoleId, teamRoleIds };
 }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -412,6 +427,7 @@ client.once(Events.ClientReady, async () => {
     console.log(`  roles:    ${JSON.stringify(r.roleIds)}`);
     console.log(`  channels: ${JSON.stringify(r.channelIds)}`);
     console.log(`  selfRoles: ${JSON.stringify(r.selfRoles)}`);
+    console.log(`  youtube:  #youtube ${r.youtubeChannelId}, ${YOUTUBE_FEEDS.map((f) => f.handle || f.name).join(', ')}`);
     console.log(`  teams:    ${Object.entries(r.teamRoleIds).map(([n, id]) => n + ' ' + id).join(', ') || 'none'}`);
     console.log(`  twitch:   #live ${r.liveChannelId}, ping role ${r.streamsRoleId}, ${STREAMERS.map((x) => x.login).join(' + ')}`);
     console.log(`  wrote ${CONFIG_FILE}`);

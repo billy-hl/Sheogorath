@@ -41,6 +41,7 @@ const { trackCommand } = require('./commands/stats');
 const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole');
 const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./services/selfroles');
 const { scheduleStreamWatch } = require('./services/twitch');
+const { scheduleVideoWatch } = require('./services/youtube');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId, aiTitles } = require('./config/guilds');
 const {
@@ -293,6 +294,14 @@ client.once(Events.ClientReady, async () => {
     scheduleBusyWatch(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule overload watch:', err?.message || err);
+  }
+
+  // Announce new uploads. Isolated like the rest — a feed being unreachable
+  // must not stop the bot booting.
+  try {
+    scheduleVideoWatch(client);
+  } catch (err) {
+    console.error('[YouTube] Failed to schedule video watch:', err?.message || err);
   }
 
   // Announce the house streamers going live. Isolated like the rest — Twitch

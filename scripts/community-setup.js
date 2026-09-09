@@ -123,8 +123,8 @@ const TREE = [
         topic: 'Ask here. Sheogorath answers in this channel without being called by name.' },
       { name: 'music', configKey: 'music',
         topic: 'Now-playing cards and music controls.' },
-      { name: 'live', twitchChannel: true, locked: true,
-        topic: 'Twitch announcements. Take the Streams role in #roles if you want the ping.' },
+      { name: 'live', twitchChannel: true, locked: true, postFrom: 'veteran',
+        topic: 'Twitch announcements. Veterans and above can talk here; take the Streams role in #roles for the ping.' },
       // Not locked: the bot announces the house channel's uploads here, and
       // everyone else is welcome to post their own alongside them.
       { name: 'videos', youtubeChannel: true,
@@ -286,8 +286,18 @@ async function apply(guild) {
     reordered = true;
   }
 
-  const lockedOverwrites = [
+  /**
+   * A read-only room, opened back up from a given rung down-ladder.
+   *
+   * `postFrom: 'veteran'` lets Veterans post as well as staff — for a channel
+   * that is a feed by default but which regulars should be able to talk in.
+   * Omitted, it stays staff-only.
+   */
+  const lockedFor = (postFrom) => [
     { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.SendMessages] },
+    ...(postFrom === 'veteran' && roleIds.veteran
+      ? [{ id: roleIds.veteran, allow: [PermissionFlagsBits.SendMessages] }]
+      : []),
     { id: roleIds.staff, allow: [PermissionFlagsBits.SendMessages] },
     { id: roleIds.admin, allow: [PermissionFlagsBits.SendMessages] },
   ];
@@ -329,7 +339,7 @@ async function apply(guild) {
           await channel.setParent(parent.id, { lockPermissions: false, reason: 'Wabbajack Community setup' });
           moved++;
         }
-        if (ch.locked) await channel.permissionOverwrites.set(lockedOverwrites, 'Wabbajack Community setup');
+        if (ch.locked) await channel.permissionOverwrites.set(lockedFor(ch.postFrom), 'Wabbajack Community setup');
         if (ch.topic && 'topic' in channel && !channel.topic) await channel.setTopic(ch.topic);
       } else {
         channel = await guild.channels.create({
@@ -339,7 +349,7 @@ async function apply(guild) {
           topic: ch.topic,
           // Locked channels deny SendMessages to @everyone and hand it back to
           // the two staff roles; staff categories are inherited, not repeated.
-          permissionOverwrites: ch.locked ? lockedOverwrites
+          permissionOverwrites: ch.locked ? lockedFor(ch.postFrom)
             : ch.restrictTo ? teamVoice(teamRoleIds[ch.restrictTo]) : undefined,
           reason: 'Wabbajack Community setup',
         });

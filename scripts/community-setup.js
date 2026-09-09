@@ -49,6 +49,9 @@ const PLUM = 0x9b6fbf;
 const MUTED = 0x6e7480;
 const GREEN = 0x80d878;
 const TWITCH = 0x9146ff;
+const TEAM_RED = 0xe0453e;
+const TEAM_GREEN = 0x3ba55d;
+const TEAM_BLUE = 0x4a8fe0;
 
 /**
  * The ladder, highest first. Created bottom-up so Discord's "new roles go at
@@ -78,6 +81,12 @@ const ROLES = [
     selfAssign: { emoji: '🐕', description: 'Pinged when people are getting a Wardogs group together.' } },
   { key: null, name: 'Streams', color: TWITCH, hoist: false, perms: [], mentionable: true,
     selfAssign: { emoji: '🔴', description: 'Pinged when Allisteras or Fish go live on Twitch.' } },
+  // The three Wardogs teams. Mentionable so a team can be called together, and
+  // deliberately NOT self-assignable — a team is something you are put on, not
+  // something you tick a box for. Each one gates its own voice room below.
+  { key: null, name: 'Lonestar', color: TEAM_RED, hoist: true, perms: [], mentionable: true, team: true },
+  { key: null, name: 'Valkyra', color: TEAM_GREEN, hoist: true, perms: [], mentionable: true, team: true },
+  { key: null, name: 'Manticore', color: TEAM_BLUE, hoist: true, perms: [], mentionable: true, team: true },
 ];
 
 /**
@@ -108,6 +117,9 @@ const TREE = [
       { name: 'wardogs-general', topic: 'Wardogs talk.' },
       { name: 'wardogs-lfg', topic: 'Looking for a group. Ping @Wardogs.' },
       { name: 'wardogs-clips', topic: 'Wardogs clips and highlights.' },
+      { name: 'Lonestar', type: ChannelType.GuildVoice, restrictTo: 'Lonestar' },
+      { name: 'Valkyra', type: ChannelType.GuildVoice, restrictTo: 'Valkyra' },
+      { name: 'Manticore', type: ChannelType.GuildVoice, restrictTo: 'Manticore' },
     ] },
   { category: 'VOICE', channels: [
       { name: 'General', type: ChannelType.GuildVoice, configKey: 'defaultVoice' },
@@ -193,6 +205,7 @@ async function apply(guild) {
   const selfRoles = [];
   let liveChannelId = null;
   let streamsRoleId = null;
+  const teamRoleIds = {};
   const created = { roles: 0, channels: 0 };
   let moved = 0;
   let reordered = false;
@@ -221,6 +234,7 @@ async function apply(guild) {
     if (spec.key === 'member') roleIds.onJoin = role.id;
     if (spec.selfAssign) selfRoles.push({ role: role.id, label: spec.name, ...spec.selfAssign });
     if (spec.name === 'Streams') streamsRoleId = role.id;
+    if (spec.team) teamRoleIds[spec.name] = role.id;
     ladder.push(role);
   }
 
@@ -254,6 +268,16 @@ async function apply(guild) {
     { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.SendMessages] },
     { id: roleIds.staff, allow: [PermissionFlagsBits.SendMessages] },
     { id: roleIds.admin, allow: [PermissionFlagsBits.SendMessages] },
+  ];
+
+  // Visible to everyone, joinable by the team. Hiding them outright would make
+  // the category look broken to everyone not on a team; denying Connect says
+  // "this room is theirs" without pretending it does not exist.
+  const teamVoice = (roleId) => [
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.Connect] },
+    { id: roleId, allow: [PermissionFlagsBits.Connect] },
+    { id: roleIds.staff, allow: [PermissionFlagsBits.Connect] },
+    { id: roleIds.admin, allow: [PermissionFlagsBits.Connect] },
   ];
 
   const staffView = [
@@ -293,7 +317,8 @@ async function apply(guild) {
           topic: ch.topic,
           // Locked channels deny SendMessages to @everyone and hand it back to
           // the two staff roles; staff categories are inherited, not repeated.
-          permissionOverwrites: ch.locked ? lockedOverwrites : undefined,
+          permissionOverwrites: ch.locked ? lockedOverwrites
+            : ch.restrictTo ? teamVoice(teamRoleIds[ch.restrictTo]) : undefined,
           reason: 'Wabbajack Community setup',
         });
         created.channels++;
@@ -333,7 +358,7 @@ async function apply(guild) {
   };
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n', 'utf8');
 
-  return { created, moved, reordered, roleIds, channelIds, selfRoles, liveChannelId, streamsRoleId };
+  return { created, moved, reordered, roleIds, channelIds, selfRoles, liveChannelId, streamsRoleId, teamRoleIds };
 }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -367,6 +392,7 @@ client.once(Events.ClientReady, async () => {
     console.log(`  roles:    ${JSON.stringify(r.roleIds)}`);
     console.log(`  channels: ${JSON.stringify(r.channelIds)}`);
     console.log(`  selfRoles: ${JSON.stringify(r.selfRoles)}`);
+    console.log(`  teams:    ${Object.entries(r.teamRoleIds).map(([n, id]) => n + ' ' + id).join(', ') || 'none'}`);
     console.log(`  twitch:   #live ${r.liveChannelId}, ping role ${r.streamsRoleId}, ${STREAMERS.map((x) => x.login).join(' + ')}`);
     console.log(`  wrote ${CONFIG_FILE}`);
     console.log('\nRestart the service for the bot to pick this up.');

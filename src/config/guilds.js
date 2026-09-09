@@ -151,6 +151,9 @@ function normalizeGuild(id, raw) {
             label: typeof r.label === 'string' ? r.label : 'Role',
             emoji: typeof r.emoji === 'string' ? r.emoji : null,
             description: typeof r.description === 'string' ? r.description : null,
+            // Roles sharing a group are mutually exclusive: taking one drops the
+            // others. Null means the role stands alone and toggles freely.
+            group: typeof r.group === 'string' && r.group.trim() ? r.group.trim() : null,
           }))
       : [],
     // Twitch live announcements. Absent means the watcher skips this guild —

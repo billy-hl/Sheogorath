@@ -73,6 +73,25 @@ const ROLES = [
       PermissionFlagsBits.DeafenMembers,
       PermissionFlagsBits.MoveMembers,
     ] },
+  // The teams sit directly under Warden, and the position is the whole point.
+  // Discord colours a member by their highest COLOURED role and files them in
+  // the member list under their highest HOISTED one, so a team only shows if it
+  // outranks Wardogs and Streams — which are coloured too, and which most people
+  // will also be holding.
+  //
+  // They stop below Warden rather than going to the top, because position is
+  // also the moderation hierarchy: a Warden can only act on members whose
+  // highest role is beneath their own. Teams above Warden would quietly cost
+  // the Wardens the ability to moderate anyone on a team.
+  //
+  // Self-assignable as one exclusive group — picking a second team drops the
+  // first. Each gates its own voice room below.
+  { key: null, name: 'Lonestar', color: TEAM_RED, hoist: true, perms: [], mentionable: true, team: true,
+    selfAssign: { emoji: '🟥', description: 'Red team.', group: 'team' } },
+  { key: null, name: 'Valkyra', color: TEAM_GREEN, hoist: true, perms: [], mentionable: true, team: true,
+    selfAssign: { emoji: '🟩', description: 'Green team.', group: 'team' } },
+  { key: null, name: 'Manticore', color: TEAM_BLUE, hoist: true, perms: [], mentionable: true, team: true,
+    selfAssign: { emoji: '🟦', description: 'Blue team.', group: 'team' } },
   { key: 'veteran', name: 'Veteran', color: PLUM, hoist: false, perms: [] },
   { key: 'member', name: 'Member', color: MUTED, hoist: false, perms: [] },
   // Not part of the ladder and not recorded in config: a pingable opt-in for
@@ -81,12 +100,6 @@ const ROLES = [
     selfAssign: { emoji: '🐕', description: 'Pinged when people are getting a Wardogs group together.' } },
   { key: null, name: 'Streams', color: TWITCH, hoist: false, perms: [], mentionable: true,
     selfAssign: { emoji: '🔴', description: 'Pinged when Allisteras or Fish go live on Twitch.' } },
-  // The three Wardogs teams. Mentionable so a team can be called together, and
-  // deliberately NOT self-assignable — a team is something you are put on, not
-  // something you tick a box for. Each one gates its own voice room below.
-  { key: null, name: 'Lonestar', color: TEAM_RED, hoist: true, perms: [], mentionable: true, team: true },
-  { key: null, name: 'Valkyra', color: TEAM_GREEN, hoist: true, perms: [], mentionable: true, team: true },
-  { key: null, name: 'Manticore', color: TEAM_BLUE, hoist: true, perms: [], mentionable: true, team: true },
 ];
 
 /**

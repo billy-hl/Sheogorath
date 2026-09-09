@@ -35,7 +35,10 @@ function buildMessage(guild) {
     .setDescription(
       'Take a role to be findable when people are looking for a group, and drop it ' +
       'when you would rather not be. Press again to remove it. These grant nothing ' +
-      'else — no channels, no powers, no standing.'
+      'else — no powers, no standing.' +
+      (specs.some((s) => s.group)
+        ? '\n\nTeams are one at a time: taking one drops the one you were on.'
+        : '')
     )
     .addFields(specs.map((s) => ({
       name: `${s.emoji ? `${s.emoji} ` : ''}${s.label}`,
@@ -86,10 +89,29 @@ async function handleButton(interaction) {
   const member = interaction.member;
   const had = member.roles.cache.has(role.id);
   try {
-    if (had) await member.roles.remove(role, 'self-assign button');
-    else await member.roles.add(role, 'self-assign button');
+    if (had) {
+      await member.roles.remove(role, 'self-assign button');
+      await interaction.reply({ content: `Dropped **${role.name}**.`, ephemeral: true });
+      return;
+    }
+
+    // Exclusive groups: you are on one team, not three. Dropped before the new
+    // one is added, so a failure part-way leaves nobody on two teams.
+    const dropped = [];
+    if (spec.group) {
+      for (const sibling of specsFor(interaction.guild.id)) {
+        if (sibling.group !== spec.group || sibling.role === spec.role) continue;
+        if (!member.roles.cache.has(sibling.role)) continue;
+        const other = interaction.guild.roles.cache.get(sibling.role);
+        if (!other) continue;
+        await member.roles.remove(other, `exclusive with ${role.name}`);
+        dropped.push(other.name);
+      }
+    }
+
+    await member.roles.add(role, 'self-assign button');
     await interaction.reply({
-      content: had ? `Dropped **${role.name}**.` : `Took **${role.name}**.`,
+      content: `Took **${role.name}**.` + (dropped.length ? ` Dropped **${dropped.join('**, **')}**.` : ''),
       ephemeral: true,
     });
   } catch (err) {

@@ -197,6 +197,27 @@
     },
     "selfRoles": [
       {
+        "role": "1547268970200039535",
+        "label": "Lonestar",
+        "emoji": "🟥",
+        "description": "Red team.",
+        "group": "team"
+      },
+      {
+        "role": "1547268970770468895",
+        "label": "Valkyra",
+        "emoji": "🟩",
+        "description": "Green team.",
+        "group": "team"
+      },
+      {
+        "role": "1547268971504603206",
+        "label": "Manticore",
+        "emoji": "🟦",
+        "description": "Blue team.",
+        "group": "team"
+      },
+      {
         "role": "1547235333047849043",
         "label": "Wardogs",
         "emoji": "🐕",

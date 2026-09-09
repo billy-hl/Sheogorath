@@ -1,11 +1,17 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { setupAutoMod, getAutoModStatus } = require('../services/automod');
+const { setupAutoMod, getAutoModStatus, applyBaseline } = require('../services/automod');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('automod')
     .setDescription('Manage AutoMod settings')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addSubcommand(sub =>
+      sub.setName('baseline')
+        .setDescription('Create or repair the standard rule set (slurs, sexual content, spam, invite alerts)')
+        .addBooleanOption(opt =>
+          opt.setName('preview')
+            .setDescription('Describe the changes without making them')))
     .addSubcommand(sub =>
       sub.setName('status')
         .setDescription('View current AutoMod status'))
@@ -35,14 +41,32 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
+    if (sub === 'baseline') {
+      await interaction.deferReply({ flags: 64 });
+      const dryRun = interaction.options.getBoolean('preview') || false;
+      try {
+        const { results, alertChannel, exemptRoles } = await applyBaseline(interaction.guild, { dryRun });
+        const lines = results.map((r) => `\u2022 **${r.name}** — ${r.action}: ${r.detail}`);
+        await interaction.editReply(
+          `**AutoMod baseline${dryRun ? ' (preview)' : ''}**\n${lines.join('\n')}\n\n` +
+          `Alerts: ${alertChannel ? `<#${alertChannel}>` : '_nowhere — set channels.commandLog_'} · ` +
+          `Exempt: ${exemptRoles.length ? exemptRoles.map((r) => `<@&${r}>`).join(' ') : '_nobody_'}`
+        );
+      } catch (err) {
+        await interaction.editReply(`Failed: ${err.message}`);
+      }
+      return;
+    }
+
     if (sub === 'status') {
       await interaction.deferReply({ flags: 64 });
-      const status = await getAutoModStatus(interaction.guild);
-      await interaction.editReply(
-        `**AutoMod Status**\n` +
-        `Blocked Words: ${status.blockWords ? '✅ Enabled' : '❌ Disabled'}\n` +
-        `Anti-Spam: ${status.antiSpam ? '✅ Enabled' : '❌ Disabled'}`
-      );
+      const rules = await interaction.guild.autoModerationRules.fetch();
+      const mine = [...rules.values()].filter((r) => r.name.startsWith('Sheogorath-'));
+      const body = mine.length
+        ? mine.map((r) => `\u2022 **${r.name}** — ${r.enabled ? '✅ enabled' : '❌ disabled'}, ` +
+            `${r.actions.length} action(s), ${r.exemptRoles.size} exempt role(s)`).join('\n')
+        : '_No Sheogorath rules exist yet. Run `/automod baseline`._';
+      await interaction.editReply(`**AutoMod Status**\n${body}`);
       return;
     }
 

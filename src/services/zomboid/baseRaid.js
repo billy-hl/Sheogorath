@@ -25,11 +25,26 @@
  */
 const fs = require('fs');
 const path = require('path');
-const siege = require('./siege');
 const { getGuildConfig } = require('../../config/guilds');
 
 const REQUEST_FILE = 'wabbajack_raid.txt';
 const STATUS_FILE = 'wabbajack_raid_status.txt';
+
+/**
+ * The Zomboid root for a guild's server.
+ *
+ * Derived from playersDb (…/Saves/Multiplayer/<server>/players.db) rather than
+ * configured separately, so there is one path to get wrong instead of two.
+ *
+ * This used to live in siege.js and be reached through it. Siege events were
+ * removed in mod 1.29.0 and that module went with them, so it lives here now —
+ * base raids were the only thing left borrowing it.
+ */
+function zomboidRoot(guildId) {
+  const db = getGuildConfig(guildId)?.zomboid?.playersDb;
+  if (!db) return null;
+  return path.resolve(path.dirname(db), '..', '..', '..');
+}
 
 const DEFAULTS = {
   perPlayer: 40,
@@ -42,11 +57,16 @@ const DEFAULTS = {
 /**
  * Whether the server actually has the base-raid module on disk.
  *
- * `siege.modEnabled` only proves WabbajackSiege is in the ini's Mods list, and
- * the base-raid module shipped in a later version of that same mod — so a
- * server running the older build passes that check and then silently ignores
- * the request file, which is exactly the failure this codebase keeps getting
- * bitten by. Checking for the file itself is the only honest test.
+ * Presence in the ini's Mods list is not the same question: the list can name a
+ * mod whose files never downloaded, and the request file is then written into a
+ * void — a silent failure indistinguishable from an idle raid, which is exactly
+ * what this codebase keeps getting bitten by. Checking for the file itself is
+ * the only honest test.
+ *
+ * THE PATH MOVED. This module shipped inside WabbajackSiege until the toolkit
+ * was split; it now lives in WabbajackRaids, and WabbajackSiege was deleted
+ * outright in 1.29.0. The old path was already wrong after the split and would
+ * have started reporting "not installed" the moment siege stopped shipping.
  */
 function moduleInstalled(guildId) {
   const dir = getGuildConfig(guildId)?.zomboid?.workshopDir;
@@ -54,7 +74,7 @@ function moduleInstalled(guildId) {
   let items = [];
   try { items = fs.readdirSync(dir); } catch { return false; }
   return items.some((id) => fs.existsSync(path.join(
-    dir, id, 'mods/WabbajackSiege/common/media/lua/server/WabbajackBaseRaid.lua')));
+    dir, id, 'mods/WabbajackRaids/common/media/lua/server/WabbajackBaseRaid.lua')));
 }
 
 /**
@@ -64,7 +84,7 @@ function moduleInstalled(guildId) {
  * command or a request file left on disk across a restart cannot re-arm one.
  */
 function arm(guildId, { perPlayer = DEFAULTS.perPlayer, expire = DEFAULTS.expire } = {}) {
-  const root = siege.zomboidRoot(guildId);
+  const root = zomboidRoot(guildId);
   if (!root) throw new Error('No Zomboid save is configured for this guild.');
 
   // <Zomboid>/Lua, not the Zomboid root. getFileReader is rooted there, which
@@ -81,11 +101,11 @@ function arm(guildId, { perPlayer = DEFAULTS.perPlayer, expire = DEFAULTS.expire
 /**
  * Last status the mod wrote, or null.
  *
- * Lives under Lua/ for the same reason the siege status does: getFileWriter is
- * rooted at <Zomboid>/Lua while getFileReader is rooted at <Zomboid>.
+ * Lives under Lua/ because getFileWriter is rooted at <Zomboid>/Lua while
+ * getFileReader is rooted at <Zomboid>.
  */
 function status(guildId) {
-  const root = siege.zomboidRoot(guildId);
+  const root = zomboidRoot(guildId);
   if (!root) return null;
   let f = path.join(root, 'Lua', STATUS_FILE);
   if (!fs.existsSync(f)) {

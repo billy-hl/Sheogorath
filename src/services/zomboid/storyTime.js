@@ -217,6 +217,61 @@ async function generateStory(cfg, windowMs = 24 * 60 * 60 * 1000, client = null)
   return formatTitle(text);
 }
 
+/**
+ * The short form, for when somebody asks before the night is out.
+ *
+ * Deliberately not the nightly chronicle. That one is 700-900 words, costs a
+ * 2000-token generation, and is the day's closing entry — running it at three
+ * in the afternoon would both spend real money and spoil the thing it is
+ * imitating. This is a few paragraphs on the day so far, in the same voice, that
+ * ends by pointing at the real one.
+ */
+const INTERLUDE_PROMPT =
+  'You are the chronicler of a Project Zomboid multiplayer server set in the ' +
+  'Knox County outbreak, the same hand that writes the nightly entry. Someone ' +
+  'has asked what has happened so far today, before the day is done.\n\n' +
+  'FORMAT. No title. Two or three short paragraphs, 120 to 200 words total. ' +
+  'Present tense or recent past — this is the day still in progress, not a ' +
+  'closed entry.\n\n' +
+  'WHAT TO WRITE. Name three or four survivors from the brief, the ones whose ' +
+  'day has been most eventful: the busiest, the unluckiest, the newest. Pick ' +
+  'the one detail that would make someone want the full entry tonight. Do not ' +
+  'summarise everything — you are trailing the chronicle, not replacing it.\n\n' +
+  'If the brief is thin, say so plainly and briefly. A quiet day is a quiet ' +
+  'day, and pretending otherwise reads as invention.\n\n' +
+  'Do not mention being asked, do not address the reader, and do not promise ' +
+  'the nightly entry — that is added for you.';
+
+/**
+ * Build the short "so far today" piece.
+ *
+ * @param {object} cfg from storyConfig()
+ * @param {import('discord.js').Client|null} client for the chat relay
+ * @returns {Promise<string|null>} the text, or null when nothing has happened
+ */
+async function generateInterlude(cfg, client = null) {
+  // Since midnight rather than a rolling 24 hours: someone asking "what has
+  // happened today" means today, and a rolling window would fold in last
+  // night's events that the previous chronicle already covered.
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const windowMs = Math.max(60 * 60 * 1000, Date.now() - midnight.getTime());
+
+  const events = collectEvents(cfg.logDir, windowMs);
+  const chat = client && cfg.chatChannelId
+    ? await collectChat(client, cfg.chatChannelId, Date.now() - windowMs)
+    : [];
+
+  if (events.players.size === 0 && chat.length === 0) return null;
+
+  const brief = buildBrief(events, chat);
+  const text = await getAIResponse(
+    `Here is the day so far. Write the short interlude.\n\n${brief}`,
+    { rawSystemPrompt: INTERLUDE_PROMPT, maxTokens: 400 },
+  );
+  return (text || '').trim() || null;
+}
+
 /** Resolve the zomboid story-time config for a guild, or null if incomplete. */
 function storyConfig(guildId) {
   const zomboid = getGuildConfig(guildId)?.zomboid;
@@ -347,6 +402,7 @@ function scheduleStoryTime(client) {
 
 module.exports = {
   generateStory,
+  generateInterlude,
   postStory,
   scheduleStoryTime,
   buildBrief,

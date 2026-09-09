@@ -81,9 +81,9 @@ function bump(map, key) {
  *   players: Map<string, ReturnType<typeof blank>>,
  * }}
  */
-function collectKills(logDir) {
+function collectKills(logDir, sinceMs = 0) {
   const events = [];
-  for (const { at, line } of linesSince(logDir, 'pvp', 0, ALL_HISTORY_DIRS)) {
+  for (const { at, line } of linesSince(logDir, 'pvp', sinceMs, ALL_HISTORY_DIRS)) {
     const m = KILL.exec(line);
     if (!m) continue;
     events.push({ at, killer: m[1], victim: m[5], pos: `${m[6]},${m[7]},${m[8]}` });

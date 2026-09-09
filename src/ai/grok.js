@@ -1,32 +1,39 @@
 'use strict';
 const https = require('https');
+const { assertWithinBudget, record: recordSpend } = require('./budget');
+const { actionDocsFor } = require('./actionDocs');
+const { getGuildConfig } = require('../config/guilds');
 
 const GROK_API_URL = 'https://api.x.ai/v1/chat/completions';
 
-const ACTION_DOCS = `
-
-You may silently embed action tags anywhere in your response to interact with user records.
-These tags are invisible to users and are stripped before the message is sent:
-  [ACTION:note:userId:your note text]   — Save a temporary note about a user (use their Discord user ID)
-  [ACTION:clearnotes:userId]             — Erase all notes for a user
-  [ACTION:memory:userId:important fact] — Save a LONG-TERM memory about a user (birthdays, preferences, key facts)
-  [ACTION:warn:userId:reason]            — Issue a warning to a user
-  [ACTION:timeout:userId:minutes:reason] — Timeout a user
-  [ACTION:delete:reason]                 — Delete the triggering message
-
-IMPORTANT: Actively use NOTE and MEMORY actions frequently! 
-- When users share personal info, preferences, plans, emotions, or facts about themselves
-- When they mention games they play, music they like, hobbies, jobs, relationships
-- When they tell you something they want/don't want
-- When they reveal personality traits or quirks
-These help you remember mortals across conversations. Use them liberally!
-`;
-
-function buildSystemPrompt(base) {
-  return (base || process.env.CLIENT_INSTRUCTIONS) + ACTION_DOCS;
+/**
+ * Persona, then powers, then whatever the caller wants after that.
+ *
+ * The powers half is built per guild, because it is the half that is not the
+ * same everywhere: the same character is a warden in one server and a mascot in
+ * another, and a fixed block had him describing the first server's staff, tags
+ * and game commands to the second one's members.
+ *
+ * @param {string} [base] overrides CLIENT_INSTRUCTIONS entirely
+ * @param {string} [suffix] appended after the action docs. Used by the parlour
+ *   to lift the persona's length cap in one channel without maintaining a
+ *   second copy of the whole character.
+ * @param {string} [guildId] whose powers to describe. Omitted — a DM, or a
+ *   surface with no guild — leaves him the powers that need no configuration.
+ */
+function buildSystemPrompt(base, suffix = '', guildId = null) {
+  return (base || process.env.CLIENT_INSTRUCTIONS)
+    + actionDocsFor(getGuildConfig(guildId))
+    + (suffix || '');
 }
 
+/**
+ * Every xAI request goes through here, which makes it the one place worth
+ * metering. Spend is checked before the call and recorded after it, so a call
+ * added later is budgeted without anyone remembering to budget it.
+ */
 function httpsPost(url, body, headers = {}, timeoutMs = 120000) {
+  assertWithinBudget();
   return new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify(body));
     const parsed = new URL(url);
@@ -41,8 +48,13 @@ function httpsPost(url, body, headers = {}, timeoutMs = 120000) {
         let data = '';
         res.on('data', c => data += c);
         res.on('end', () => {
-          try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-          catch { resolve({ status: res.statusCode, data }); }
+          try {
+            const parsed = JSON.parse(data);
+            // xAI reports the amount actually billed on every response. Absent
+            // on errors, which is correct — a failed call isn't charged.
+            if (parsed?.usage) recordSpend(parsed.usage);
+            resolve({ status: res.statusCode, data: parsed });
+          } catch { resolve({ status: res.statusCode, data }); }
         });
       }
     );
@@ -53,14 +65,14 @@ function httpsPost(url, body, headers = {}, timeoutMs = 120000) {
   });
 }
 
-async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt } = {}) {
+async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt, guildId = null } = {}) {
   try {
     const response = await httpsPost(
       GROK_API_URL,
       {
         model: 'grok-4.3',
         messages: [
-          { role: 'system', content: rawSystemPrompt || buildSystemPrompt(systemPrompt) },
+          { role: 'system', content: rawSystemPrompt || buildSystemPrompt(systemPrompt, '', guildId) },
           { role: 'user', content: prompt },
         ],
         max_tokens: maxTokens || 50,
@@ -79,18 +91,26 @@ async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt 
 
 /**
  * Get AI response with conversation history for multi-turn chat.
+ *
+ * The cap is a truncation ceiling, not a target — how long he actually talks is
+ * set by the persona, which tells him to stay short. It used to be 80 tokens,
+ * which was below what he was routinely trying to say: replies stopped
+ * mid-sentence, and action tags got cut in half on the way out, which is most of
+ * why the tag scrubbing has to handle truncated tags at all. Room to finish the
+ * thought costs nothing when he doesn't use it.
+ *
  * @param {Array<{role: string, content: string}>} messages - Conversation history
- * @param {number} [maxTokens=50] - Max response tokens (default 50 = ~160 chars)
+ * @param {number} [maxTokens=500] - Max response tokens
  * @returns {Promise<string>} AI response
  */
-async function getAIResponseWithHistory(messages, maxTokens = 80) {
+async function getAIResponseWithHistory(messages, maxTokens = 500, { systemSuffix = '', systemBase = null, guildId = null } = {}) {
   const makeRequest = async (msgs, timeout) => {
     const response = await httpsPost(
       GROK_API_URL,
       {
         model: 'grok-4.3',
         messages: [
-          { role: 'system', content: buildSystemPrompt() },
+          { role: 'system', content: buildSystemPrompt(systemBase, systemSuffix, guildId) },
           ...msgs,
         ],
         max_tokens: maxTokens,
@@ -246,4 +266,4 @@ async function generateImage(prompt) {
   return await httpsGetBuffer(url);
 }
 
-module.exports = { getAIResponse, getAIResponseWithHistory, getGrokUsage, extractMemoryFromMessage, generateImage };
+module.exports = { buildSystemPrompt, getAIResponse, getAIResponseWithHistory, getGrokUsage, extractMemoryFromMessage, generateImage };

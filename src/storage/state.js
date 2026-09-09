@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { primaryGuildId } = require('../config/guilds');
+const { sanitizeObservation } = require('./sanitize');
 
 const DATA_DIR = path.join(__dirname, '../../data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
@@ -149,8 +150,15 @@ function getUserNotes(guildId, userId) {
 
 /** Appends a note to a user's notes list and persists. */
 function addUserNote(guildId, userId, note) {
+  // Everything written here is replayed into the model's context on every
+  // future turn with this person, so it is the one place user-derived text
+  // becomes durable. Filtered at the choke point rather than at each caller,
+  // so a new writer is covered without anyone remembering to cover it.
+  const clean = sanitizeObservation(note, { kind: 'note', userId });
+  if (!clean) return null;
+
   return updateUserRecord(guildId, userId, (record) => {
-    record.notes.push({ text: note, addedAt: new Date().toISOString() });
+    record.notes.push({ text: clean, addedAt: new Date().toISOString() });
     return record.notes;
   });
 }

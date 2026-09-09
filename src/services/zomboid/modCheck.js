@@ -74,6 +74,105 @@ async function fetchComments(creatorId, fileId, count = 20) {
 }
 
 /**
+ * Decode the handful of HTML entities Steam actually emits, and flatten tags.
+ * Shared by the comment and changelog scrapers, which face the same markup.
+ */
+function htmlToText(html) {
+  return String(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    // Ampersand last, so "&amp;lt;" doesn't become a tag delimiter.
+    .replace(/&amp;/g, '&');
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * Parse a Steam changelog headline date to epoch ms.
+ *
+ * Steam writes `May 11 @ 8:11pm`, omitting the year for the current one, and
+ * `Dec 20, 2024 @ 11:32am` once it is older. The rendered timezone follows the
+ * viewing account, so an anonymous fetch is not guaranteed UTC — callers must
+ * not compare these to the minute. Day-level slack is the intended precision.
+ *
+ * @returns {number|null} epoch ms, or null when the shape is unrecognised
+ */
+function parseChangelogDate(text, now = Date.now()) {
+  const m = /^([A-Za-z]{3})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*@\s*(\d{1,2}):(\d{2})\s*([ap])m$/i
+    .exec(String(text).trim());
+  if (!m) return null;
+
+  const month = MONTHS.indexOf(m[1].toLowerCase());
+  if (month === -1) return null;
+
+  let hour = Number(m[4]) % 12;
+  if (m[6].toLowerCase() === 'p') hour += 12;
+
+  const year = m[3] ? Number(m[3]) : new Date(now).getUTCFullYear();
+  let at = Date.UTC(year, month, Number(m[2]), hour, Number(m[5]));
+
+  // No year means "this year" — but in early January, a December entry is last
+  // year's. Only correct forward-dated results, and only when the year was
+  // inferred rather than stated.
+  if (!m[3] && at > now + 24 * 3600 * 1000) at = Date.UTC(year - 1, month, Number(m[2]), hour, Number(m[5]));
+  return at;
+}
+
+/**
+ * Change notes for a Workshop item, newest first.
+ *
+ * Like comments, changelogs have no API — the community site renders them as a
+ * page of `workshopAnnouncement` blocks, so this scrapes. Brittle by nature,
+ * hence the try/catch and the empty-array fallback: change notes decorate an
+ * announcement that has to go out regardless, so a parse failure must never be
+ * fatal to the caller.
+ *
+ * **An empty body is normal, not a parse failure.** Plenty of authors publish
+ * with no notes at all, which renders as `<p id="..."></p>`. Those entries are
+ * returned with `text: ''` rather than dropped, so a caller can tell "the
+ * author said nothing" apart from "we could not read it".
+ *
+ * @returns {Promise<Array<{date:string, at:number|null, text:string}>>}
+ */
+async function fetchChangelog(fileId, count = 10) {
+  if (!fileId) return [];
+  const url = `https://steamcommunity.com/sharedfiles/filedetails/changelog/${fileId}`;
+  try {
+    const { data } = await axios.get(url, {
+      timeout: 15000,
+      // Without a browser-ish UA Steam sometimes serves an interstitial instead
+      // of the page.
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SheogorathBot/1.0)' },
+      responseType: 'text',
+    });
+
+    // Headline, then the author line, then the body paragraph. The lazy gap
+    // between them stops at the first `<p id=`, which is that block's body.
+    const block = /<div class="changelog headline">\s*([\s\S]*?)<\/div>[\s\S]*?<p id="\d+">([\s\S]*?)<\/p>/g;
+    const out = [];
+    let m;
+    while ((m = block.exec(data)) !== null && out.length < count) {
+      const date = htmlToText(m[1]).replace(/^Update:\s*/i, '').trim();
+      const text = htmlToText(m[2])
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      out.push({ date, at: parseChangelogDate(date), text });
+    }
+    return out;
+  } catch (err) {
+    console.warn(`[Zomboid] Could not fetch changelog for ${fileId}:`, err?.message || err);
+    return [];
+  }
+}
+
+/**
  * The build the server is actually running, read from its own logs rather than
  * assumed, e.g. "42.20.0". Returns null when it can't be determined.
  */
@@ -488,6 +587,8 @@ module.exports = {
   formatReply,
   readServerConfig,
   fetchComments,
+  fetchChangelog,
+  parseChangelogDate,
   detectServerVersion,
   readModInfo,
   requiresFromDescription,

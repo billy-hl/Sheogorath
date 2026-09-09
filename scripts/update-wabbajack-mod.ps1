@@ -28,7 +28,10 @@ param(
     [string] $RemoteZip  = '/Users/dev/Desktop/WabbajackSiege-project.zip',
     [string] $ProjectDir = "$env:USERPROFILE\Zomboid\Workshop\WabbajackSiege",
     [string] $WorkDir    = 'D:\downloads',
-    [string] $ModId      = 'WabbajackSiege',
+    # Deliberately NOT a hardcoded mod list. The toolkit is seven mods now, and
+    # a list here would be an eighth place to update when one is added or
+    # renamed. The archive declares what it contains; this reads it.
+    [string[]] $ModIds   = @(),
     [switch] $DryRun
 )
 
@@ -53,7 +56,7 @@ function Read-Capture {
 
 $zipLocal = Join-Path $WorkDir 'WabbajackSiege-project.zip'
 $staging  = Join-Path $WorkDir '.wabbajack-staging'
-$modPath  = Join-Path $ProjectDir "Contents\mods\$ModId"
+$modsDest = Join-Path $ProjectDir 'Contents\mods'
 
 # --------------------------------------------------------------- preflight
 
@@ -82,11 +85,19 @@ if (Test-Path $wsTxt) {
     Say 'WARNING: no workshop.txt yet (the zip supplies one)'
 }
 
-$before = 'none'
-$modInfo = Join-Path $modPath 'common\mod.info'
-$v = Read-Capture $modInfo '^\s*modversion\s*=\s*(.+)$'
-if ($v) { $before = $v }
-Say "installed version: $before"
+# What is installed right now, per mod. Reported so the dry run can show each
+# one moving rather than a single number that no longer describes the payload.
+$before = @{}
+if (Test-Path $modsDest) {
+    foreach ($d in (Get-ChildItem $modsDest -Directory -ErrorAction SilentlyContinue)) {
+        $v = Read-Capture (Join-Path $d.FullName 'common\mod.info') '^\s*modversion\s*=\s*(.+)$'
+        if ($v) { $before[$d.Name] = $v }
+    }
+}
+if ($before.Count -eq 0) { Say 'installed: nothing yet' }
+else {
+    foreach ($k in ($before.Keys | Sort-Object)) { Say ("installed: {0} {1}" -f $k, $before[$k]) }
+}
 
 # ---------------------------------------------------------------- download
 
@@ -119,15 +130,37 @@ catch { Die "the archive would not expand: $_" }
 # Validate the shape BEFORE anything is destroyed. The classic failure is
 # extracting a level too high, which leaves the uploader reading the old files
 # and reporting "no change".
-$need = @(
-    "Contents\mods\$ModId\common\mod.info",
-    "Contents\mods\$ModId\common\media\lua\server"
-)
-foreach ($rel in $need) {
-    if (-not (Test-Path (Join-Path $staging $rel))) { Die "archive is missing $rel - wrong zip, or wrong layout" }
+$stagedMods = Join-Path $staging 'Contents\mods'
+if (-not (Test-Path $stagedMods)) { Die 'archive has no Contents\mods - wrong zip, or wrong layout' }
+
+if ($ModIds.Count -gt 0) {
+    $found = $ModIds
+} else {
+    $found = (Get-ChildItem $stagedMods -Directory | Select-Object -ExpandProperty Name)
 }
-$after = Read-Capture (Join-Path $staging "Contents\mods\$ModId\common\mod.info") '^\s*modversion\s*=\s*(.+)$'
-if (-not $after) { Die 'staged mod.info has no modversion line' }
+if ($found.Count -eq 0) { Die 'archive contains no mods' }
+
+# Every mod is checked BEFORE any of them is installed. A partial install of a
+# seven-mod set is worse than none: WabbajackCore carries the staff allowlist and
+# the settings spine, and the other six declare require=WabbajackCore, so a set
+# that lands half-applied is a set where mods silently refuse to load.
+$after = @{}
+foreach ($m in $found) {
+    $mi = Join-Path $stagedMods "$m\common\mod.info"
+    if (-not (Test-Path $mi)) { Die "archive is missing $m\common\mod.info - wrong layout" }
+    $v = Read-Capture $mi '^\s*modversion\s*=\s*(.+)$'
+    if (-not $v) { Die "$m\common\mod.info has no modversion line" }
+    $after[$m] = $v
+    $req = Read-Capture $mi '^\s*require\s*=\s*(.+)$'
+    if ($req) {
+        foreach ($r in ($req -split ';')) {
+            if ($found -notcontains $r.Trim()) {
+                Die "$m requires $($r.Trim()), which is not in this archive"
+            }
+        }
+    }
+}
+Ok ("archive carries {0} mods: {1}" -f $found.Count, ($found -join ', '))
 
 # The staged workshop.txt is about to overwrite the project's. Preflight read
 # the project's id and would have been pointless if this then replaced it with a
@@ -135,18 +168,37 @@ if (-not $after) { Die 'staged mod.info has no modversion line' }
 # symptom is the server continuing to load the old build.
 $stagedId = Read-Capture (Join-Path $staging 'workshop.txt') '^\s*id\s*=\s*(\d+)'
 if ($id -and $stagedId -and $id -ne $stagedId) {
-    Die "the archive targets Workshop item $stagedId but this project is $id.`n" +
-        "    Installing it would publish to the wrong item. Check the zip."
+    # Parenthesised deliberately: Die "a" + "b" passes three positional
+    # arguments rather than concatenating, so the second line was being dropped
+    # from the one message in this script you most need to read in full.
+    Die ("the archive targets Workshop item $stagedId but this project is $id.`n" +
+         "    Installing it would publish to the wrong item. Check the zip.")
 }
 if ($stagedId) { Ok "archive targets Workshop item $stagedId" }
-$luaCount = (Get-ChildItem (Join-Path $staging "Contents\mods\$ModId") -Recurse -Filter *.lua).Count
-Ok "staged version $after, $luaCount lua files"
+$luaCount = (Get-ChildItem $stagedMods -Recurse -Filter *.lua).Count
+Ok "$luaCount lua files staged"
+foreach ($m in ($found | Sort-Object)) {
+    $was = if ($before.ContainsKey($m)) { $before[$m] } else { 'not installed' }
+    Say ("  {0,-22} {1}  ->  {2}" -f $m, $was, $after[$m])
+}
 
-if ($before -eq $after) { Say "NOTE: same version as installed ($after) - Steam may report no change" }
+$moved = @($found | Where-Object { $before[$_] -ne $after[$_] })
+if ($moved.Count -eq 0) {
+    Say 'NOTE: every mod is already at the staged version - Steam may report no change'
+}
+
+# Mods the project still has that this archive no longer carries. Without this
+# they survive the install and get published again: the uploader ships whatever
+# is in Contents\mods, not whatever the archive brought. 1.29.0 removing
+# WabbajackSiege is exactly that case -- the folder would have stayed, and the
+# Workshop item would have kept serving a mod the build had dropped.
+$stale = @($before.Keys | Where-Object { $found -notcontains $_ })
+foreach ($m in $stale) { Say ("  {0,-22} {1}  ->  REMOVED" -f $m, $before[$m]) }
 
 if ($DryRun) {
     Step 'Dry run - nothing changed'
-    Say "would install $before -> $after into $modPath"
+    Say ("would install {0} mods into {1}" -f $found.Count, $modsDest)
+    if ($stale.Count -gt 0) { Say ("would remove {0}: {1}" -f $stale.Count, ($stale -join ', ')) }
     Remove-Item $staging -Recurse -Force
     exit 0
 }
@@ -154,52 +206,97 @@ if ($DryRun) {
 # ----------------------------------------------------------------- install
 
 Step 'Installing'
-$modsDir = Join-Path $ProjectDir 'Contents\mods'
+$modsDir = $modsDest
 if (-not (Test-Path $modsDir)) { New-Item -ItemType Directory -Path $modsDir -Force | Out-Null }
 
-# The old folder is moved aside, not deleted. Deleting first contradicts this
+# The old folders are moved aside, not deleted. Deleting first contradicts this
 # script's whole contract: Remove-Item -Recurse deletes as it walks, so a locked
 # file -- the game being open is enough -- aborts partway and leaves NO mod
-# folder rather than the one that was working a second ago. It is only discarded
-# once the replacement is in place and verified.
-$backup = "$modPath.replaced-$(Get-Date -Format yyyyMMdd-HHmmss)"
-if (Test-Path $modPath) {
-    try { Move-Item $modPath $backup -Force }
-    catch { Die "could not move the old mod folder aside (is the game running?): $_" }
-    Say 'moved the previous mod folder aside'
+# folder rather than the one that was working a second ago. They are only
+# discarded once the replacements are in place and verified.
+#
+# ALL of them move aside before ANY of them is copied, and the rollback puts
+# every one back. Seven mods that require each other cannot be installed one at
+# a time: a failure halfway leaves a set where WabbajackCore is new, three
+# feature mods are old, and the ones that declare require=WabbajackCore may not
+# load at all. Either the whole set lands or none of it does.
+$stamp   = Get-Date -Format yyyyMMdd-HHmmss
+$backups = @{}
+try {
+    foreach ($m in ($found + $stale)) {
+        $dest = Join-Path $modsDir $m
+        if (Test-Path $dest) {
+            $b = "$dest.replaced-$stamp"
+            Move-Item $dest $b -Force
+            $backups[$m] = $b
+        }
+    }
+    if ($backups.Count -gt 0) { Say ("moved {0} previous mod folders aside" -f $backups.Count) }
+} catch {
+    foreach ($m in $backups.Keys) {
+        Move-Item $backups[$m] (Join-Path $modsDir $m) -Force -ErrorAction SilentlyContinue
+    }
+    Die "could not move the old mod folders aside (is the game running?): $_"
 }
 
 try {
-    # Copy the MOD folder to its exact destination rather than copying `Contents`
+    # Copy each MOD folder to its exact destination rather than copying `Contents`
     # into the project. `Copy-Item <dir> <existing dir> -Recurse` nests the source
     # inside the target, so that form produces Contents\Contents on any project
     # that already had one -- which is every project except a brand new one.
-    Copy-Item (Join-Path $staging "Contents\mods\$ModId") $modsDir -Recurse -Force
+    foreach ($m in $found) {
+        Copy-Item (Join-Path $stagedMods $m) $modsDir -Recurse -Force
+    }
     foreach ($f in 'workshop.txt', 'preview.png') {
         $src = Join-Path $staging $f
         if (Test-Path $src) { Copy-Item $src $ProjectDir -Force; Say "updated $f" }
     }
 } catch {
-    # Put it back exactly as it was before giving up.
-    if (Test-Path $modPath) { Remove-Item $modPath -Recurse -Force -ErrorAction SilentlyContinue }
-    if (Test-Path $backup)  { Move-Item $backup $modPath -Force -ErrorAction SilentlyContinue }
-    Die "install failed and the previous version was restored: $_"
+    # Put everything back exactly as it was before giving up.
+    foreach ($m in $backups.Keys) {
+        $dest = Join-Path $modsDir $m
+        if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
+        Move-Item $backups[$m] $dest -Force -ErrorAction SilentlyContinue
+    }
+    Die "install failed and the previous versions were restored: $_"
 }
 Remove-Item $staging -Recurse -Force
 
 # ------------------------------------------------------------------ verify
 
 Step 'Verifying the installed copy'
-if (-not (Test-Path $modInfo)) { Die 'mod.info is missing after install' }
-$installed = Read-Capture $modInfo '^\s*modversion\s*=\s*(.+)$' 
-if ($installed -ne $after) { Die "version mismatch after install: expected $after, found $installed" }
-Get-ChildItem $modPath -Recurse -File | ForEach-Object {
-    '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.Substring(0, 16).ToLower(),
-                  $_.FullName.Substring($modPath.Length + 1)
-} | ForEach-Object { Say $_ }
+$files = 0
+foreach ($m in $found) {
+    $dest = Join-Path $modsDir $m
+    $mi   = Join-Path $dest 'common\mod.info'
+    if (-not (Test-Path $mi)) { Die "$m\common\mod.info is missing after install" }
+    $installed = Read-Capture $mi '^\s*modversion\s*=\s*(.+)$'
+    if ($installed -ne $after[$m]) {
+        Die "$m version mismatch after install: expected $($after[$m]), found $installed"
+    }
+    $n = (Get-ChildItem $dest -Recurse -File).Count
+    $files += $n
+    Ok ("{0,-22} {1}  ({2} files)" -f $m, $installed, $n)
+}
+Ok "$files files installed across $($found.Count) mods"
 
-# Only now is the old copy expendable.
-if (Test-Path $backup) { Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue }
+# Only now are the old copies expendable.
+foreach ($m in $backups.Keys) {
+    Remove-Item $backups[$m] -Recurse -Force -ErrorAction SilentlyContinue
+}
 
-Write-Host "`nInstalled $before -> $after" -ForegroundColor Green
-Write-Host "Now upload it from the game: Workshop > $ModId > Update`n"
+Write-Host "`nInstalled $($found.Count) mods" -ForegroundColor Green
+Write-Host "Now upload it from the game: Workshop > WabbajackSiege > Update"
+Write-Host ""
+if ($stale.Count -gt 0) {
+    Write-Host "SERVER CONFIG: this build DROPS mods the server may still list." -ForegroundColor Yellow
+    Write-Host "Remove these from the server's mod list before it next boots, or it"
+    Write-Host "will try to load a mod the Workshop item no longer carries:"
+    Write-Host ""
+    foreach ($m in ($stale | Sort-Object)) { Write-Host "    $m" -ForegroundColor Yellow }
+    Write-Host ""
+}
+Write-Host "The mods this build ships, all of which need WabbajackCore:" -ForegroundColor Yellow
+Write-Host ""
+foreach ($m in ($found | Sort-Object)) { Write-Host "    $m" }
+Write-Host ""

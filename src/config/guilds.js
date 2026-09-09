@@ -71,10 +71,30 @@ function normalizeGuild(id, raw) {
       // what staff did without reading logs/commands.jsonl on the host. Every
       // command is recorded to that file regardless of this setting.
       commandLog: channels.commandLog || null,
-      // Where first-time joiners are greeted. Unset means the guild is not
-      // greeted at all — the welcome handler stays inert rather than guessing
-      // a channel.
-      welcome: channels.welcome || null,
+      // Where Sheogorath posts what he wants permission to do, and what he did
+      // on his own. Falls back to `commandLog` when unset — a guild that
+      // already has one private staff channel shouldn't be made to create a
+      // second just to turn the moderator on.
+      modApprovals: channels.modApprovals || null,
+      // The one channel he answers in without being called by name. Unset means
+      // he waits to be addressed there like anywhere else.
+      help: channels.help || null,
+      // Reference channels Sheogorath reads before answering questions, so the
+      // rules and the connection details he quotes are the ones players can see
+      // rather than a second copy that drifts. Left unset, he looks for
+      // channels literally named `rules` and `server-info`.
+      //
+      // Whatever is posted in these becomes what he tells people, so they
+      // should be channels only staff can write to.
+      rules: channels.rules || null,
+      serverInfo: channels.serverInfo || null,
+      // The Mad God's parlour: the one room where the persona's "1-2 sentences"
+      // cap is lifted and he carries a real conversation. Created by
+      // `/sheo parlour`, which writes this key itself.
+      parlour: channels.parlour || null,
+      // Where the self-assign button message lives. Only the poster script
+      // needs it; the buttons themselves carry their own role IDs.
+      selfRoles: channels.selfRoles || null,
     },
     roles: {
       // The guild's role ladder, highest first. Only `admin` and `staff` gate
@@ -90,13 +110,67 @@ function normalizeGuild(id, raw) {
       staff: roles.staff || null,
       veteran: roles.veteran || null,
       member: roles.member || null,
+      // Handed to everyone who joins, by services/autorole.js. Its own key
+      // rather than a reuse of `member`: what a guild records for perk checks
+      // and what it wants given away unattended are different questions, and a
+      // guild that wants no autorole should say so by leaving this unset rather
+      // than by clearing a role it relies on elsewhere.
+      onJoin: roles.onJoin || null,
     },
-    // Overrides the default greeting copy. `{mention}` is substituted with the
-    // new member. Guild-level because it is the guild's own voice, and the
-    // Zomboid guild's wording differs from a plain social server's.
-    welcomeMessage: typeof raw.welcomeMessage === 'string' && raw.welcomeMessage.trim()
-      ? raw.welcomeMessage.trim()
-      : null,
+    // How much rope the AI moderator gets in this guild. See ai/capabilities.js
+    // for what each mode means. Absent means `shadow`: a guild that has never
+    // been thought about should watch rather than act.
+    ai: {
+      mode: typeof raw.ai?.mode === 'string' ? raw.ai.mode : null,
+      // One sentence about what he *is* in this guild, handed to him verbatim.
+      // The same bot is a warden on the game server and a mascot in the social
+      // hall, and nothing else in this file says so — features describe what
+      // the bot runs, not what he is to the people in the room.
+      standing: typeof raw.ai?.standing === 'string' ? raw.ai.standing.trim() : null,
+      // Which of his powers this guild wants him to have, by capability name
+      // (see ai/capabilities.js). Absent means all of them that this guild's
+      // features support — the existing behaviour — so only a guild that wants
+      // him narrower has to say anything.
+      powers: Array.isArray(raw.ai?.powers) ? raw.ai.powers.filter(p => typeof p === 'string') : null,
+      // What this guild calls its two tiers. Defaults live in aiTitles() rather
+      // than here so a guild that has never set them still reads correctly.
+      titles: {
+        admin: typeof raw.ai?.titles?.admin === 'string' ? raw.ai.titles.admin.trim() : null,
+        staff: typeof raw.ai?.titles?.staff === 'string' ? raw.ai.titles.staff.trim() : null,
+      },
+    },
+    // Roles members may give themselves from a button, and the only roles a
+    // self-assign button is ever allowed to grant. Anything not on this list is
+    // refused by services/selfroles.js — the button's custom_id comes from the
+    // client, so this file, not the button, is what decides.
+    selfRoles: Array.isArray(raw.selfRoles)
+      ? raw.selfRoles
+          .filter((r) => r && SNOWFLAKE.test(String(r.role || '')))
+          .map((r) => ({
+            role: String(r.role),
+            label: typeof r.label === 'string' ? r.label : 'Role',
+            emoji: typeof r.emoji === 'string' ? r.emoji : null,
+            description: typeof r.description === 'string' ? r.description : null,
+          }))
+      : [],
+    // Twitch live announcements. Absent means the watcher skips this guild —
+    // the credentials are global (one app, in .env) but who gets announced,
+    // and where, is per-guild.
+    twitch: raw.twitch && typeof raw.twitch === 'object' ? {
+      channel: raw.twitch.channel || null,
+      // Role pinged on each announcement. Null pings nobody, which is the right
+      // default for a room people have not opted into.
+      pingRole: raw.twitch.pingRole || null,
+      pollMinutes: Number(raw.twitch.pollMinutes) > 0 ? Number(raw.twitch.pollMinutes) : 3,
+      streamers: Array.isArray(raw.twitch.streamers)
+        ? raw.twitch.streamers
+            .filter((x) => x && typeof x.login === 'string' && x.login.trim())
+            .map((x) => ({
+              login: x.login.trim().toLowerCase(),
+              name: typeof x.name === 'string' && x.name.trim() ? x.name.trim() : x.login.trim(),
+            }))
+        : [],
+    } : null,
     zomboid: raw.zomboid || null,
   };
 }
@@ -190,6 +264,45 @@ function hasFeature(guildId, feature) {
 }
 
 /**
+ * "a Sheriff" / "an Owner". The tier names are per-guild configuration, so the
+ * article has to be worked out rather than written into the sentence.
+ * @param {string} word
+ * @returns {string}
+ */
+function withArticle(word) {
+  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
+}
+
+/**
+ * What this guild calls the people above Sheogorath.
+ *
+ * Written against the *role ladder that actually exists here*, not against the
+ * vocabulary the bot grew up with. The Zomboid guild has a staff role between
+ * its owners and its members and calls them Sheriffs; the social guild has no
+ * such rung at all, and telling its members that something has "gone to the
+ * Sheriffs" names a tier they have never heard of and cannot go and find. Where
+ * there is no staff role, `isStaff()` already collapses to `isAdmin()`, so the
+ * words collapse the same way.
+ *
+ * @param {object|null} guildConfig
+ * @returns {{admin: string, staff: string|null, approver: string, approvers: string}}
+ */
+function aiTitles(guildConfig) {
+  const admin = guildConfig?.ai?.titles?.admin || 'Owner';
+  // A staff title is only real when a staff role is configured to hold it.
+  const staff = guildConfig?.roles?.staff
+    ? (guildConfig?.ai?.titles?.staff || 'Sheriff')
+    : null;
+  return {
+    admin,
+    staff,
+    // Who a held action is waiting on, singular and plural.
+    approver: staff || admin,
+    approvers: staff ? `${staff}s and ${admin}s` : `${admin}s`,
+  };
+}
+
+/**
  * Look up a configured channel ID.
  * @returns {string|null}
  */
@@ -266,6 +379,8 @@ module.exports = {
   getGuildConfig,
   guildIds,
   hasFeature,
+  aiTitles,
+  withArticle,
   channelId,
   primaryGuildId,
   reload,

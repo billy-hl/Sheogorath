@@ -81,8 +81,17 @@ function serverMessage(guildId, text, opts) {
  *
  * @returns {Promise<{count:number, names:string[]}>}
  */
-async function players(guildId, opts) {
-  const out = await rcon(guildId, 'players', opts);
+/**
+ * How many times to ask before giving up.
+ *
+ * RCON on this server answers intermittently: a probe on 2026-08-30 got an
+ * empty reply on the first call and a correct ten-player list on the second,
+ * seconds apart. One attempt is not enough to distinguish "nobody is on" from
+ * "the socket blinked".
+ */
+const PLAYERS_TRIES = 3;
+
+function parsePlayers(out) {
   const names = out
     .split('\n')
     .map((l) => l.trim())
@@ -91,7 +100,39 @@ async function players(guildId, opts) {
     .filter(Boolean);
 
   const header = /\((\d+)\)/.exec(out);
+
+  // AN UNREADABLE REPLY IS NOT ZERO PLAYERS.
+  //
+  // `rcon()` resolves with '' whenever the helper exits cleanly having printed
+  // nothing, which it does when the socket drops mid-request. The old code fed
+  // that straight through the parser: no header, no name lines, count 0. So a
+  // failed query became a confident "nobody is online", and on 2026-08-30 the
+  // Discord counter sat at `00/64` while nine people were playing.
+  //
+  // A genuinely empty server still answers `Players connected (0):`, header and
+  // all, so it parses to zero through the normal path. Reaching here means we
+  // learned nothing, and the honest answer is to fail rather than to invent a
+  // number the callers cannot tell apart from a real one.
+  if (!header && names.length === 0) return null;
+
   return { count: header ? Number(header[1]) : names.length, names };
+}
+
+async function players(guildId, opts) {
+  let last = '';
+  for (let attempt = 1; attempt <= PLAYERS_TRIES; attempt += 1) {
+    const out = await rcon(guildId, 'players', opts);
+    const parsed = parsePlayers(out);
+    if (parsed) return parsed;
+    last = out;
+    if (attempt < PLAYERS_TRIES) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw new Error(
+    `RCON "players" gave no readable player list after ${PLAYERS_TRIES} attempts `
+      + `(last reply: ${JSON.stringify(last.slice(0, 80))})`,
+  );
 }
 
 /**

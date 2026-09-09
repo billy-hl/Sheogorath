@@ -162,8 +162,12 @@ function scheduleStreamWatch(client) {
     return;
   }
 
-  // Fastest poll any configured guild asks for; each guild is filtered by its
-  // own state, so a shared tick costs one request for everybody.
+  // Fastest poll any configured guild asks for. The tick is shared but the
+  // request is not: pollGuild asks Helix per guild, so two configured guilds
+  // watching the same streamers make two calls. That is deliberate — the guilds
+  // keep separate announced-stream state, and at a handful of calls an hour the
+  // rate limit is nowhere in sight. Batch the logins into one call if that ever
+  // stops being true.
   const minutes = Math.max(1, Math.min(...guilds.map((id) => getGuildConfig(id).twitch.pollMinutes)));
   setInterval(() => { pollOnce(client).catch(() => {}); }, minutes * 60 * 1000);
   pollOnce(client).catch(() => {});

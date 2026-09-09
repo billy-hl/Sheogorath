@@ -43,6 +43,21 @@
       "titles": {
         "admin": "Creator"
       }
+    },
+    "twitch": {
+      "channel": "1410697334190510090",
+      "pingRole": null,
+      "pollMinutes": 3,
+      "streamers": [
+        {
+          "login": "allisteras",
+          "name": "Allisteras"
+        },
+        {
+          "login": "stickmanfish",
+          "name": "Fish"
+        }
+      ]
     }
   },
   "444601986160263189": {

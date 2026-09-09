@@ -1,6 +1,12 @@
 'use strict';
-const { AutoModerationRuleTriggerType, AutoModerationActionType, AutoModerationRuleEventType } = require('discord.js');
+const {
+  AutoModerationRuleTriggerType,
+  AutoModerationActionType,
+  AutoModerationRuleEventType,
+  AutoModerationRuleKeywordPresetType,
+} = require('discord.js');
 const { getGuildState, setGuildState } = require('../storage/state');
+const { getGuildConfig } = require('../config/guilds');
 
 // Default blocked words list
 const DEFAULT_BLOCKED_WORDS = [
@@ -184,8 +190,139 @@ async function deleteMessage(message, reason) {
   return { messageId: message.id, reason };
 }
 
+/**
+ * The rules a guild gets from `/automod baseline`.
+ *
+ * Discord's own filters, not a word list of ours. A hand-maintained list of
+ * slurs is a losing game — it is always a transliteration behind — while the
+ * preset is maintained by people whose job that is, in every language at once.
+ *
+ * Profanity is deliberately NOT among the presets. #rules says swearing is
+ * fine, and an AutoMod rule that contradicts the posted rules teaches people
+ * that the posted rules are decorative.
+ *
+ * Discord allows one MentionSpam, one Spam and one KeywordPreset rule per
+ * guild, so these are singletons by name and editing them in place is the only
+ * way to apply them twice.
+ */
+const BASELINE = [
+  {
+    name: 'Sheogorath-Presets',
+    triggerType: AutoModerationRuleTriggerType.KeywordPreset,
+    triggerMetadata: {
+      presets: [
+        AutoModerationRuleKeywordPresetType.Slurs,
+        AutoModerationRuleKeywordPresetType.SexualContent,
+      ],
+      allowList: [],
+    },
+    // Blocked and reported. A preset false-positive is invisible to staff
+    // otherwise, and the alert is how anyone finds out the filter is wrong.
+    actions: ({ alertChannel }) => [
+      { type: AutoModerationActionType.BlockMessage,
+        metadata: { customMessage: 'Not in this hall.' } },
+      ...(alertChannel ? [{ type: AutoModerationActionType.SendAlertMessage,
+        metadata: { channel: alertChannel } }] : []),
+    ],
+  },
+  {
+    // Same name the older /automod antispam toggle uses, so the baseline adopts
+    // that rule where it already exists rather than colliding with Discord's
+    // one-MentionSpam-per-guild limit.
+    name: 'Sheogorath-AntiSpam',
+    triggerType: AutoModerationRuleTriggerType.MentionSpam,
+    triggerMetadata: { mentionTotalLimit: 5 },
+    actions: ({ alertChannel }) => [
+      { type: AutoModerationActionType.BlockMessage,
+        metadata: { customMessage: 'Too many mentions at once.' } },
+      { type: AutoModerationActionType.Timeout, metadata: { durationSeconds: 300 } },
+      ...(alertChannel ? [{ type: AutoModerationActionType.SendAlertMessage,
+        metadata: { channel: alertChannel } }] : []),
+    ],
+  },
+  {
+    name: 'Sheogorath-Spam',
+    triggerType: AutoModerationRuleTriggerType.Spam,
+    triggerMetadata: {},
+    actions: () => [
+      { type: AutoModerationActionType.BlockMessage,
+        metadata: { customMessage: 'That read as spam. If it was not, a Warden can let it through.' } },
+    ],
+  },
+  {
+    name: 'Sheogorath-InviteAlert',
+    triggerType: AutoModerationRuleTriggerType.Keyword,
+    // Rust-flavoured regex, evaluated by Discord rather than by us.
+    triggerMetadata: { regexPatterns: ['discord\\.(gg|com/invite)/[A-Za-z0-9-]+'], keywordFilter: [] },
+    // Alert only, no block. #rules permits a regular sharing a server they
+    // like and forbids only drive-by invites from strangers — a distinction
+    // AutoMod cannot draw, so it tells a Warden instead of guessing.
+    actions: ({ alertChannel }) => (alertChannel
+      ? [{ type: AutoModerationActionType.SendAlertMessage, metadata: { channel: alertChannel } }]
+      : []),
+  },
+];
+
+/**
+ * Create or update the baseline rules for a guild.
+ *
+ * Idempotent by rule name, like the rest of the setup tooling: a second run
+ * edits what is there rather than colliding with Discord's per-type limits.
+ *
+ * @param {import('discord.js').Guild} guild
+ * @param {object} [opts]
+ * @param {boolean} [opts.dryRun] describe the work without doing it
+ */
+async function applyBaseline(guild, { dryRun = false } = {}) {
+  const config = getGuildConfig(guild.id);
+  // Staff are exempt: a Warden quoting a slur to ask what to do about it must
+  // not be swallowed by the filter that is there to help them.
+  const exemptRoles = [config?.roles?.staff, config?.roles?.admin].filter(Boolean);
+  const alertChannel = config?.channels?.modApprovals || config?.channels?.commandLog || null;
+
+  const existing = await guild.autoModerationRules.fetch();
+  const results = [];
+
+  for (const spec of BASELINE) {
+    const actions = spec.actions({ alertChannel });
+    if (!actions.length) {
+      results.push({ name: spec.name, action: 'skipped', detail: 'no alert channel configured, and this rule only alerts' });
+      continue;
+    }
+    const found = existing.find((r) => r.name === spec.name);
+    const payload = {
+      enabled: true,
+      actions,
+      exemptRoles,
+      triggerMetadata: spec.triggerMetadata,
+    };
+
+    if (dryRun) {
+      results.push({ name: spec.name, action: found ? 'edit' : 'create',
+        detail: `${actions.length} action(s), ${exemptRoles.length} exempt role(s)` });
+      continue;
+    }
+    try {
+      if (found) await found.edit(payload);
+      else await guild.autoModerationRules.create({
+        ...payload,
+        name: spec.name,
+        eventType: AutoModerationRuleEventType.MessageSend,
+        triggerType: spec.triggerType,
+      });
+      results.push({ name: spec.name, action: found ? 'edited' : 'created',
+        detail: `${actions.length} action(s), ${exemptRoles.length} exempt role(s)` });
+    } catch (err) {
+      results.push({ name: spec.name, action: 'FAILED', detail: err?.message || String(err) });
+    }
+  }
+  return { results, alertChannel, exemptRoles };
+}
+
 module.exports = {
   setupAutoMod,
+  applyBaseline,
+  BASELINE,
   getAutoModStatus,
   timeoutUser,
   warnUser,

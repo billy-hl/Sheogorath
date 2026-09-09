@@ -347,10 +347,17 @@ async function apply(guild) {
     },
     ai: {
       ...(prev.ai || {}),
-      // Shadow on purpose: capabilities.js is explicit that a guild nobody has
-      // read a week of judgement from should watch, not punish. Flip to
-      // "enforce" once the log looks sane.
-      mode: 'shadow',
+      // Shadow only for a guild that has never said otherwise: capabilities.js
+      // is explicit that somewhere nobody has read a week of judgement from
+      // should watch, not punish.
+      //
+      // Preserved rather than reasserted, unlike `standing` and `powers` below.
+      // Those are text this script owns and should be free to update; the mode
+      // is an operational decision taken later and elsewhere, and a re-run that
+      // silently walked a guild back from enforce to shadow would turn the
+      // moderator off without anyone being told. This script did exactly that
+      // once.
+      mode: prev.ai?.mode || 'shadow',
       standing: STANDING,
       powers: POWERS,
       titles: { admin: 'Creator', staff: 'Warden' },

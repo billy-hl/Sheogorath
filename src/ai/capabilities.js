@@ -22,7 +22,7 @@
  * click. So the worst a member can talk him into is a card in the staff channel,
  * and the only person they can get acted on directly is themselves.
  */
-const { isStaff, isAdmin } = require('../utils/permissions');
+const { isStaff, isAdmin, isVeteran } = require('../utils/permissions');
 const { aiTitles, getGuildConfig, withArticle } = require('../config/guilds');
 const { staffChannelId } = require('../utils/aiAudit');
 
@@ -134,8 +134,12 @@ const CAPABILITIES = {
   // takes nothing away, wears its author in the audit log, and comes off again
   // in one line. Immunity is off for the same reason: a Sheriff can be given a
   // silly name like anybody else.
-  title:      { tier: 'auto',    targets: 'member', immune: false, perHour: 10,
-                maxLength: 90 },
+  // `author` with an `othersNeed` of veteran: your own title is yours to ask
+  // for, and titling somebody else is open to anyone who has been here long
+  // enough to have earned Veteran. Below that it becomes a card for staff —
+  // titles are cosmetic, but being renamed by a stranger is not nothing.
+  title:      { tier: 'auto',    targets: 'author', othersNeed: 'veteran',
+                immune: false, perHour: 10, maxLength: 90 },
 
   // Taking one back, which is narrower than giving one — `author` means your
   // own comes off on your say-so, and stripping somebody else's needs staff.
@@ -394,6 +398,7 @@ function decide(action, ctx) {
 
   const requesterIsStaff = isStaff(ctx.requester);
   const requesterIsOwner = isAdmin(ctx.requester);
+  const requesterIsVeteran = isVeteran(ctx.requester);
 
   // A capability may be gentler on an Owner than on everyone else. Computed
   // once here so every branch below agrees on which tier is in force.
@@ -405,8 +410,20 @@ function decide(action, ctx) {
   // ordinary member, this becomes a card in the staff channel. Members can
   // still *raise* things — that is the point of letting it degrade rather than
   // refusing outright — they just cannot land them.
-  if (cap.targets === 'author' && action.userId && action.userId !== ctx.authorId && !requesterIsStaff) {
-    return hold(`aimed at someone other than the author, and the requester is not ${withArticle(titles.approver)}`);
+  if (cap.targets === 'author' && action.userId && action.userId !== ctx.authorId) {
+    // Most of these open up only to staff. A capability may name a lower rung
+    // with `othersNeed` when the thing being done to a third party is cosmetic
+    // rather than punitive.
+    const cleared = cap.othersNeed === 'veteran' ? requesterIsVeteran : requesterIsStaff;
+    if (!cleared) {
+      // With no veteran role in the guild there is no such rung, and isVeteran
+      // has already collapsed to isStaff — so say staff, not a tier that does
+      // not exist here.
+      const needed = cap.othersNeed === 'veteran' && titles.veteran
+        ? withArticle(titles.veteran)
+        : withArticle(titles.approver);
+      return hold(`aimed at someone other than the author, and the requester is not ${needed}`);
+    }
   }
 
   // --- Per-capability thresholds. ---

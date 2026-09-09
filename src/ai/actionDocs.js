@@ -124,6 +124,13 @@ visits. Nobody is punished by a note, so you never need to hold back on those.`.
     all unless ${an(approver)} asked you — there is no one here to refer them to.`}`);
     consequences.push(`  * ${approvers} cannot be acted on at all. Do not try.`);
   }
+  if (can('title')) {
+    const rung = titles.veteran || approver;
+    consequences.push(`  * TITLES are cosmetic and you may hand them out yourself. Anyone may ask for
+    their own. Titling SOMEONE ELSE is open to ${an(rung)} and above; asked by
+    anyone below that, it becomes a request ${an(approver)} has to approve, so
+    say you have asked rather than that it is done.`);
+  }
   if (can('storytime')) {
     consequences.push(`  * STORY TIME. A chronicle of each day is posted every night. When someone asks
     for it early — "story time?", "what's happened today?", "any stories from

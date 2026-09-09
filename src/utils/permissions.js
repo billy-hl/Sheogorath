@@ -181,9 +181,29 @@ function commandsForGuild(allCommands, guildId) {
   });
 }
 
+/**
+ * Whether a member is at least Veteran — the rung below staff.
+ *
+ * A ladder, like isStaff: anything a Veteran may do, a Sheriff and an Owner may
+ * do too, so this answers true for all three. It gates nothing on the Discord
+ * side; it exists so a capability can be opened to the people who have been
+ * around a while without being opened to everyone who can type.
+ *
+ * A guild that has not named a veteran role has no such rung, and everyone
+ * below staff falls outside it.
+ */
+function isVeteran(member) {
+  if (!member || !member.guild) return false;
+  if (isStaff(member)) return true;
+
+  const veteranRoleId = getGuildConfig(member.guild.id)?.roles.veteran;
+  return !!veteranRoleId && member.roles.cache.has(veteranRoleId);
+}
+
 module.exports = {
   isAdmin,
   isStaff,
+  isVeteran,
   COMMAND_FEATURES,
   MUSIC_COMMANDS,
   STAFF_COMMANDS,

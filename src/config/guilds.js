@@ -137,6 +137,7 @@ function normalizeGuild(id, raw) {
       titles: {
         admin: typeof raw.ai?.titles?.admin === 'string' ? raw.ai.titles.admin.trim() : null,
         staff: typeof raw.ai?.titles?.staff === 'string' ? raw.ai.titles.staff.trim() : null,
+        veteran: typeof raw.ai?.titles?.veteran === 'string' ? raw.ai.titles.veteran.trim() : null,
       },
     },
     // Roles members may give themselves from a button, and the only roles a
@@ -313,9 +314,14 @@ function aiTitles(guildConfig) {
   const staff = guildConfig?.roles?.staff
     ? (guildConfig?.ai?.titles?.staff || 'Sheriff')
     : null;
+  // Same rule one rung lower: only real where a veteran role exists to hold it.
+  const veteran = guildConfig?.roles?.veteran
+    ? (guildConfig?.ai?.titles?.veteran || 'Veteran')
+    : null;
   return {
     admin,
     staff,
+    veteran,
     // Who a held action is waiting on, singular and plural.
     approver: staff || admin,
     approvers: staff ? `${staff}s and ${admin}s` : `${admin}s`,

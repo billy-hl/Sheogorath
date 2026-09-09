@@ -125,8 +125,10 @@ const TREE = [
         topic: 'Now-playing cards and music controls.' },
       { name: 'live', twitchChannel: true, locked: true,
         topic: 'Twitch announcements. Take the Streams role in #roles if you want the ping.' },
-      { name: 'youtube', youtubeChannel: true, locked: true,
-        topic: 'New uploads land here. Locked because it is a feed, not a conversation.' },
+      // Not locked: the bot announces the house channel's uploads here, and
+      // everyone else is welcome to post their own alongside them.
+      { name: 'videos', youtubeChannel: true,
+        topic: 'Videos. The bot posts new uploads from the house channel; post your own too.' },
     ] },
   { category: 'WARDOGS', channels: [
       { name: 'wardogs-general', topic: 'Wardogs talk.' },
@@ -427,7 +429,7 @@ client.once(Events.ClientReady, async () => {
     console.log(`  roles:    ${JSON.stringify(r.roleIds)}`);
     console.log(`  channels: ${JSON.stringify(r.channelIds)}`);
     console.log(`  selfRoles: ${JSON.stringify(r.selfRoles)}`);
-    console.log(`  youtube:  #youtube ${r.youtubeChannelId}, ${YOUTUBE_FEEDS.map((f) => f.handle || f.name).join(', ')}`);
+    console.log(`  videos:   #videos ${r.youtubeChannelId}, ${YOUTUBE_FEEDS.map((f) => f.handle || f.name).join(', ')}`);
     console.log(`  teams:    ${Object.entries(r.teamRoleIds).map(([n, id]) => n + ' ' + id).join(', ') || 'none'}`);
     console.log(`  twitch:   #live ${r.liveChannelId}, ping role ${r.streamsRoleId}, ${STREAMERS.map((x) => x.login).join(' + ')}`);
     console.log(`  wrote ${CONFIG_FILE}`);

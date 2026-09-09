@@ -16,9 +16,14 @@
  *      manual-approval form with a default "why do you want to join" question.
  *      That is an approval queue, not a rules gate. This script rewrites the
  *      verification form to a TERMS-only one and checks the flag afterwards.
- *   2. Prompt IDs are assigned by Discord. New prompts go up as "0"; a re-run
- *      therefore replaces them rather than editing in place, and their IDs
- *      change. Nothing references those IDs, so this is churn, not breakage.
+ *   2. Every prompt and option must carry an `id`, and it has to be
+ *      snowflake-shaped. Omitting it is rejected as a missing field, and "0"
+ *      is only accepted while the guild has never had onboarding configured —
+ *      afterwards Discord tries to resolve it against the existing prompts and
+ *      answers INVALID_ONBOARDING_PROMPT_ID. So new prompts get synthesised
+ *      IDs from the counter below. Discord assigns real ones on write, which
+ *      means a re-run replaces the prompts rather than editing them in place.
+ *      Nothing references those IDs, so that is churn, not breakage.
  *
  *   node scripts/community-onboarding.js            # show what would be sent
  *   node scripts/community-onboarding.js --apply
@@ -82,6 +87,14 @@ const RULES = [
   "Discord's own rules still apply. 13+, nothing illegal, no ban evasion.",
 ];
 
+/**
+ * Synthetic snowflake-shaped IDs for prompts and options we are creating.
+ * The value is never persisted — Discord issues the real one — it only has to
+ * be well-formed and unique within this request.
+ */
+let idSeq = 0;
+const newId = () => String(1547300000000000000n + BigInt(++idSeq));
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 client.once(Events.ClientReady, async () => {
@@ -96,7 +109,7 @@ client.once(Events.ClientReady, async () => {
     const missing = [];
     const defaults = DEFAULT_CHANNELS.map((n) => (channel(n) || missing.push('#' + n)) && channel(n).id);
     const prompts = PROMPTS.map((p) => ({
-      id: '0',
+      id: newId(),
       type: 0,
       title: p.title,
       single_select: p.single,
@@ -106,7 +119,7 @@ client.once(Events.ClientReady, async () => {
         if (!role(o.role)) missing.push('@' + o.role);
         if (!channel(o.channel)) missing.push('#' + o.channel);
         return {
-          id: '0',
+          id: newId(),
           title: o.title,
           description: o.description,
           emoji: { name: o.emoji },

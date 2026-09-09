@@ -38,6 +38,9 @@ const { checkCooldown, setCooldown } = require('./utils/cooldowns');
 const { setClient, notifyError } = require('./utils/errorNotify');
 const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
+const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole');
+const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./services/selfroles');
+const { scheduleStreamWatch } = require('./services/twitch');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId, aiTitles } = require('./config/guilds');
 const {
@@ -290,6 +293,14 @@ client.once(Events.ClientReady, async () => {
     scheduleBusyWatch(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule overload watch:', err?.message || err);
+  }
+
+  // Announce the house streamers going live. Isolated like the rest — Twitch
+  // being down or a credential being wrong must not stop the bot booting.
+  try {
+    scheduleStreamWatch(client);
+  } catch (err) {
+    console.error('[Twitch] Failed to schedule stream watch:', err?.message || err);
   }
 
   // Say goodbye to characters who die. Isolated like the rest — this one calls
@@ -582,6 +593,16 @@ client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
     console.error('[Forums] Thread handling failed:', err?.message || err));
 });
 
+client.on(Events.GuildMemberAdd, async (member) => {
+  await onGuildMemberAdd(member).catch(err =>
+    console.error('[AutoRole] Join handling failed:', err?.message || err));
+});
+
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+  await onGuildMemberUpdate(oldMember, newMember).catch(err =>
+    console.error('[AutoRole] Update handling failed:', err?.message || err));
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   lastInteractionTime = Date.now();
 
@@ -593,6 +614,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // refuse them out of hand — every button under it is a music control.
       if (isApprovalButton(interaction)) {
         await handleApprovalButton(interaction);
+        return;
+      }
+
+      // Self-assign buttons are routed here for the same reason the approval
+      // cards are: everything past this point is a music control behind a
+      // music gate, which would refuse them.
+      if (isSelfRoleButton(interaction)) {
+        await handleSelfRoleButton(interaction);
         return;
       }
 

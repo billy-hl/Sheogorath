@@ -92,6 +92,9 @@ function normalizeGuild(id, raw) {
       // cap is lifted and he carries a real conversation. Created by
       // `/sheo parlour`, which writes this key itself.
       parlour: channels.parlour || null,
+      // Where the self-assign button message lives. Only the poster script
+      // needs it; the buttons themselves carry their own role IDs.
+      selfRoles: channels.selfRoles || null,
     },
     roles: {
       // The guild's role ladder, highest first. Only `admin` and `staff` gate
@@ -107,6 +110,12 @@ function normalizeGuild(id, raw) {
       staff: roles.staff || null,
       veteran: roles.veteran || null,
       member: roles.member || null,
+      // Handed to everyone who joins, by services/autorole.js. Its own key
+      // rather than a reuse of `member`: what a guild records for perk checks
+      // and what it wants given away unattended are different questions, and a
+      // guild that wants no autorole should say so by leaving this unset rather
+      // than by clearing a role it relies on elsewhere.
+      onJoin: roles.onJoin || null,
     },
     // How much rope the AI moderator gets in this guild. See ai/capabilities.js
     // for what each mode means. Absent means `shadow`: a guild that has never
@@ -130,6 +139,38 @@ function normalizeGuild(id, raw) {
         staff: typeof raw.ai?.titles?.staff === 'string' ? raw.ai.titles.staff.trim() : null,
       },
     },
+    // Roles members may give themselves from a button, and the only roles a
+    // self-assign button is ever allowed to grant. Anything not on this list is
+    // refused by services/selfroles.js — the button's custom_id comes from the
+    // client, so this file, not the button, is what decides.
+    selfRoles: Array.isArray(raw.selfRoles)
+      ? raw.selfRoles
+          .filter((r) => r && SNOWFLAKE.test(String(r.role || '')))
+          .map((r) => ({
+            role: String(r.role),
+            label: typeof r.label === 'string' ? r.label : 'Role',
+            emoji: typeof r.emoji === 'string' ? r.emoji : null,
+            description: typeof r.description === 'string' ? r.description : null,
+          }))
+      : [],
+    // Twitch live announcements. Absent means the watcher skips this guild —
+    // the credentials are global (one app, in .env) but who gets announced,
+    // and where, is per-guild.
+    twitch: raw.twitch && typeof raw.twitch === 'object' ? {
+      channel: raw.twitch.channel || null,
+      // Role pinged on each announcement. Null pings nobody, which is the right
+      // default for a room people have not opted into.
+      pingRole: raw.twitch.pingRole || null,
+      pollMinutes: Number(raw.twitch.pollMinutes) > 0 ? Number(raw.twitch.pollMinutes) : 3,
+      streamers: Array.isArray(raw.twitch.streamers)
+        ? raw.twitch.streamers
+            .filter((x) => x && typeof x.login === 'string' && x.login.trim())
+            .map((x) => ({
+              login: x.login.trim().toLowerCase(),
+              name: typeof x.name === 'string' && x.name.trim() ? x.name.trim() : x.login.trim(),
+            }))
+        : [],
+    } : null,
     zomboid: raw.zomboid || null,
   };
 }

@@ -61,7 +61,7 @@ const TWITCH = 0x9146ff;
  */
 const ROLES = [
   { key: 'admin', name: 'Owner', color: GOLD, hoist: true, perms: [] },
-  { key: 'staff', name: 'Warden', color: MAGENTA, hoist: true, perms: [
+  { key: 'staff', name: 'Warden', color: MAGENTA, hoist: true, mentionable: true, perms: [
       PermissionFlagsBits.ManageMessages,
       PermissionFlagsBits.ModerateMembers,
       PermissionFlagsBits.KickMembers,

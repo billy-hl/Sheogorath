@@ -1257,6 +1257,16 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
     if (refused.length) {
       notes.push(`-# ⛔ Refused: ${refused.map(r => r.reason).join('; ')}.`);
     }
+    // Allowed, attempted, and then it threw. Same reasoning as the two above:
+    // the model narrates what it intended, not what happened, so it will say
+    // "done" over the top of a Discord error every time. Left unsaid, a member
+    // is told they have been given something they have not, and goes looking
+    // for it — which is precisely how a failed title turned into four minutes
+    // of being told to reload Discord.
+    const failed = actionResults.filter(r => r.error);
+    if (failed.length) {
+      notes.push(`-# ⚠️ That did not work: ${failed.map(r => r.error).join('; ')}.`);
+    }
     const sentReply = notes.length ? `${finalReply}\n\n${notes.join('\n')}` : finalReply;
     
     // Store conversation (keep last 15 exchanges)

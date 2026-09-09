@@ -227,13 +227,52 @@ function scrub(text) {
  * A miss is not an error — the model invents IDs, and an ID that isn't a member
  * of this guild is exactly the case the gate refuses on.
  */
-async function resolveTarget(guild, userId) {
-  if (!guild || !userId || !/^\d{17,20}$/.test(userId)) return null;
+async function resolveTarget(guild, ref) {
+  if (!guild || !ref) return null;
+  const raw = String(ref).trim();
+
+  const mention = /^<@!?(\d{17,20})>$/.exec(raw);
+  const id = mention ? mention[1] : (/^\d{17,20}$/.test(raw) ? raw : null);
+  if (id) {
+    try {
+      return await guild.members.fetch(id);
+    } catch {
+      return null;
+    }
+  }
+
+  // A name rather than an id. The model writes what it sees in the channel,
+  // which is a username — so `[ACTION:title:the_grey:...]` is the normal case,
+  // not a malformed one, and left unresolved it reaches Discord as a member id
+  // and comes back "Invalid Form Body".
+  //
+  // Resolved only on an unambiguous match. The same tag shape drives timeout
+  // and kick as easily as it drives title, so guessing between two similar
+  // names is not a convenience, it is acting on the wrong person.
+  const needle = raw.replace(/^@/, '').toLowerCase();
+  if (!needle) return null;
+  let members;
   try {
-    return await guild.members.fetch(userId);
+    members = guild.members.cache.size >= guild.memberCount
+      ? guild.members.cache
+      : await guild.members.fetch();
   } catch {
     return null;
   }
+  const names = (m) => [m.user.username, m.displayName, m.nickname].filter(Boolean);
+  let hits = members.filter((m) => names(m).some((n) => n.toLowerCase() === needle));
+
+  // Discord usernames may end in a dot, and the model drops trailing
+  // punctuation when it writes one into a tag — "the_grey." comes back as
+  // "the_grey". Fall back to comparing letters and digits only, which closes
+  // that gap without loosening the rule that matters: still exactly one match,
+  // or nobody.
+  if (hits.size === 0) {
+    const flatten = (v) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const flat = flatten(needle);
+    if (flat) hits = members.filter((m) => names(m).some((n) => flatten(n) === flat));
+  }
+  return hits.size === 1 ? hits.first() : null;
 }
 
 /**
@@ -256,8 +295,16 @@ async function executeActions(actions, context) {
 
   const results = [];
 
-  for (const action of actions) {
-    const targetMember = await resolveTarget(guild, action.userId);
+  for (const rawAction of actions) {
+    const targetMember = await resolveTarget(guild, rawAction.userId);
+
+    // Carry the resolved id forward. The gate compares userId against the
+    // author's to decide whether something is aimed at a third party, and a
+    // username never equals a snowflake — so without this, an action aimed at
+    // the person asking looks like one aimed at a stranger.
+    const action = targetMember && rawAction.userId && rawAction.userId !== targetMember.id
+      ? { ...rawAction, userId: targetMember.id }
+      : rawAction;
 
     const { verdict, reason, action: gated } = decide(action, {
       guildId,
@@ -319,4 +366,4 @@ async function executeActions(actions, context) {
   return results;
 }
 
-module.exports = { parseActions, executeActions, scrub, ACTION_TYPES };
+module.exports = { parseActions, executeActions, scrub, ACTION_TYPES, resolveTarget };

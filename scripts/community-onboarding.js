@@ -49,9 +49,9 @@ const PROMPTS = [
     single: true,
     required: true,
     options: [
-      { title: 'Lonestar', description: 'Red team', emoji: '🟥', role: 'Lonestar', channel: 'Lonestar' },
-      { title: 'Valkyra', description: 'Green team', emoji: '🟩', role: 'Valkyra', channel: 'Valkyra' },
-      { title: 'Manticore', description: 'Blue team', emoji: '🟦', role: 'Manticore', channel: 'Manticore' },
+      { title: 'Lonestar', description: 'Blue team', emoji: '🟦', role: 'Lonestar', channel: 'Lonestar' },
+      { title: 'Valkyra', description: 'Red team', emoji: '🟥', role: 'Valkyra', channel: 'Valkyra' },
+      { title: 'Manticore', description: 'Green team', emoji: '🟩', role: 'Manticore', channel: 'Manticore' },
     ],
   },
   {

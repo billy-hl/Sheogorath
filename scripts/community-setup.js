@@ -86,12 +86,12 @@ const ROLES = [
   //
   // Self-assignable as one exclusive group — picking a second team drops the
   // first. Each gates its own voice room below.
-  { key: null, name: 'Lonestar', color: TEAM_RED, hoist: true, perms: [], mentionable: true, team: true,
-    selfAssign: { emoji: '🟥', description: 'Red team.', group: 'team' } },
-  { key: null, name: 'Valkyra', color: TEAM_GREEN, hoist: true, perms: [], mentionable: true, team: true,
-    selfAssign: { emoji: '🟩', description: 'Green team.', group: 'team' } },
-  { key: null, name: 'Manticore', color: TEAM_BLUE, hoist: true, perms: [], mentionable: true, team: true,
+  { key: null, name: 'Lonestar', color: TEAM_BLUE, hoist: true, perms: [], mentionable: true, team: true,
     selfAssign: { emoji: '🟦', description: 'Blue team.', group: 'team' } },
+  { key: null, name: 'Valkyra', color: TEAM_RED, hoist: true, perms: [], mentionable: true, team: true,
+    selfAssign: { emoji: '🟥', description: 'Red team.', group: 'team' } },
+  { key: null, name: 'Manticore', color: TEAM_GREEN, hoist: true, perms: [], mentionable: true, team: true,
+    selfAssign: { emoji: '🟩', description: 'Green team.', group: 'team' } },
   { key: 'veteran', name: 'Veteran', color: PLUM, hoist: false, perms: [] },
   { key: 'member', name: 'Member', color: MUTED, hoist: false, perms: [] },
   // Not part of the ladder and not recorded in config: a pingable opt-in for
@@ -224,6 +224,7 @@ function plan(guild) {
 async function apply(guild) {
   const roleIds = {};
   const selfRoles = [];
+  const retinted = [];
   let liveChannelId = null;
   let youtubeChannelId = null;
   let streamsRoleId = null;
@@ -251,6 +252,19 @@ async function apply(guild) {
       });
       created.roles++;
     }
+    // Appearance is reconciled on every run, not just at creation. These are
+    // exactly the properties someone gets wrong first time — the colours below
+    // were assigned to the wrong three teams — and a script that can only set
+    // them once is no use the moment that happens.
+    const patch = {};
+    if (role.color !== spec.color) patch.color = spec.color;
+    if (role.hoist !== !!spec.hoist) patch.hoist = !!spec.hoist;
+    if (role.mentionable !== !!spec.mentionable) patch.mentionable = !!spec.mentionable;
+    if (Object.keys(patch).length && role.editable) {
+      await role.edit({ ...patch, reason: 'Wabbajack Community setup' });
+      retinted.push(`${role.name} (${Object.keys(patch).join(', ')})`);
+    }
+
     if (spec.key) roleIds[spec.key] = role.id;
     // Everyone who joins is given Member, by services/autorole.js.
     if (spec.key === 'member') roleIds.onJoin = role.id;
@@ -405,7 +419,7 @@ async function apply(guild) {
   };
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n', 'utf8');
 
-  return { created, moved, reordered, roleIds, channelIds, selfRoles, liveChannelId, youtubeChannelId, streamsRoleId, teamRoleIds };
+  return { created, moved, reordered, retinted, roleIds, channelIds, selfRoles, liveChannelId, youtubeChannelId, streamsRoleId, teamRoleIds };
 }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -436,6 +450,7 @@ client.once(Events.ClientReady, async () => {
 
     const r = await apply(guild);
     console.log(`\nAPPLY\n  created ${r.created.roles} role(s), ${r.created.channels} channel(s), moved ${r.moved}${r.reordered ? ', reordered the ladder' : ''}`);
+    if (r.retinted.length) console.log(`  restyled: ${r.retinted.join('; ')}`);
     console.log(`  roles:    ${JSON.stringify(r.roleIds)}`);
     console.log(`  channels: ${JSON.stringify(r.channelIds)}`);
     console.log(`  selfRoles: ${JSON.stringify(r.selfRoles)}`);

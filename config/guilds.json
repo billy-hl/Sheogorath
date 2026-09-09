@@ -244,6 +244,18 @@
           "name": "Fish"
         }
       ]
+    },
+    "youtube": {
+      "channel": "1547344285341458502",
+      "pingRole": null,
+      "pollMinutes": 15,
+      "feeds": [
+        {
+          "channelId": "UCimHc9QeZGIDuwZsyj5MTQA",
+          "name": "Allisteras",
+          "handle": "@Allisteras"
+        }
+      ]
     }
   }
 }

@@ -113,8 +113,6 @@ const TREE = [
         topic: 'How this place works. Sheogorath quotes this channel when asked, so keep it current.' },
       { name: 'announcements', locked: true,
         topic: 'Server news. Staff post, everyone reads.' },
-      { name: 'roles', configKey: 'selfRoles', locked: true,
-        topic: 'Take the roles you want pinged for. Buttons only — nobody posts here.' },
     ] },
   { category: 'COMMUNITY', channels: [
       { name: 'general', topic: 'The common room.' },
@@ -127,10 +125,12 @@ const TREE = [
         topic: 'Twitch announcements. Veterans and above can talk here; take the Streams role in #roles for the ping.' },
       // Not locked: the bot announces the house channel's uploads here, and
       // everyone else is welcome to post their own alongside them.
-      // Patch notes and the like. Open to Veterans so the people who actually
-      // read them can post one without waiting on staff.
-      { name: 'game-updates', locked: true, postFrom: 'veteran',
-        topic: 'Patch notes and news for whatever we are playing. Veterans and above can post.' },
+      // A destination for Discord's channel-following, not a room anyone types
+      // in. Followed announcements arrive over a webhook, which ignores the
+      // SendMessages overwrite entirely — so locking it to staff costs the
+      // feature nothing and keeps the feed clean.
+      { name: 'game-updates', locked: true,
+        topic: 'Patch notes and news, followed in from other servers. Nobody posts here directly.' },
       { name: 'videos', youtubeChannel: true,
         topic: 'Videos. The bot posts new uploads from the house channel; post your own too.' },
     ] },
@@ -400,7 +400,10 @@ async function apply(guild) {
     ...prev,
     name: 'wabbajack-community',
     features: FEATURES,
-    channels: { ...(prev.channels || {}), ...channelIds, suggestions: null },
+    // selfRoles is nulled rather than carried over: the buttons channel was
+    // deleted, roles are picked during onboarding instead, and a stale id here
+    // makes the poster script 404 and every link to it render broken.
+    channels: { ...(prev.channels || {}), ...channelIds, suggestions: null, selfRoles: null },
     roles: { ...(prev.roles || {}), ...roleIds },
     zomboid: null,
     selfRoles,

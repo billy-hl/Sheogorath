@@ -62,8 +62,8 @@ const WELCOME = {
       'Read <#CHAN_RULES>. That is the whole of the gate — no application, nothing to fill in, and **Member** is handed to you automatically on the way in.'],
     ['Where things live',
       'Talk in <#CHAN_GENERAL>. Clips and screenshots in <#CHAN_MEDIA>. Questions in <#CHAN_HELP>. Wardogs has its own category, and voice is General, Squad One and Squad Two.'],
-    ['Pings you choose',
-      'Everything that pings you is opt-in, from the buttons in <#CHAN_ROLES>. Take **@Wardogs** to be pulled into groups, and **@Streams** to hear when someone goes live. Press again to drop either. Neither grants anything else.'],
+    ['What pings you, and which side you are on',
+      'You were asked both on the way in: **@Wardogs** to be pulled into groups, **@Streams** to hear when someone goes live, and a faction. The pings you can change your mind about — **your faction you cannot**, so ask a Warden if it needs moving.'],
     ['When we are live',
       'Streams are announced in <#CHAN_LIVE> — **Allisteras** (twitch.tv/allisteras) and **Fish** (twitch.tv/stickmanfish). The announcement only pings people holding **@Streams**.'],
     ['The ladder',
@@ -78,7 +78,7 @@ function resolve(text, ids) {
   return text
     .replace(/CHAN_GENERAL/g, ids.general).replace(/CHAN_MEDIA/g, ids.media)
     .replace(/CHAN_HELP/g, ids.help).replace(/CHAN_RULES/g, ids.rules)
-    .replace(/CHAN_ROLES/g, ids.roles).replace(/CHAN_LIVE/g, ids.live);
+    .replace(/CHAN_LIVE/g, ids.live);
 }
 
 function build(spec, ids) {
@@ -116,7 +116,6 @@ client.once(Events.ClientReady, async () => {
       help: cfg.channels.help,
       general: byName('general')?.id,
       media: byName('media')?.id,
-      roles: cfg.channels.selfRoles,
       live: cfg.twitch?.channel,
     };
     const missing = Object.entries(ids).filter(([, v]) => !v).map(([k]) => k);
@@ -127,10 +126,10 @@ client.once(Events.ClientReady, async () => {
       ['#rules', cfg.channels.rules, { embeds: [build(RULES, ids)] }],
       ['#announcements', byName('announcements')?.id, { embeds: [build(WELCOME, ids)] }],
     ];
-    // Skipped rather than failed when the guild has no selfRoles configured —
-    // the rules do not depend on the buttons existing.
+    // Only when a guild actually has a buttons channel. This one had one, it
+    // was deleted, and roles are picked during onboarding now — so the absence
+    // is the normal case rather than a misconfiguration to warn about.
     if (roleMsg && cfg.channels.selfRoles) targets.push(['#roles', cfg.channels.selfRoles, roleMsg]);
-    else console.log('(no selfRoles configured, or no #roles channel — skipping the button message)');
 
     for (const [label, id, payload] of targets) {
       const channel = await guild.channels.fetch(id);

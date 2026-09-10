@@ -44,10 +44,17 @@ client.once(Events.ClientReady, async () => {
     for (const m of missing.values()) console.log(`   ${m.user.username}`);
     if (!missing.size) return console.log('Nothing to do.');
 
+    // Two different asks depending on whether there is anywhere to self-serve.
+    // Without a buttons channel the only routes in are onboarding, which an
+    // existing member cannot be sent back through, and a Warden.
+    const how = rolesChannel
+      ? `Buttons are in <#${rolesChannel}>. One each, and it is final once picked.`
+      : 'Ask a Warden to put you on one — the choice is made during onboarding, '
+        + 'and there is no way to send an existing member back through it.';
+
     const body =
       `**Pick a faction.** ${teams.map((t) => `<@&${t.role}>`).join(' · ')}\n` +
-      `Buttons are in <#${rolesChannel}>. One each — taking a second drops the first — ` +
-      `and each one opens that team's voice room.\n\n` +
+      `${how} Each one opens that team's voice room.\n\n` +
       `Still unsorted: ${[...missing.values()].map((m) => `<@${m.id}>`).join(' ')}`;
 
     if (!APPLY) {

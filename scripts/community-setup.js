@@ -147,6 +147,10 @@ const TREE = [
       // recorded as defaultVoice: the bot joins it whether or not anyone else
       // may, and restricting Connect does not restrict the bot.
       { name: 'Admin Voice', type: ChannelType.GuildVoice, configKey: 'defaultVoice', staffVoice: true },
+      // Join it and you get a room of your own; it is deleted when the last
+      // person leaves. Sits above the fixed squads because it is the one people
+      // are meant to click.
+      { name: '➕ New Room', type: ChannelType.GuildVoice, voiceLobby: true },
       { name: 'Squad One', type: ChannelType.GuildVoice },
       { name: 'Squad Two', type: ChannelType.GuildVoice },
     ] },
@@ -234,6 +238,7 @@ async function apply(guild) {
   const retinted = [];
   let liveChannelId = null;
   let youtubeChannelId = null;
+  let lobbyChannelId = null;
   let streamsRoleId = null;
   const teamRoleIds = {};
   const created = { roles: 0, channels: 0 };
@@ -394,6 +399,7 @@ async function apply(guild) {
       if (ch.configKey) channelIds[ch.configKey] = channel.id;
       if (ch.twitchChannel) liveChannelId = channel.id;
       if (ch.youtubeChannel) youtubeChannelId = channel.id;
+      if (ch.voiceLobby) lobbyChannelId = channel.id;
     }
   }
 
@@ -411,6 +417,13 @@ async function apply(guild) {
     roles: { ...(prev.roles || {}), ...roleIds },
     zomboid: null,
     selfRoles,
+    voiceRooms: lobbyChannelId ? {
+      lobby: lobbyChannelId,
+      category: null,
+      maxPerUser: 2,
+      maxTotal: 10,
+      namePattern: "{user}'s room",
+    } : null,
     youtube: {
       channel: youtubeChannelId,
       // No ping by default: an upload is not the interrupt that going live is.
@@ -444,7 +457,7 @@ async function apply(guild) {
   };
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n', 'utf8');
 
-  return { created, moved, reordered, retinted, roleIds, channelIds, selfRoles, liveChannelId, youtubeChannelId, streamsRoleId, teamRoleIds };
+  return { created, moved, reordered, retinted, roleIds, channelIds, selfRoles, liveChannelId, youtubeChannelId, lobbyChannelId, streamsRoleId, teamRoleIds };
 }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -479,6 +492,7 @@ client.once(Events.ClientReady, async () => {
     console.log(`  roles:    ${JSON.stringify(r.roleIds)}`);
     console.log(`  channels: ${JSON.stringify(r.channelIds)}`);
     console.log(`  selfRoles: ${JSON.stringify(r.selfRoles)}`);
+    console.log(`  voice:    lobby ${r.lobbyChannelId}, 2 rooms per person, 10 total`);
     console.log(`  videos:   #videos ${r.youtubeChannelId}, ${YOUTUBE_FEEDS.map((f) => f.handle || f.name).join(', ')}`);
     console.log(`  teams:    ${Object.entries(r.teamRoleIds).map(([n, id]) => n + ' ' + id).join(', ') || 'none'}`);
     console.log(`  twitch:   #live ${r.liveChannelId}, ping role ${r.streamsRoleId}, ${STREAMERS.map((x) => x.login).join(' + ')}`);

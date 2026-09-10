@@ -42,6 +42,7 @@ const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole')
 const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./services/selfroles');
 const { scheduleStreamWatch } = require('./services/twitch');
 const { scheduleVideoWatch } = require('./services/youtube');
+const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId, aiTitles } = require('./config/guilds');
 const {
@@ -294,6 +295,14 @@ client.once(Events.ClientReady, async () => {
     scheduleBusyWatch(client);
   } catch (err) {
     console.error('[Zomboid] Failed to schedule overload watch:', err?.message || err);
+  }
+
+  // Clear away voice rooms that emptied while we were down.
+  try {
+    sweepOrphans(client).catch(err =>
+      console.error('[VoiceRooms] Startup sweep failed:', err?.message || err));
+  } catch (err) {
+    console.error('[VoiceRooms] Startup sweep failed:', err?.message || err);
   }
 
   // Announce new uploads. Isolated like the rest — a feed being unreachable
@@ -834,6 +843,14 @@ setInterval(async () => {
     lastInteractionTime = Date.now();
   }
 }, 60 * 1000); // Check every minute
+
+// Registered separately from the music handler below rather than folded into
+// it: they share an event and nothing else, and a fault in one must not stop
+// the other running.
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  await onVoiceRoomUpdate(oldState, newState).catch(err =>
+    console.error('[VoiceRooms] Voice state handling failed:', err?.message || err));
+});
 
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   // Track when a user joins a voice channel (was not in one, now is)

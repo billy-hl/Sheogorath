@@ -196,6 +196,17 @@ function normalizeGuild(id, raw) {
             }))
         : [],
     } : null,
+    // Join-to-create voice rooms. `lobby` is the channel joining which makes
+    // you one; absent, services/voicerooms.js ignores the guild entirely.
+    voiceRooms: raw.voiceRooms && typeof raw.voiceRooms === 'object' && raw.voiceRooms.lobby ? {
+      lobby: raw.voiceRooms.lobby,
+      // Where rooms are created. Null means alongside the lobby, which is
+      // usually right — a room should inherit the lobby's own visibility.
+      category: raw.voiceRooms.category || null,
+      maxPerUser: Number(raw.voiceRooms.maxPerUser) > 0 ? Number(raw.voiceRooms.maxPerUser) : 2,
+      maxTotal: Number(raw.voiceRooms.maxTotal) > 0 ? Number(raw.voiceRooms.maxTotal) : 10,
+      namePattern: typeof raw.voiceRooms.namePattern === 'string' ? raw.voiceRooms.namePattern : null,
+    } : null,
     zomboid: raw.zomboid || null,
   };
 }

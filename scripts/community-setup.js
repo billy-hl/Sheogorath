@@ -150,10 +150,9 @@ const TREE = [
       // Join it and you get a room of your own; it is deleted when the last
       // person leaves. This script does not manage channel order, so on a fresh
       // build it lands at the bottom of VOICE and wants dragging to the top —
-      // it is the one people are meant to click.
+      // it is the one people are meant to click, and with the fixed squads gone
+      // it is the only room in the category most people can see.
       { name: '➕ New Room', type: ChannelType.GuildVoice, voiceLobby: true },
-      { name: 'Squad One', type: ChannelType.GuildVoice },
-      { name: 'Squad Two', type: ChannelType.GuildVoice },
     ] },
   { category: 'STAFF', staffOnly: true, channels: [
       { name: 'staff-chat', topic: 'Warden and Owner only.' },

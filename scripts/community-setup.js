@@ -323,14 +323,17 @@ async function apply(guild) {
     { id: roleIds.admin, allow: [PermissionFlagsBits.SendMessages] },
   ];
 
-  // Visible to everyone, joinable by the team. Hiding them outright would make
-  // the category look broken to everyone not on a team; denying Connect says
-  // "this room is theirs" without pretending it does not exist.
+  // Hidden from everyone but the team, and staff.
+  //
+  // These were visible-but-locked at first, on the reasoning that a hidden
+  // channel makes the category look broken to anyone outside it. That held
+  // while people had no faction; now that everyone is on one, the only thing
+  // being spared is the sight of two rooms nobody can enter.
   const teamVoice = (roleId) => [
-    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.Connect] },
-    { id: roleId, allow: [PermissionFlagsBits.Connect] },
-    { id: roleIds.staff, allow: [PermissionFlagsBits.Connect] },
-    { id: roleIds.admin, allow: [PermissionFlagsBits.Connect] },
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+    { id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+    { id: roleIds.staff, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+    { id: roleIds.admin, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
   ];
 
   // Visible but not joinable, for the same reason the team rooms are: a hidden

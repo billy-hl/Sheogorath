@@ -36,9 +36,12 @@ function buildMessage(guild) {
       'Take a role to be findable when people are looking for a group, and drop it ' +
       'when you would rather not be. Press again to remove it. These grant nothing ' +
       'else — no powers, no standing.' +
-      (specs.some((s) => s.group)
-        ? '\n\nTeams are one at a time: taking one drops the one you were on.'
-        : '')
+      (specs.some((s) => s.sticky)
+        ? '\n\n**Your faction is final.** Pick once — the buttons will not move you afterwards, ' +
+          'and changing it takes a Warden.'
+        : specs.some((s) => s.group)
+          ? '\n\nTeams are one at a time: taking one drops the one you were on.'
+          : '')
     )
     .addFields(specs.map((s) => ({
       name: `${s.emoji ? `${s.emoji} ` : ''}${s.label}`,
@@ -88,6 +91,31 @@ async function handleButton(interaction) {
 
   const member = interaction.member;
   const had = member.roles.cache.has(role.id);
+
+  // A sticky role is a decision, not a toggle. Refused here rather than in the
+  // button's presence: the choice has to stay visible to everyone who has not
+  // made it yet, so the same button must be able to say no to the people who
+  // have. Nothing is changed, so there is nothing to undo.
+  if (spec.sticky) {
+    if (had) {
+      await interaction.reply({
+        content: `You are on **${role.name}**, and that is settled. A Warden can move you if it was a mistake.`,
+        ephemeral: true,
+      });
+      return;
+    }
+    const held = spec.group && specsFor(interaction.guild.id).find(
+      (s) => s.group === spec.group && s.role !== spec.role && member.roles.cache.has(s.role));
+    if (held) {
+      const other = interaction.guild.roles.cache.get(held.role);
+      await interaction.reply({
+        content: `You are already on **${other ? other.name : held.label}**. Factions are picked once — ask a Warden if it needs changing.`,
+        ephemeral: true,
+      });
+      return;
+    }
+  }
+
   try {
     if (had) {
       await member.roles.remove(role, 'self-assign button');

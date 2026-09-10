@@ -84,14 +84,14 @@ const ROLES = [
   // highest role is beneath their own. Teams above Warden would quietly cost
   // the Wardens the ability to moderate anyone on a team.
   //
-  // Self-assignable as one exclusive group — picking a second team drops the
-  // first. Each gates its own voice room below.
+  // Self-assignable, and sticky: a faction is picked once and the buttons will
+  // not move you afterwards. Each gates its own voice room below.
   { key: null, name: 'Lonestar', color: TEAM_BLUE, hoist: true, perms: [], mentionable: true, team: true,
-    selfAssign: { emoji: '🟦', description: 'Blue team.', group: 'team' } },
+    selfAssign: { emoji: '🟦', description: 'Blue team.', group: 'team', sticky: true } },
   { key: null, name: 'Valkyra', color: TEAM_RED, hoist: true, perms: [], mentionable: true, team: true,
-    selfAssign: { emoji: '🟥', description: 'Red team.', group: 'team' } },
+    selfAssign: { emoji: '🟥', description: 'Red team.', group: 'team', sticky: true } },
   { key: null, name: 'Manticore', color: TEAM_GREEN, hoist: true, perms: [], mentionable: true, team: true,
-    selfAssign: { emoji: '🟩', description: 'Green team.', group: 'team' } },
+    selfAssign: { emoji: '🟩', description: 'Green team.', group: 'team', sticky: true } },
   { key: 'veteran', name: 'Veteran', color: PLUM, hoist: false, perms: [] },
   { key: 'member', name: 'Member', color: MUTED, hoist: false, perms: [] },
   // Not part of the ladder and not recorded in config: a pingable opt-in for
@@ -127,6 +127,10 @@ const TREE = [
         topic: 'Twitch announcements. Veterans and above can talk here; take the Streams role in #roles for the ping.' },
       // Not locked: the bot announces the house channel's uploads here, and
       // everyone else is welcome to post their own alongside them.
+      // Patch notes and the like. Open to Veterans so the people who actually
+      // read them can post one without waiting on staff.
+      { name: 'game-updates', locked: true, postFrom: 'veteran',
+        topic: 'Patch notes and news for whatever we are playing. Veterans and above can post.' },
       { name: 'videos', youtubeChannel: true,
         topic: 'Videos. The bot posts new uploads from the house channel; post your own too.' },
     ] },
@@ -139,7 +143,10 @@ const TREE = [
       { name: 'Manticore', type: ChannelType.GuildVoice, restrictTo: 'Manticore' },
     ] },
   { category: 'VOICE', channels: [
-      { name: 'General', type: ChannelType.GuildVoice, configKey: 'defaultVoice' },
+      // Staff room, and the channel the companion app falls back to. Still
+      // recorded as defaultVoice: the bot joins it whether or not anyone else
+      // may, and restricting Connect does not restrict the bot.
+      { name: 'Admin Voice', type: ChannelType.GuildVoice, configKey: 'defaultVoice', staffVoice: true },
       { name: 'Squad One', type: ChannelType.GuildVoice },
       { name: 'Squad Two', type: ChannelType.GuildVoice },
     ] },
@@ -326,6 +333,14 @@ async function apply(guild) {
     { id: roleIds.admin, allow: [PermissionFlagsBits.Connect] },
   ];
 
+  // Visible but not joinable, for the same reason the team rooms are: a hidden
+  // channel reads as a broken category to everyone outside it.
+  const staffVoice = [
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.Connect] },
+    { id: roleIds.staff, allow: [PermissionFlagsBits.Connect] },
+    { id: roleIds.admin, allow: [PermissionFlagsBits.Connect] },
+  ];
+
   const staffView = [
     { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
     { id: roleIds.staff, allow: [PermissionFlagsBits.ViewChannel] },
@@ -354,6 +369,8 @@ async function apply(guild) {
           moved++;
         }
         if (ch.locked) await channel.permissionOverwrites.set(lockedFor(ch.postFrom), 'Wabbajack Community setup');
+        if (ch.staffVoice) await channel.permissionOverwrites.set(staffVoice, 'Wabbajack Community setup');
+        if (ch.restrictTo) await channel.permissionOverwrites.set(teamVoice(teamRoleIds[ch.restrictTo]), 'Wabbajack Community setup');
         if (ch.topic && 'topic' in channel && !channel.topic) await channel.setTopic(ch.topic);
       } else {
         channel = await guild.channels.create({
@@ -364,7 +381,8 @@ async function apply(guild) {
           // Locked channels deny SendMessages to @everyone and hand it back to
           // the two staff roles; staff categories are inherited, not repeated.
           permissionOverwrites: ch.locked ? lockedFor(ch.postFrom)
-            : ch.restrictTo ? teamVoice(teamRoleIds[ch.restrictTo]) : undefined,
+            : ch.staffVoice ? staffVoice
+              : ch.restrictTo ? teamVoice(teamRoleIds[ch.restrictTo]) : undefined,
           reason: 'Wabbajack Community setup',
         });
         created.channels++;

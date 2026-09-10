@@ -155,6 +155,10 @@ function normalizeGuild(id, raw) {
             // Roles sharing a group are mutually exclusive: taking one drops the
             // others. Null means the role stands alone and toggles freely.
             group: typeof r.group === 'string' && r.group.trim() ? r.group.trim() : null,
+            // A sticky role cannot be taken off, or swapped for a sibling in its
+            // group, once it is on. The buttons refuse; changing it afterwards
+            // takes someone with Manage Roles.
+            sticky: r.sticky === true,
           }))
       : [],
     // Twitch live announcements. Absent means the watcher skips this guild —

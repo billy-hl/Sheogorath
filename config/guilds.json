@@ -159,7 +159,7 @@
       "defaultVoice": "1547233039384584266",
       "commandLog": "1547235358239100949",
       "suggestions": null,
-      "selfRoles": "1547238758242328666"
+      "selfRoles": null
     },
     "roles": {
       "member": "1547235333802950717",
@@ -201,21 +201,24 @@
         "label": "Lonestar",
         "emoji": "🟦",
         "description": "Blue team.",
-        "group": "team"
+        "group": "team",
+        "sticky": true
       },
       {
         "role": "1547268970770468895",
         "label": "Valkyra",
         "emoji": "🟥",
         "description": "Red team.",
-        "group": "team"
+        "group": "team",
+        "sticky": true
       },
       {
         "role": "1547268971504603206",
         "label": "Manticore",
         "emoji": "🟩",
         "description": "Green team.",
-        "group": "team"
+        "group": "team",
+        "sticky": true
       },
       {
         "role": "1547235333047849043",

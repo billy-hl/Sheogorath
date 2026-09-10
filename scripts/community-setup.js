@@ -336,12 +336,13 @@ async function apply(guild) {
     { id: roleIds.admin, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
   ];
 
-  // Visible but not joinable, for the same reason the team rooms are: a hidden
-  // channel reads as a broken category to everyone outside it.
+  // Hidden outright, like the team rooms. The bot is exempt by holding
+  // Administrator, which matters here: this channel is also `defaultVoice`, and
+  // the companion app parks him in it whether or not anyone can see it.
   const staffVoice = [
-    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.Connect] },
-    { id: roleIds.staff, allow: [PermissionFlagsBits.Connect] },
-    { id: roleIds.admin, allow: [PermissionFlagsBits.Connect] },
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+    { id: roleIds.staff, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+    { id: roleIds.admin, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
   ];
 
   const staffView = [

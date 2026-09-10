@@ -259,6 +259,13 @@
           "handle": "@Allisteras"
         }
       ]
+    },
+    "voiceRooms": {
+      "lobby": "1547419741931442216",
+      "category": null,
+      "maxPerUser": 2,
+      "maxTotal": 10,
+      "namePattern": "{user}'s room"
     }
   }
 }

@@ -148,8 +148,9 @@ const TREE = [
       // may, and restricting Connect does not restrict the bot.
       { name: 'Admin Voice', type: ChannelType.GuildVoice, configKey: 'defaultVoice', staffVoice: true },
       // Join it and you get a room of your own; it is deleted when the last
-      // person leaves. Sits above the fixed squads because it is the one people
-      // are meant to click.
+      // person leaves. This script does not manage channel order, so on a fresh
+      // build it lands at the bottom of VOICE and wants dragging to the top —
+      // it is the one people are meant to click.
       { name: '➕ New Room', type: ChannelType.GuildVoice, voiceLobby: true },
       { name: 'Squad One', type: ChannelType.GuildVoice },
       { name: 'Squad Two', type: ChannelType.GuildVoice },

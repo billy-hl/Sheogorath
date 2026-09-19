@@ -42,6 +42,7 @@ const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole')
 const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./services/selfroles');
 const { scheduleStreamWatch } = require('./services/twitch');
 const { scheduleVideoWatch } = require('./services/youtube');
+const { scheduleUfcEvents } = require('./services/ufc');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId, aiTitles } = require('./config/guilds');
@@ -311,6 +312,13 @@ client.once(Events.ClientReady, async () => {
     scheduleVideoWatch(client);
   } catch (err) {
     console.error('[YouTube] Failed to schedule video watch:', err?.message || err);
+  }
+
+  // Weekly UFC card events. Same isolation: ESPN being down is not a boot failure.
+  try {
+    scheduleUfcEvents(client);
+  } catch (err) {
+    console.error('[UFC] Failed to schedule card events:', err?.message || err);
   }
 
   // Announce the house streamers going live. Isolated like the rest — Twitch

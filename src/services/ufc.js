@@ -14,6 +14,11 @@
  * broadcaster goes there. The text `channel` gets one post linking to each
  * event when it is created.
  *
+ * The cover image is the official event art from UFC.com, found by the event's
+ * page and checked against the headline so a guess never shows the wrong fight.
+ * Art is often posted after fight week begins, so a missing image is looked
+ * for again on each sync until one turns up. Contender Series nights have none.
+ *
  * What was created is kept in guild state, keyed to ESPN's event id, so a
  * restart never makes a duplicate. An event somebody deletes by hand stays
  * deleted: that is a person deciding they did not want it.
@@ -24,6 +29,8 @@ const { getGuildConfig, guildIds } = require('../config/guilds');
 const { getGuildState, setGuildState } = require('../storage/state');
 
 const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard';
+const UFC_SITE = 'https://www.ufc.com';
+const BROWSER_UA = 'Mozilla/5.0 (compatible; Sheogorath)';
 const SYNC_HOURS = 6;
 // Discord needs an end time for an External event. A main card runs about
 // three hours; a little slack keeps the event open through the main event.
@@ -117,6 +124,59 @@ function describe(card) {
   return `${lines.join('\n')}\n\n${tail}`.slice(0, 1000);
 }
 
+const slug = (text) => String(text).toLowerCase().replace(/\./g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+async function ufcPage(path) {
+  const res = await axios.get(`${UFC_SITE}${path}`, { headers: { 'User-Agent': BROWSER_UA }, timeout: 15000 });
+  return String(res.data || '');
+}
+
+/**
+ * The official art for a card, as a Buffer, or null.
+ *
+ * UFC.com names a numbered event by its number (with whatever sponsor prefix
+ * that season has) and a Fight Night by its date, so those are the two ways in.
+ * The art's filename carries the headline — `...-van-vs-pantoja-2-EVENT-ART.jpg`
+ * — which is what makes a match trustworthy rather than merely likely.
+ */
+async function eventArt(card) {
+  if (card.contender) return null;
+  const headline = slug(card.name.split(':').slice(1).join(':'));
+  if (!headline) return null;
+
+  const number = card.name.match(/^UFC (\d+)\b/)?.[1];
+  let path;
+  if (number) {
+    const links = (await ufcPage('/events')).match(/href="\/event\/[a-z0-9-]+"/g) || [];
+    path = links.map((l) => l.slice(6, -1)).find((p) => new RegExp(`(^|-)ufc-${number}$`).test(p.split('/').pop()));
+  } else {
+    const [month, day, year] = new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ, month: 'long', day: '2-digit', year: 'numeric',
+    }).format(card.start).replace(',', '').split(' ');
+    path = `/event/ufc-fight-night-${month.toLowerCase()}-${day}-${year}`;
+  }
+  if (!path) return null;
+
+  const html = await ufcPage(path);
+  const url = (html.match(/https:\/\/ufc\.com\/images\/styles\/background_image_lg\/[^"'\s]+?EVENT-ART\.jpg[^"'\s]*/g) || [])
+    .map((u) => u.replace(/&amp;/g, '&'))
+    .find((u) => u.toLowerCase().includes(`-${headline}-event-art`));
+  if (!url) return null;
+
+  const img = await axios.get(url, { responseType: 'arraybuffer', headers: { 'User-Agent': BROWSER_UA }, timeout: 15000 });
+  return Buffer.from(img.data);
+}
+
+/** Art lookup never blocks the event: no art is a card without a cover. */
+async function artOrNull(card, guildId) {
+  try {
+    return await eventArt(card);
+  } catch (err) {
+    console.warn(`[UFC] ${guildId}: no art for "${card.name}": ${err?.response?.status || ''} ${err?.message || err}`);
+    return null;
+  }
+}
+
 function eventFields(card, cfg) {
   const base = { name: card.name.slice(0, 100), description: describe(card), scheduledStartTime: card.start };
   if (cfg.voiceChannel) return { ...base, channel: cfg.voiceChannel };
@@ -144,15 +204,21 @@ async function syncCard(client, guild, cfg, card) {
       || existing.scheduledStartTimestamp !== fields.scheduledStartTime.getTime()
       || (fields.channel ? existing.channelId !== fields.channel
         : existing.entityMetadata?.location !== fields.entityMetadata.location);
-    if (changed) {
+    const image = existing.image ? null : await artOrNull(card, guildId);
+    if (image) {
+      await existing.edit({ ...fields, image });
+      console.log(`[UFC] ${guildId}: updated "${card.name}" with its art.`);
+    } else if (changed) {
       await existing.edit(fields);
       console.log(`[UFC] ${guildId}: updated "${card.name}".`);
     }
     return;
   }
 
+  const image = await artOrNull(card, guildId);
   const created = await guild.scheduledEvents.create({
     ...fields,
+    ...(image ? { image } : {}),
     privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
     entityType: cfg.voiceChannel ? GuildScheduledEventEntityType.Voice : GuildScheduledEventEntityType.External,
   });
@@ -204,4 +270,4 @@ function scheduleUfcEvents(client) {
   console.log(`[UFC] Posting weekly cards to ${guilds.length} guild(s), re-synced every ${SYNC_HOURS}h.`);
 }
 
-module.exports = { scheduleUfcEvents, syncOnce, upcomingCards, parseCard, describe, fightWeekStart };
+module.exports = { scheduleUfcEvents, syncOnce, upcomingCards, parseCard, describe, eventArt, fightWeekStart };

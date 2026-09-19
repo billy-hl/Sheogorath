@@ -1,0 +1,5 @@
+Sandbox_EN = {
+    Sandbox_WabbajackCrowns = "Wabbajack Crowns",
+    Sandbox_WabbajackCrownsIdleDays = "Days before an absent holder's crowns are released",
+    Sandbox_WabbajackCrownsIdleDays_tooltip = "A crown normally moves only when its holder dies. This covers the other case: somebody who stops playing while holding crowns would otherwise lock them away forever, because the only way to take one is to kill a player who never logs in. 0 disables the release entirely and makes death the sole transfer.",
+}

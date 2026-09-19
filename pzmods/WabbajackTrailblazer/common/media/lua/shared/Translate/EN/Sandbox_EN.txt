@@ -1,0 +1,9 @@
+Sandbox_EN = {
+    Sandbox_WabbajackTrailblazer = "Wabbajack Trailblazer",
+
+    Sandbox_WabbajackSiege_RoadsideFoliageEnabled = "Roadside foliage - cars flatten bushes they drive over",
+    Sandbox_WabbajackSiege_RoadsideFoliageEnabled_tooltip = "Bushes and young trees are felled by any vehicle, dropping what cutting them normally drops. Off leaves them where they grew.",
+
+    Sandbox_WabbajackSiege_RoadsideFoliageMaxTreeSize = "Roadside foliage - biggest tree a car can flatten",
+    Sandbox_WabbajackSiege_RoadsideFoliageMaxTreeSize_tooltip = "0 is bushes only. Higher lets cars take down progressively bigger saplings. This is the game's own tree size scale, not tiles.",
+}

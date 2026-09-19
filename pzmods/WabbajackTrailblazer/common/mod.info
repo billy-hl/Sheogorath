@@ -1,0 +1,8 @@
+name=Wabbajack Trailblazer
+id=WabbajackTrailblazer
+author=Wabbajack
+modversion=1.30.0
+versionMin=42.0.0
+poster=poster.png
+require=WabbajackCore
+description=Drive through the undergrowth and it stays gone. Bushes and young trees die under wheels for every driver, dropping whatever felling them would drop. Staff can also arm a timed sweep from the right-click menu, which clears the same bushes and saplings from every area as it loads - for a world that erosion has overgrown. Mature trees are always left standing. It cannot remove the collision slowdown itself - that lives in the game's Java and no Lua event reaches it - but the bush is not there the next time you come down that road. Settings in Admin Panel - Sandbox Options - Wabbajack Trailblazer.

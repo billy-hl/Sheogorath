@@ -46,6 +46,42 @@ function isCosmetic(role, ceiling) {
 }
 
 /**
+ * Turn whatever he wrote in a tag's userId slot into a real Discord id.
+ *
+ * Every action that touches a member already resolves through
+ * `guild.members.fetch`, which rejects a username outright — that is why a
+ * title aimed at "Funkslice" failed loudly and was visible in the audit. The
+ * three storage actions did not, so the same mistake wrote to a record keyed
+ * by the literal string instead: a note filed against nobody, and a clearnotes
+ * that emptied an imaginary file and reported success. The live data still has
+ * an "allisteras" key sitting beside the real snowflakes to show for it.
+ *
+ * A bare id is taken as-is without a fetch, so notes still work for someone who
+ * has since left. Anything else must match a member, or the action fails the
+ * way the rest of them do.
+ */
+async function resolveMemberId(guild, raw) {
+  const value = String(raw ?? '').trim().replace(/^<@!?(\d+)>$/, '$1');
+  if (/^\d{16,20}$/.test(value)) return value;
+  if (!value) throw new Error('that action named nobody');
+  if (!guild) throw new Error(`I cannot tell who "${value}" is from here`);
+
+  // The query is a prefix search, so its first result is whoever sorts
+  // earliest — not whoever was meant. An exact match on username or display
+  // name or nothing: guessing here would file a note against the wrong person,
+  // and on a clearnotes it would erase theirs.
+  const needle = value.toLowerCase().replace(/^@/, '');
+  const members = await guild.members.fetch({ query: needle, limit: 10 }).catch(() => null);
+  const hit = members?.find(
+    (m) => m.user.username.toLowerCase() === needle
+      || m.displayName.toLowerCase() === needle,
+  );
+
+  if (!hit) throw new Error(`there is no one here called "${value}"`);
+  return hit.id;
+}
+
+/**
  * Perform one action.
  *
  * @param {object} action  `{ type, userId?, duration?, reason?, ... }`
@@ -332,17 +368,28 @@ async function runAction(action, ctx) {
       // so this executor's only job is to say what happened.
       return `flagged a manipulation attempt by <@${action.userId}> — ${action.reason}`;
 
-    case 'note':
-      addUserNote(guildId, action.userId, action.note);
-      return `noted against <@${action.userId}>`;
+    case 'note': {
+      const userId = await resolveMemberId(guild, action.userId);
+      addUserNote(guildId, userId, action.note);
+      return `noted against <@${userId}>`;
+    }
 
-    case 'clearnotes':
-      clearUserNotes(guildId, action.userId);
-      return `cleared notes for <@${action.userId}>`;
+    case 'clearnotes': {
+      const userId = await resolveMemberId(guild, action.userId);
+      const cleared = clearUserNotes(guildId, userId);
+      // Says the number, not just the deed. A clear that matched nothing used
+      // to report success in the same words as one that emptied a full file,
+      // which is how someone asking to be forgotten got told they had been.
+      return cleared
+        ? `cleared ${cleared} note${cleared === 1 ? '' : 's'} for <@${userId}>`
+        : `found no notes to clear for <@${userId}>`;
+    }
 
-    case 'memory':
-      addMemory(guildId, action.userId, action.memory);
-      return `remembered something about <@${action.userId}>`;
+    case 'memory': {
+      const userId = await resolveMemberId(guild, action.userId);
+      addMemory(guildId, userId, action.memory);
+      return `remembered something about <@${userId}>`;
+    }
 
     case 'storytime': {
       // Posts the piece itself rather than handing it back, because it is prose

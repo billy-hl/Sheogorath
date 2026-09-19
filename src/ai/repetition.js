@@ -19,7 +19,19 @@
 /** Above this much word overlap, it is the same message wearing a hat. */
 const SIMILARITY = 0.75;
 
-/** channelId -> the last thing he said there. */
+/**
+ * How many of his own recent messages a new reply is checked against.
+ *
+ * One was enough for the failure this was written for — the immediate re-ask —
+ * but not for the one that followed it. Handed a running joke, he restated the
+ * same handful of lines about the same people for a dozen turns, each wrapped
+ * differently enough to clear the bar against its immediate predecessor while
+ * being the same message as the one three back. Comparing against a short
+ * window catches a bit being kept alive by him rather than by the room.
+ */
+const WINDOW = 4;
+
+/** channelId -> his recent messages there, oldest first. */
 const lastSaid = new Map();
 
 /** Words, lowercased, stripped of punctuation and Discord furniture. */
@@ -52,38 +64,50 @@ function similarity(a, b) {
 
 /** What he last said in this channel, or null. */
 function previousReply(channelId) {
-  return lastSaid.get(channelId) || null;
+  const recent = lastSaid.get(channelId);
+  return recent?.length ? recent[recent.length - 1] : null;
 }
 
-/** Remember what he said, so the next turn can be compared against it. */
+/** Remember what he said, so the next turns can be compared against it. */
 function remember(channelId, reply) {
   if (!channelId || !reply) return;
-  lastSaid.set(channelId, reply);
+  const recent = lastSaid.get(channelId) || [];
+  recent.push(reply);
+  while (recent.length > WINDOW) recent.shift();
+  lastSaid.set(channelId, recent);
 
-  // The map is per channel and never read for anything but the next turn, so
-  // it only needs bounding, not expiring.
+  // The map is per channel and never read for anything but the next few turns,
+  // so it only needs bounding, not expiring.
   if (lastSaid.size > 200) {
     lastSaid.delete(lastSaid.keys().next().value);
   }
 }
 
 /**
- * Is this reply the last one again?
+ * Is this reply one he has already sent in the last few turns?
  *
- * @returns {{repeated: boolean, score: number}}
+ * Reports the message it matched rather than just a verdict, so the retry can
+ * quote the one he is actually going round on — which need not be the message
+ * immediately before this turn.
+ *
+ * @returns {{repeated: boolean, score: number, match: string|null}}
  */
 function isRepeat(channelId, reply) {
-  const previous = previousReply(channelId);
-  if (!previous) return { repeated: false, score: 0 };
-  const score = similarity(previous, reply);
-  return { repeated: score >= SIMILARITY, score };
+  const recent = lastSaid.get(channelId) || [];
+  let best = { repeated: false, score: 0, match: null };
+
+  for (const previous of recent) {
+    const score = similarity(previous, reply);
+    if (score > best.score) best = { repeated: score >= SIMILARITY, score, match: previous };
+  }
+  return best;
 }
 
 /** What to add to the prompt when he has just repeated himself. */
 function retryNudge(previous) {
   return (
-    '\n\n--- YOU HAVE JUST SAID THIS ---\n\n' +
-    `Your previous message in this channel was:\n"${previous}"\n\n` +
+    '\n\n--- YOU HAVE ALREADY SAID THIS ---\n\n' +
+    `You said this in this channel a moment ago:\n"${previous}"\n\n` +
     'The reply you were about to send says the same thing again. They have read it once already. ' +
     'Say something else: answer what they have actually said now, add something new, or be brief ' +
     'and move the conversation on. Do not re-ask a question they have already answered, and do not ' +

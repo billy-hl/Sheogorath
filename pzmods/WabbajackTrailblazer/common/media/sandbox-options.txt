@@ -1,0 +1,36 @@
+VERSION = 1,
+
+/*
+ * Wabbajack Trailblazer - settings.
+ *
+ * THE OPTION NAMES STILL SAY WabbajackSiege ON PURPOSE.
+ * This mod was split out of the single Wabbajack Server Toolkit, and Project
+ * Zomboid keys a saved sandbox value by the OPTION NAME, not by the mod or the
+ * page it appears on. Renaming these to match the new mod id would read as
+ * tidier and would silently reset every one of these settings to its default on
+ * any server already running the toolkit. The page is what moved; the names
+ * cannot, and should not be "fixed" later either.
+ *
+ * THIS FILE IS THE ONLY SOURCE OF DEFAULTS. WabbajackSettings.lua in
+ * WabbajackCore maps dotted keys onto these names and carries a fallback for
+ * each, used only when SandboxVars is unavailable. Change a default here first
+ * - two copies of a default is how they drift.
+ */
+
+option WabbajackSiege.RoadsideFoliageEnabled
+{
+    type = boolean,
+    default = true,
+    page = WabbajackTrailblazer,
+    translation = WabbajackSiege_RoadsideFoliageEnabled,
+}
+
+option WabbajackSiege.RoadsideFoliageMaxTreeSize
+{
+    type = integer,
+    min = 0,
+    max = 3,
+    default = 2,
+    page = WabbajackTrailblazer,
+    translation = WabbajackSiege_RoadsideFoliageMaxTreeSize,
+}

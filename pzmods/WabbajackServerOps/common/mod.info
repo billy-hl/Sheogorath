@@ -1,0 +1,8 @@
+name=Wabbajack Server Ops
+id=WabbajackServerOps
+author=Wabbajack
+modversion=1.30.0
+versionMin=42.0.0
+poster=poster.png
+require=WabbajackCore
+description=Housekeeping for a long-running server. LOGIN SHIELD: zombies cannot see you for a few seconds after connecting, covering the gap before your client responds to input. Settings in Admin Panel - Sandbox Options - Wabbajack Server Ops.

@@ -1,0 +1,8 @@
+name=Wabbajack Arsenal
+id=WabbajackArsenal
+author=Wabbajack
+modversion=1.33.0
+versionMin=42.0.0
+poster=poster.png
+require=WabbajackCore
+description=Two rare weapons, each spawning wherever its ordinary counterpart is found and almost never otherwise. THE CELESTIAL SHOVEL: a large shovel in starfield and gold, triple durability and 1.5x damage, and still a shovel - it digs graves and plows furrows like any other. THE ONYX KATAR: a push dagger on its own custom model, blackened steel with bright edges, 1.5x damage and durability. No settings; rarity is baked in.

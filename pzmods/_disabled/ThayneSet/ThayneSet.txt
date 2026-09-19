@@ -1,0 +1,144 @@
+/*
+ * The Thayne set - five pieces of scaled hunter's gear in venom green and black.
+ *
+ * EVERY PIECE IS A VANILLA MESH WITH A NEW SKIN.
+ * Each clothingItem XML beside this file points m_MaleModel and m_FemaleModel at
+ * a mesh the base game already ships - the hunting vest, the hide hoodie, the
+ * mesh trousers, the bandana mask - and overrides only textureChoices. That is
+ * the same trick the Celestial Shovel uses on the shovel mesh, and the same one
+ * vanilla uses to ship a dozen hunting vests off one model. Shipping no geometry
+ * means there is nothing to re-export when the base game retopologises a jacket.
+ *
+ * WHY THE STATS ARE MODEST
+ * A five-piece set is worn together, so its numbers stack five times. Each piece
+ * here is roughly a good vanilla equivalent plus a little - the vest is a
+ * hunting vest with better scratch defence, not a bulletproof plate. Worn as a
+ * set the total lands near heavy vanilla gear rather than past it. The set is
+ * meant to be recognised across a street, not to make its wearer unkillable;
+ * that is what the Crowns are for, and they are earned rather than looted.
+ *
+ * WHY NOTHING HERE IS INSULATED TO THE EYEBROWS
+ * Insulation is the quiet balance lever in B42 - a full set of warm clothing
+ * makes summer miserable and winter trivial. These sit close to their vanilla
+ * donors so the set is wearable year round instead of being a January costume.
+ *
+ * BITE DEFENCE IS DELIBERATELY ABSENT ON FOUR OF FIVE.
+ * Everyone on this server is infected and a bite is always fatal, so BiteDefense
+ * is not a stat, it is a save-or-die reroll. The vest carries a little because a
+ * torso bite through a scaled vest is the one place it would be strange not to;
+ * nothing else does.
+ */
+
+module Base
+{
+    /*
+     * Mask of the Malefic Viper.
+     *
+     * Reuses the static bandana-mask mesh, so it sits on the lower face exactly
+     * where a bandana mask sits and hides the same amount of it. ClothingItemExtra
+     * is dropped: the vanilla green bandana offers Untie/Tie options that swap it
+     * for two OTHER vanilla items, and following those links would quietly turn
+     * this into an ordinary bandana the first time somebody used the context menu.
+     */
+    item Thayne_Mask
+    {
+        DisplayName = Mask of the Malefic Viper,
+        DisplayCategory = Clothing,
+        ItemType = base:clothing,
+        Icon = thayne_mask,
+        BloodLocation = Head,
+        BodyLocation = base:mask,
+        CanHaveHoles = false,
+        ClothingItem = Thayne_Mask,
+        Insulation = 0.15,
+        ScratchDefense = 8,
+        WindResistance = 0.4,
+        Weight = 0.1,
+    }
+
+    /*
+     * Viper-Scale Hood.
+     *
+     * The hide hoodie's up-hood mesh. sweaterhat covers head and torso in one
+     * slot, which is why this cannot be worn with a separate hat - the same
+     * limitation the vanilla hoodie has, kept rather than worked around.
+     */
+    item Thayne_Hood
+    {
+        DisplayName = Viper-Scale Hood,
+        DisplayCategory = Clothing,
+        ItemType = base:clothing,
+        Icon = thayne_hood,
+        BloodLocation = Jumper;Neck;FullHelmet,
+        BodyLocation = base:sweaterhat,
+        ClothingItem = Thayne_Hood,
+        Insulation = 0.7,
+        ScratchDefense = 22,
+        WindResistance = 0.75,
+        Weight = 1.0,
+    }
+
+    /*
+     * Malefic Scale Vest.
+     *
+     * The hunting vest mesh, which is the reason this set reads as a hunter's kit
+     * rather than armour: it is the silhouette of somebody who tracks things.
+     */
+    item Thayne_Vest
+    {
+        DisplayName = Malefic Scale Vest,
+        DisplayCategory = Clothing,
+        ItemType = base:clothing,
+        Icon = thayne_vest,
+        BloodLocation = ShirtNoSleeves,
+        BodyLocation = base:torsoextravest,
+        ClothingItem = Thayne_Vest,
+        WorldStaticModel = HuntingVest_Ground,
+        Insulation = 0.75,
+        ScratchDefense = 35,
+        BiteDefense = 12,
+        WindResistance = 0.85,
+        Weight = 1.6,
+    }
+
+    /* Serpent-Hide Trousers. The mesh-trousers model, in worn dark leather. */
+    item Thayne_Trousers
+    {
+        DisplayName = Serpent-Hide Trousers,
+        DisplayCategory = Clothing,
+        ItemType = base:clothing,
+        Icon = thayne_trousers,
+        BloodLocation = Trousers,
+        BodyLocation = base:pants,
+        ClothingItem = Thayne_Trousers,
+        WorldStaticModel = Trousers_Ground,
+        Insulation = 0.5,
+        ScratchDefense = 26,
+        WindResistance = 0.6,
+        Weight = 1.0,
+    }
+
+    /*
+     * Venomtouch Bracers.
+     *
+     * Gloves have no model of their own in B42 - the XML leaves m_MaleModel empty
+     * and the hands are skinned from m_BaseTextures instead. So this one is not a
+     * mesh reskin like the other four; it is a texture swap on the hand mesh, and
+     * the XML beside it is shaped accordingly.
+     */
+    item Thayne_Gloves
+    {
+        DisplayName = Venomtouch Bracers,
+        DisplayCategory = Clothing,
+        ItemType = base:clothing,
+        Icon = thayne_gloves,
+        BloodLocation = Hands,
+        BodyLocation = base:hands,
+        ClothingItem = Thayne_Gloves,
+        WorldStaticModel = Gloves_Ground,
+        Insulation = 0.7,
+        ScratchDefense = 28,
+        WindResistance = 0.7,
+        Weight = 0.3,
+    }
+}

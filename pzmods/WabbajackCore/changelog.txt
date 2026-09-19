@@ -1,0 +1,485 @@
+Wabbajack mods - changelog
+
+One changelog for the whole family. It ships in WabbajackCore, which every
+other Wabbajack mod requires, so there is exactly one copy of it installed no
+matter which features a server runs.
+
+This file ships inside the mod, so whoever is looking at the files can see what
+changed. Steam's own change notes are a separate thing typed into the uploader
+when you publish - workshop.txt has no field for them, so this file cannot fill
+them in. Paste the relevant section below into that box.
+
+
+1.30.0
+------
+- Overgrowth sweep, in Trailblazer. Staff can arm a timed clear from the
+  right-click menu under Wabbajack -> Overgrowth, for 1, 6 or 12 hours. While it
+  runs, every area the server loads has its bushes and young trees cleared, so
+  it follows players and cleans the routes people actually drive. It reports
+  what it removed, and it stops itself when the timer runs out.
+
+  WHY IT WAS NEEDED. Erosion on this server was set to reach full growth in 15
+  days rather than the 500 it ran at last season. Measured against the pre-wipe
+  backup, the average map cell went from 3,020 bytes of objects to 7,552 -- two
+  and a half times the content, three days into a wipe. Cell unloading is where
+  roughly two thirds of the server's tick time goes, and it removes objects one
+  at a time, so denser cells cost more than proportionally more. Turning erosion
+  off stops it worsening; nothing in the game removes what already grew.
+
+  WHAT IT DOES NOT TOUCH. Long grass and vines. `clearable()` tests isBush() and
+  IsoTree size, which is bushes and saplings; erosion also lays down grass, and
+  that is not an IsoTree and carries no Bush property. So this addresses the
+  woody half of the overgrowth. How much of the density that is has not been
+  measured yet.
+
+  It rides LoadGridsquare because Lua can only touch squares that are currently
+  streamed -- the same wall the ground sweep documented. Idle cost is one table
+  lookup before it returns, which matters: LoadGridsquare handlers are the most
+  expensive class of Lua on this server, about 18% of the simulation thread
+  across every mod that hooks it.
+
+1.29.0
+------
+- Siege events are gone. The WabbajackSiege mod is removed from the toolkit
+  entirely: no more "Siege this building" on the right-click menu, no map
+  marker, no direction arrow, and no server-wide holdout announcement. Remove
+  WabbajackSiege from the server's mod list when updating; the other six mods
+  are unaffected and keep working without it.
+
+- The ground sweep is gone. WabbajackServerOps keeps the login shield and loses
+  the staff-armed clearing of loose ground items, along with its two sandbox
+  options (GroundSweepSafeBuffer, GroundSweepExpireHours) and its "Ground sweep"
+  submenu.
+
+  WHY BOTH WENT AT ONCE. Both walk the world doing bulk object work on the
+  server, and both were removed while chasing a tick-rate collapse on the live
+  server - the simulation had fallen to roughly a third of its normal speed and
+  in-game time was dilating with it. Neither has been PROVEN to cause that;
+  they are the two features in this toolkit whose shape most resembles the
+  bottleneck, so they went first and the server gets watched afterwards. If the
+  tick rate does not recover, the cause is elsewhere and these can come back.
+
+  THE SANDBOX OPTION NAMES THAT REMAIN STILL SAY WabbajackSiege. That is
+  unchanged and still deliberate - Project Zomboid keys a saved value by the
+  option name, so renaming them would silently reset every remaining setting.
+  WabbajackCore.CHANNEL is still "WabbajackSiege" for the same reason.
+
+- The admin menu drops the dead client-side machinery that only siege used: the
+  ISWorldMap hook, the blinking map marker, the direction arrow and the
+  markerStart/markerStop/notify handlers. adminNote stays - the foliage check
+  still answers through it.
+
+1.28.0
+------
+- Medical actions work again on a dedicated server. Bandaging, disinfecting,
+  splinting, stitching, burn cleaning, cataplasms and digging out bullets and
+  glass all failed silently for every player, with one server-side Lua error per
+  attempt:
+
+      attempted index: getPerkLevel of non-table: null
+          Lua(Vanilla).new(ISApplyBandage.lua:177)
+          Lua((MOD:Beyond Ten - Level 15 Skills)).name(ExtendedBonuses.lua:127)
+
+  Beyond Ten requires the client TimedActions so it can wrap their `new` and
+  shorten them for Doctor levels past ten. On a dedicated server that require
+  succeeds, so the wrapper installs there too - but the server builds those
+  actions without a character, and vanilla line 177 reads a perk level straight
+  off it. Every medical action died in its own constructor.
+
+  WabbajackCore now clears Beyond Ten's ten medical handlers server-side. Its
+  wrapper is deliberately indirect - it looks the handler up on each call and
+  falls through to the original when there isn't one - so emptying that slot
+  turns the wrapper into a pass-through instead of tearing it out. Beyond Ten
+  keeps its place in the call chain and anything that wrapped after it still
+  works, which is what makes this safe to do to somebody else's mod.
+
+  SERVER ONLY, AND THAT IS LOAD-BEARING. The file is media/lua/server, so it
+  never reaches a client. On a client the character is real, the bonus applies
+  and levels past ten still shorten the action - players lose nothing. It also
+  matters for joining: the server checksums only media/lua/client and compares
+  it against each connecting client, so a file added under client/ would have
+  locked every player out until they re-downloaded. server/ and shared/ are
+  exempt.
+
+  Beyond Ten must load BEFORE WabbajackCore for this to hold. It installs on
+  file load and again on OnServerStarted, and handlers fire in registration
+  order, so loading first would mean being undone a moment later. There is an
+  EveryOneMinute sweep as a backstop, so a future order change degrades to
+  "broken for under a minute" rather than "wound care is broken".
+
+1.27.0
+------
+- The toolkit is seven mods now, each with its own name, description, poster and
+  sandbox page, each switchable on its own:
+
+    WabbajackCore          the staff allowlist, the admin menu, the settings
+                           spine. Does nothing alone; everything else requires it
+    WabbajackSiege         siege events
+    WabbajackRaids         base raids AND safehouse raid protection
+    WabbajackTrailblazer   bushes and saplings under wheels
+    WabbajackServerOps     login shield and the ground sweep
+    WabbajackQoL           the gather shortcut and the safehouse picker
+    WabbajackArsenal       the Celestial Shovel and the Onyx Katar
+
+  WHAT THIS DOES NOT BREAK, AND WHY THAT TOOK CARE
+  The sandbox option names still all say WabbajackSiege. Zomboid keys a saved
+  sandbox value by the OPTION NAME, not by the mod or the page it sits on, so
+  renaming them to match the new mod ids would have read as tidier and silently
+  reset every setting on the live server. Only the page moved. Do not "fix" the
+  names later either - the same trap is waiting.
+
+  The siege mod also keeps the original id, WabbajackSiege. An existing mods=
+  line therefore still resolves; the six new ids have to be added to it, and
+  WabbajackCore has to be among them or the other five refuse to load.
+
+  The client-server command channel is likewise still called WabbajackSiege. It
+  is a wire protocol shared by the menu and every handler, and renaming it would
+  break the menu against any half-updated client for no benefit.
+
+  HOW THE SPLIT WAS ACTUALLY DONE
+  The modules turned out to be nearly independent already - almost no
+  cross-requires, everything hooked to events - so the work was in three places
+  that were not.
+
+  The staff allowlist, the access check and the admin reply helper were locals
+  inside WabbajackSiege.lua that everything else reached by sharing a file.
+  Those are WabbajackCore now. A permission allowlist in seven copies is a
+  permission allowlist that will disagree with itself.
+
+  WabbajackSiege.lua was also the command dispatcher for modules it did not own,
+  reaching base raids, the sweep and the foliage check through globals. Each mod
+  registers its own OnClientCommand listener now. That closed a real hole on the
+  way past: the dispatcher guarded the base raid and the foliage count with "not
+  installed on this server" branches but called the sweep unguarded, so a menu
+  click with the sweep absent would have thrown instead of explaining itself. A
+  mod that owns its commands cannot be asked for one while absent.
+
+  The admin menu is client-side and the modules are server-side, and in
+  multiplayer the client cannot see a server global - which is why the old
+  single-mod version drew every entry and let the server answer. With mods that
+  can be switched off independently the answer would now be silence, so each mod
+  ships a one-line marker in lua/shared, which loads into both states. The menu
+  leaves the entry out rather than offering a dead one.
+
+- Removed: the season wipe purge. It is not how this server wipes any more, and
+  a destructive command kept around for a workflow nobody uses is a misclick
+  waiting to happen. Its sandbox option and its entry in the settings map are
+  gone with it; git has the file if it is ever wanted back.
+
+- New: scripts/build-project-zip.sh actually builds the Workshop project zip.
+  Nothing in the repo produced it before - it was assembled by hand, which is
+  how you publish last week's build without noticing. Survivable with one mod,
+  not with seven. It picks up every folder under pzmods/ carrying a
+  common/mod.info, so adding a mod means adding a folder.
+
+- The PC-side installer handles a multi-mod payload. It reads the mod list out
+  of the archive rather than carrying its own, refuses an archive whose declared
+  dependencies are not all present, and moves every old mod folder aside before
+  copying any new one - rolling all of them back together on failure. Seven mods
+  that require each other cannot be installed one at a time: a failure halfway
+  leaves Core new, some features old, and the ones declaring require=Core not
+  loading at all.
+
+1.26.1
+------
+- The Onyx Katar is held upright. 1.26.0 gave it the hunting knife's own in-hand
+  rotation, which points a blade forward along the fist - correct for a knife,
+  wrong for this.
+
+  Across the 163 vanilla 1handed models that set a Bip01_Prop2 rotation, the
+  middle term is what aims the weapon: 86 of them sit between -83 and -87, and
+  that is the value the hunting knife uses. The outer two move together as a
+  roll about the long axis - Machete -36/-34, Trumpet -62.7/-63.5, Violin
+  -27.2/-27.1. So this is the knife's rotation with 90 degrees added to the
+  middle term only, tipping the blade from forward to vertical and leaving the
+  roll alone.
+
+  Scale needed no change. The mesh was modelled at 465mm off vanilla's own
+  276mm hunting knife and came out right first time in game.
+
+1.26.0
+------
+- The Onyx Katar is a katar now. 1.25.0 shipped it as a reskinned hunting
+  knife, which was the wrong call and looked it: a katar IS its silhouette, and
+  wearing a knife's outline made the name a label rather than a weapon.
+
+  It now ships its own geometry - models_X/weapons/1handed/OnyxKatar.x. A broad
+  blade tapering in a straight line to the point, a collar, two side rails
+  running back along the forearm, and the two transverse bars the fist closes
+  on. 408 verts, 136 triangles, modelled at life size at 465mm, which is
+  mid-range for a real one.
+
+  Owning the mesh paid for itself twice over. The mesh origin sits at the fist,
+  dead centre between the grip bars, so the in-hand attachment is identity -
+  the reskin had to guess vanilla's own attachment offsets from memory and this
+  has nothing to guess. And owning the UV layout means the texture stops being
+  the flat uniform field 1.25.0 shipped: blackened steel on the blade faces
+  with the sharpened edges coming up bright against it, forge mottle on the
+  rails and collar, cord wrap on the grip bars. Dark still, but dark the way
+  blackened steel is dark - the edges carry the shape instead of every texel
+  being the same near-black.
+
+  The mesh, the 512 and the inventory icon all come out of
+  scripts/make-katar-assets.py. That script is the source and the .x and the
+  PNGs are build output - hand-edit them and the next run eats it. The UV atlas
+  is defined once in that file and read by both the geometry and the paint,
+  because splitting them is how you end up with a blade wearing the grip wrap.
+
+  WHAT THIS STILL DOES NOT FIX. The swing. SwingAnim = Stab is the closest
+  vanilla motion to a punch - a forward thrust from the shoulder rather than an
+  arc, which is most of what a katar does - but it is a knife's thrust, not a
+  push. Zomboid picks the attack animation from that token and the token has to
+  name an animation the game already ships, so a real push-dagger motion means
+  either an unarmed/punch token from the game's own animation set or a custom
+  animation in anims_X. Both need the install open to write. It is on the list,
+  not done.
+
+  Nothing about this item is guessed any more. The vanilla scripts and models
+  were pulled off the game install and read, and everything below is diffed
+  against the real Base.HuntingKnife rather than against a memory of it. That
+  turned up four things that were wrong, one of them badly:
+
+    - THE DAMAGE WAS NEVER RAISED. B42's hunting knife is already 0.6-1.2. The
+      "1.5x" claimed in 1.25.0 was 1.5x of B41's 0.4-0.8, so the katar shipped
+      with a hunting knife's exact damage and a note saying otherwise. It is
+      0.9-1.8 now, which is the multiplier that was always meant.
+    - CritDmgMultiplier was 10.0 against vanilla's 3.0 - an enormous unintended
+      buff on a weapon that already crits half the time.
+    - the hand attachment was Bip01_Prop1. Vanilla's knife uses Bip01_Prop2,
+      and so does the shovel; ten models in the whole game use Prop1.
+    - four field names were the wrong case and several tags did not exist.
+
+  The mesh conventions checked out exactly as built. Vanilla's HuntingKnife.x
+  measures 276mm on its long axis, so the game works in metres and the katar's
+  465mm is life size; that axis is Y with the origin at the grip, which is how
+  the katar is built; and vanilla's winding matches the generator's on 136 of
+  136 faces. The one real defect was that every model the game ships declares
+  fourteen .x templates up front and this one declared none - a template-driven
+  parser would have rejected it. They are lifted verbatim from HuntingKnife.x
+  now. The world and hand attachments are vanilla's own values, which is legal
+  precisely because the katar shares its conventions.
+
+  Loot placement was rewritten and no longer carries a list of table names at
+  all. It walks ProceduralDistributions at boot, finds every table that lists a
+  hunting knife, and inserts the katar there at a fixed fraction of whatever the
+  knife's own weight is in that table.
+
+  The old version carried fifteen names written from memory, and checking them
+  against 42.20 was ugly: one did not exist at all, only six of the rest
+  actually listed a hunting knife, and twenty of the twenty-six tables that DO
+  list one were missing entirely - GunStoreKnives, PawnShopKnives, Trapper,
+  CampingStoreTools, the army lockers, the late-game safehouse tables. Wrong in
+  both directions at once.
+
+  Deriving it also fixes something the flat weight could never do. The hunting
+  knife's own weight ranges from 0.1 in ArmyBunkerLockers to 20 in
+  GunStoreKnives - a factor of two hundred - so a single flat 0.05 would have
+  made the katar half as common as a knife in one place and a four-hundredth as
+  common in another. Scaling off the knife makes "one katar per eighty hunting
+  knives" true in all twenty-six, which is what the rule always said. Simulated
+  against the real distribution file: 26 tables, weights 0.0013 to 0.25, no
+  clamping needed.
+
+  The Celestial Shovel keeps its hardcoded seventeen. That list was audited at
+  the same time and is exactly right - all seventeen exist, and they are
+  precisely the seventeen tables that list a vanilla shovel - so there is
+  nothing to fix and no reason to churn a working file.
+
+  AND THERE IS NO PUNCH TO ASSIGN. The game ships punch animations -
+  Bob_AttackPunch01_Hit and friends are in anims_X - but SwingAnim cannot reach
+  them. Across every weapon in the game only nine values are ever used: Bat,
+  Stab, Heavy, Throw, Spear, Rifle, Handgun, Stone and Shove. The punches
+  belong to Base.BareHands, which is base:unarmed with SwingAnim = Shove and
+  WeaponSprite = null, so the engine picks the punch for an unarmed attacker
+  rather than being told to by the item. A held weapon cannot ask for it by
+  name. Stab stays - a forward thrust from the shoulder, which is most of what
+  a katar does. Making the item base:unarmed to chase the punch would cost the
+  stealth kill and the small blade category outright and might only produce the
+  shove animation anyway; that is an experiment for the test server, not a
+  change to make on paper.
+
+
+1.25.0
+------
+- New item: the Onyx Katar. Like the Celestial Shovel it is a vanilla mesh in
+  new clothes - the hunting knife's own model, wearing blackened steel - and it
+  hits 1.5x as hard (0.4-0.8 becomes 0.6-1.2).
+
+  Being straight about what it is: a katar is a push dagger, and its identity
+  is a silhouette - a triangular blade standing off an H-shaped cross grip,
+  punched rather than swung. No vanilla mesh has that shape, and Zomboid
+  animates by weapon category rather than per item, so there is no punch-thrust
+  animation to give it even if one did. In the hand it is a hunting knife. The
+  katar is in the name, the numbers and the inventory icon, which is drawn as a
+  real katar because an icon is a flat sprite with no mesh under it and is the
+  one place the shape can be honest. Shipping a custom model was the other
+  option and was turned down: it would buy a correct world model and still not
+  buy a correct swing, at the cost of the mod owning a copy of geometry.
+
+  Durability is 1.5x (condition 10 becomes 15), not the shovel's 3x, and that
+  gap is deliberate. Short blades carry the from-behind instant kill. A shovel
+  with triple durability is a shovel you swing more often; a short blade with
+  triple durability is triple the guaranteed kills, which is the strongest
+  thing in the game bought with the least risk. The stealth kill is kept - a
+  short blade that cannot do it is not a short blade - so durability is the
+  axis that gives instead.
+
+  The skin is a uniform field of blackened steel: patina mottle and forge
+  grain, no bands and no inlay. That is a constraint, not a style choice. The
+  Celestial Shovel's gold banding works because it was painted against
+  vanilla's own shovel UV sheet; without the hunting knife's sheet in front of
+  you, any placed detail is a coin flip on where it lands, while a texture
+  whose every texel is plausible for every part of the mesh cannot be mapped
+  wrong. If the UV sheet is ever to hand, the art can be revisited without the
+  item changing.
+
+  Rarity matches the shovel exactly - weight 0.05, in fifteen tables that list
+  a vanilla hunting knife, a couple of hundredths of a percent per container -
+  and for the same reason it is a constant in
+  lua/server/Items/WabbajackOnyxKatar.lua rather than a sandbox option: loot
+  tables are built once at boot, and this mod's settings rule is read at use,
+  never at load.
+
+  NOTE FOR WHOEVER PUBLISHES THIS: the item script and the loot table list were
+  written without a copy of 42.20 to read. Nothing in them can crash - every
+  loot insert is checked and skipped with a printed line, and a bad enum falls
+  back to a default - but the attachment offsets, the weapon category, the four
+  vanilla baselines and the sound names all want one look at the real
+  Items_Weapons.txt and Models_Weapons.txt first. Both files say so at the top,
+  and the boot log names any loot table that did not exist.
+
+1.24.0
+------
+- New item: the Celestial Shovel. It is the vanilla large shovel's own mesh
+  wearing a new skin - a moonsilver blade rimmed in gold, a starfield medallion
+  inlaid on both faces with a constellation picked out in it, and a midnight
+  shaft banded with gold inlay - and it hits 1.5x as hard (0.8-1.9 becomes
+  1.2-2.85, doors 10 becomes 15) and lasts three times as long (condition and
+  head condition 10 become 30).
+
+  Nothing else about it differs from a shovel. Same swing times, ranges, sounds
+  and DigType, same tags, so it digs graves and plows furrows and satisfies
+  every recipe that asks for a shovel. The one deliberate subtraction is
+  Researchablerecipes: researching a recipe consumes the item, and those four
+  recipes are learnable from any ordinary shovel, so the option only existed
+  here as a way to destroy the rarest thing on the server by misclicking.
+
+  It ships as a texture, not a model. The item's model reuses
+  weapons/2handed/Shovel and overrides only the texture line, which is how
+  vanilla ships its own variants (HandScytheForged and BallPeenHammerForged do
+  exactly this), so there is no second copy of a mesh to keep in step with the
+  base game.
+
+  Rarity is loot-table only, at weight 0.05 in the seventeen tables that list a
+  vanilla shovel - a couple of hundredths of a percent per container against
+  the ordinary shovel's 4. Wherever shovels are, one in a great while it is
+  this one. The weight is a constant in
+  lua/server/Items/WabbajackCelestialShovel.lua rather than a sandbox option,
+  because loot tables are built once at boot: a slider would have to be read at
+  load, and this mod's settings rule is read at use, never at load. A setting
+  that sits in the admin panel doing nothing until a restart is worse than a
+  number in a file.
+
+  This is the first custom item the mod has shipped, so it is also the first
+  time the mod carries client-visible art. Events still place only vanilla
+  items.
+
+1.23.0
+------
+- New: a season wipe purge, for a wipe that keeps everyone's base. Keeping the
+  map also keeps every stash, so established groups would log into fresh
+  characters standing next to last season's gun lockers while a new player
+  starts with nothing. This empties every container in the world - claims
+  included - plus the loose items on the floor and the contents of vehicles.
+  Staff arm it from Wabbajack - Season wipe purge, and counting is offered
+  first because emptying cannot be undone.
+
+  It is a separate module and a separate menu entry from the ground sweep on
+  purpose: the sweep exists to protect claims and this exists to empty them, so
+  sharing a name or a command would put the destructive one within reach of
+  muscle memory.
+
+  Like the sweep it can only touch what is streamed in, so it cleans the loaded
+  area at once and then each base as somebody walks into it. Squares that give
+  something up are stamped with the purge id, so a container refilled next week
+  is not emptied again. Default expiry is 72 real hours - long enough that the
+  group who does not log in until Sunday still gets cleaned out - and is
+  configurable in Sandbox Options.
+
+1.22.0
+------
+- Base raids can now be genuinely random: a new "Random - a chance every night"
+  setting rolls a percentage once a night instead of counting to a fixed
+  interval, so nobody can be standing on the roof waiting for it. The chance is
+  its own option and defaults to 33, about one night in three.
+- The hour a scheduled raid arms is now drawn at random too, between an earliest
+  and a latest in-game hour, for the random and fixed schedules alike. Set both
+  hours the same for the old fixed-time behaviour.
+- The single "in-game hour the scheduled raid arms" option is replaced by that
+  pair and returns to its default; the pair is 20 to 23 out of the box. The
+  window cannot cross midnight - a later hour below the earlier is pushed up to
+  it - because the schedule decides one night at a time and midnight is where a
+  night ends.
+- A night is still decided once and never made up later: the roll and the hour
+  are drawn together at the start of the in-game day, and a night that is missed
+  because the server was down, the roll lost, or nobody was online stays missed.
+  The server log says which of those it was, and names the hour it drew.
+
+1.21.0
+------
+- Base raids can now run on a repeating schedule, counted in in-game nights:
+  off, every night, every 2, every 3 or every 7. Set it in Sandbox Options along
+  with the in-game hour it arms and how many zombies per online player.
+- Off by default. Every zombie a base raid places is permanent, so the schedule
+  has to be switched on deliberately.
+- A night with nobody online is skipped rather than saved up, so a raid that was
+  due at 22:00 never lands at 04:00 on whoever happens to log in.
+
+1.20.0
+------
+- Raid protection is back ON TEST, with the failure that pulled it in 1.18.0
+  fixed: membership is now decided from the safehouse itself rather than by
+  asking the function this mod replaces, so a member or owner can no longer be
+  locked out of their own base whatever else goes wrong. Worst case now is that
+  outsiders cannot raid, which is plain vanilla.
+- The answer is cached per square instead of being recomputed nine times for
+  every step you take, which is what made picking items up feel slow.
+- Added heartbeat instrumentation: each client reports how its half installed
+  and how many open-set broadcasts it has received, once a minute, into the
+  server log. This is temporary and comes out once the feature is trusted.
+- Sandbox options renamed and relabelled to say what they actually are:
+  ShieldEnabled is now LoginShieldEnabled, "Login shield - invisible to zombies
+  when you connect". It is not a siege shield and never was.
+- Raid protection has two sandbox options of its own again, at the top of the
+  page: whether it runs, and the grace period after the last member logs off.
+
+1.19.0
+------
+- Settings moved out of the right-click menu into sandbox options. They are now
+  at Admin Panel > Sandbox Options > Wabbajack Server Toolkit, with a tooltip on
+  each explaining what it is for and why its default is what it is.
+- The right-click menu is events only: siege, base raid, ground sweep, foliage
+  check. Everything that configures rather than acts has left it.
+- Event triggers are now restricted to a named account rather than to every
+  staff role. Sandbox options remain gated by the vanilla SandboxOptions
+  capability, set per role in Admin Panel > Roles.
+- Retired the mod's private settings store - its ModData persistence, wire
+  format, staff check, value whitelist and client-side cache are all gone,
+  replaced by SandboxVars, which the engine already syncs to clients.
+- Any setting previously changed from the old menu returns to its default. The
+  defaults themselves have not changed.
+
+1.18.0
+------
+- Raid protection disabled and commented out. It refused members and owners as
+  well as raiders, and slowed item pickup down; safehouses are back to vanilla
+  behaviour, which on this server means closed to everyone but their members.
+- Fixed: a player who belongs to more than one safehouse could only ever open
+  the oldest one, so a second membership could never be quit. The User Panel's
+  Safehouse button now offers a picker when you belong to more than one.
+
+1.17.0
+------
+- Raid protection: a safehouse could be looted while somebody who lived there
+  was online, and for five minutes after the last of them logged off.
+  Withdrawn in 1.18.0.

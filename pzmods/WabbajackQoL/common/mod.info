@@ -1,0 +1,8 @@
+name=Wabbajack Quality of Life
+id=WabbajackQoL
+author=Wabbajack
+modversion=1.30.0
+versionMin=42.0.0
+poster=poster.png
+require=WabbajackCore
+description=Two small conveniences. GATHER: shift+right-click a Shortcut slot, or a craft or build entry, and its materials are pulled from nearby containers - needs TheShortcut for the slot half, and works without it everywhere else. SAFEHOUSE PICKER: if you belong to more than one safehouse, the User Panel's Safehouse button lets you choose which to open, so a second membership can actually be quit. Settings in Admin Panel - Sandbox Options - Wabbajack Quality of Life.

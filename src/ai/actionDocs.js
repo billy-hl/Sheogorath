@@ -21,8 +21,8 @@ const { aiTitles, withArticle: an } = require('../config/guilds');
 
 /** The tag line shown for each capability, in the order he should read them. */
 const TAG_LINES = {
-  note:       '  [ACTION:note:userId:your note text]     — Save a short-term note about a user',
-  memory:     '  [ACTION:memory:userId:important fact]   — Save a LONG-TERM memory about a user',
+  note:       '  [ACTION:note:userId:your note text]     — Save a note about a user (kept, and read back to you)',
+  memory:     '  [ACTION:memory:userId:important fact]   — Save a LONG-TERM memory about a user (only what stays true)',
   clearnotes: '  [ACTION:clearnotes:userId]              — Erase all notes for a user',
   delete:     '  [ACTION:delete:reason]                  — Delete the message you are replying to',
   flag:       '  [ACTION:flag:userId:reason]             — Tell staff someone tried to manipulate you',

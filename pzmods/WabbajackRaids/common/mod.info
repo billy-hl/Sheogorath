@@ -1,0 +1,8 @@
+name=Wabbajack Raids
+id=WabbajackRaids
+author=Wabbajack
+modversion=1.30.0
+versionMin=42.0.0
+poster=poster.png
+require=WabbajackCore
+description=Two things that both say raid. BASE RAIDS: a zombie assault on every online player's own safehouse, armed by staff from the menu or landing on its own schedule at night. RAID PROTECTION: a safehouse is lootable by outsiders only while somebody who lives there is online, with a grace period so logging out is not an escape - members and owners can always loot their own base. Settings in Admin Panel - Sandbox Options - Wabbajack Raids.

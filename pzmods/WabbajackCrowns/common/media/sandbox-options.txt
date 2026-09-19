@@ -1,0 +1,8 @@
+VERSION = 1,
+
+option WabbajackCrowns.IdleDays
+{
+    type = integer, min = 0, max = 90, default = 7,
+    page = WabbajackCrowns,
+    translation = WabbajackCrownsIdleDays,
+}

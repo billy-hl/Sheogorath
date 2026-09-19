@@ -1,0 +1,7 @@
+name=Wabbajack Crowns
+id=WabbajackCrowns
+author=Wabbajack
+modversion=1.0.0
+versionMin=42.0.0
+require=WabbajackCore
+description=One crown per skill, and only one player on the server may hold each. A crown is awarded to whoever stands highest in that skill, and it does not change hands because somebody out-levels the holder - it moves only when the holder dies. Then it passes to the next highest. One survivor can hold every crown at once, and will be hunted for it.

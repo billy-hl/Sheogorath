@@ -1,0 +1,9 @@
+Sandbox_EN = {
+    Sandbox_WabbajackQoL = "Wabbajack Quality of Life",
+
+    Sandbox_WabbajackSiege_GatherMaxTransfers = "Gather shortcut - most items one click will fetch",
+    Sandbox_WabbajackSiege_GatherMaxTransfers_tooltip = "Shift+right-click a Shortcut slot to pull a recipe's materials out of nearby containers. Each item is a queued action, so a big number is a long queue you have to sit through.",
+
+    Sandbox_WabbajackSiege_GatherOverfillPercent = "Gather shortcut - fill bags up to this percent of capacity",
+    Sandbox_WabbajackSiege_GatherOverfillPercent_tooltip = "100 refuses to overfill at all. Higher accepts a movement penalty instead of making you walk back for a second trip.",
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<clothingItem>
+	<m_MaleModel>skinned\clothes\bob_hoodieup</m_MaleModel>
+	<m_FemaleModel>skinned\clothes\kate_hoodieup</m_FemaleModel>
+	<m_GUID>e3e1f3e1-1dea-4e13-8967-87aa72efe5fa</m_GUID>
+	<m_Static>false</m_Static>
+	<m_AllowRandomHue>false</m_AllowRandomHue>
+	<m_AllowRandomTint>false</m_AllowRandomTint>
+	<m_AttachBone></m_AttachBone>
+	<textureChoices>clothes\Thayne\thayne_hood</textureChoices>
+</clothingItem>

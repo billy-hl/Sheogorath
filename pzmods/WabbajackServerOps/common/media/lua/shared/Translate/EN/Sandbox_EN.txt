@@ -1,0 +1,10 @@
+Sandbox_EN = {
+    Sandbox_WabbajackServerOps = "Wabbajack Server Ops",
+
+    Sandbox_WabbajackSiege_LoginShieldEnabled = "Login shield - invisible to zombies when you connect",
+    Sandbox_WabbajackSiege_LoginShieldEnabled_tooltip = "Nothing to do with sieges. It covers the few seconds after connecting, before your client responds to input. A player once connected at 16:38:18 and was bitten at 16:38:20 with no chance to react.",
+
+    Sandbox_WabbajackSiege_LoginShieldSeconds = "Login shield - how many seconds it lasts",
+    Sandbox_WabbajackSiege_LoginShieldSeconds_tooltip = "Zombies only, and only for this long - you can still be shot, and you are never invulnerable. Five buys about two steps, which is too short to relog out of a fight. Zero switches the shield off.",
+
+}

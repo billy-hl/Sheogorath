@@ -1,0 +1,6 @@
+Sandbox_EN = {
+    Sandbox_WabbajackCore = "Wabbajack Core",
+
+    Sandbox_WabbajackSiege_WorldRealMinutesPerDay = "World - real minutes in one in-game day",
+    Sandbox_WabbajackSiege_WorldRealMinutesPerDay_tooltip = "This does not change day length - it TELLS the mod what the day length already is, so it can convert in-game time to real time. If the server's day length changes, match it here or every timer in the mod drifts.",
+}

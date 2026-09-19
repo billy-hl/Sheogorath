@@ -1,0 +1,28 @@
+VERSION = 1,
+
+/*
+ * Wabbajack Core - settings.
+ *
+ * THE OPTION NAMES STILL SAY WabbajackSiege ON PURPOSE.
+ * This mod was split out of the single Wabbajack Server Toolkit, and Project
+ * Zomboid keys a saved sandbox value by the OPTION NAME, not by the mod or the
+ * page it appears on. Renaming these to match the new mod id would read as
+ * tidier and would silently reset every one of these settings to its default on
+ * any server already running the toolkit. The page is what moved; the names
+ * cannot, and should not be "fixed" later either.
+ *
+ * THIS FILE IS THE ONLY SOURCE OF DEFAULTS. WabbajackSettings.lua in
+ * WabbajackCore maps dotted keys onto these names and carries a fallback for
+ * each, used only when SandboxVars is unavailable. Change a default here first
+ * - two copies of a default is how they drift.
+ */
+
+option WabbajackSiege.WorldRealMinutesPerDay
+{
+    type = integer,
+    min = 30,
+    max = 240,
+    default = 120,
+    page = WabbajackCore,
+    translation = WabbajackSiege_WorldRealMinutesPerDay,
+}

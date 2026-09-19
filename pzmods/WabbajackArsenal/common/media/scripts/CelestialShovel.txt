@@ -1,0 +1,113 @@
+/*
+ * The Celestial Shovel - a reskin of the vanilla large shovel, with three
+ * numbers changed.
+ *
+ * IT IS THE VANILLA MESH, NOT A NEW ONE.
+ * model CelestialShovel points mesh at weapons/2handed/Shovel - the same file
+ * the vanilla Shovel uses - and overrides only the texture. That override is
+ * how vanilla itself ships variants: HandScytheForged and BallPeenHammerForged
+ * both reuse another item's mesh and differ only in this line, and the mesh's
+ * own TextureFilename ("Objects_Shovel.png") loses to it. Shipping no mesh
+ * means nothing to keep in sync when the base game retopologises a shovel, and
+ * the attachment offsets below are copied verbatim from vanilla's model Shovel
+ * so it sits in the hand and on the back exactly where a shovel sits.
+ *
+ * WHAT ACTUALLY DIFFERS FROM Base.Shovel
+ *   ConditionMax   10 -> 30   triple durability: three times the hits before
+ *                             it breaks.
+ *   HeadCondition  10 -> 30   the head wears on its own track in B42, so
+ *                             leaving it at 10 would have capped the item's
+ *                             real life at vanilla no matter what
+ *                             ConditionMax said.
+ *   MinDamage     0.8 -> 1.2  1.5x
+ *   MaxDamage     1.9 -> 2.85 1.5x
+ *   DoorDamage     10 -> 15   1.5x, so "damage" means the same thing against a
+ *                             door as against a zombie.
+ *
+ * Everything else - swing times, ranges, sounds, DigType, tags - is vanilla
+ * Shovel to the letter. It digs graves, plows furrows, takes dirt and clears
+ * ashes exactly like the shovel it is, and any recipe or action that asks for
+ * a shovel by tag accepts it.
+ *
+ * TreeDamage stays 1. Vanilla's is 1 and the field is an integer, so 1.5x is
+ * not expressible; rounding it to 2 would have doubled tree felling off the
+ * back of a damage multiplier nobody asked to apply to trees.
+ *
+ * Researchablerecipes is deliberately dropped. Vanilla's shovel carries
+ * MakeSpadeHeadCudgel, Forge_Spade_Head, Forge_Gardening_Trowel and
+ * CarveWoodenSpade, and researching a recipe consumes the item. On a common
+ * shovel that is a fair trade; on one of these it is a way to destroy the
+ * rarest thing on the server by clicking the wrong context entry. The recipes
+ * are still learnable from any ordinary shovel, so nothing is lost.
+ */
+
+module Base
+{
+    model CelestialShovel
+    {
+        mesh = weapons/2handed/Shovel,
+        texture = weapons/2handed/CelestialShovel,
+        attachment world
+        {
+            offset = -0.0009 0.2369 -0.0152,
+            rotate = 0.0 -90.0 0.0,
+        }
+        attachment Bip01_Prop2
+        {
+            offset = 0.0 0.0 0.0,
+            rotate = 0.0 -73.0526 0.0,
+        }
+    }
+
+    item CelestialShovel
+    {
+        DisplayName = Celestial Shovel,
+        DisplayCategory = GardeningWeapon,
+        ItemType = base:weapon,
+        Weight = 2.0,
+        Icon = CelestialShovel,
+        AttachmentType = Shovel,
+        BaseSpeed = 0.8,
+        BreakSound = ShovelBreak,
+        Categories = base:blunt,
+        ConditionLowerChanceOneIn = 10,
+        ConditionMax = 30,
+        CritDmgMultiplier = 2.0,
+        CriticalChance = 40.0,
+        DamageCategory = Slash,
+        DamageMakeHole = true,
+        DoorDamage = 15,
+        DoorHitSound = ShovelHit,
+        DropSound = ShovelDrop,
+        HitAngleMod = -30.0,
+        HitFloorSound = ShovelHit,
+        HitSound = ShovelHit,
+        IdleAnim = Idle_Weapon2,
+        KnockBackOnNoDeath = true,
+        KnockdownMod = 2.0,
+        MaxDamage = 2.85,
+        MaxHitcount = 3,
+        MaxRange = 1.6,
+        MetalValue = 70.0,
+        MinAngle = 0.85,
+        MinDamage = 1.2,
+        MinRange = 0.61,
+        MinimumSwingtime = 2.1,
+        PushBackMod = 0.5,
+        RunAnim = Run_Weapon2,
+        SubCategory = Swinging,
+        SwingAmountBeforeImpact = 0.02,
+        SwingAnim = Bat,
+        SwingSound = ShovelSwing,
+        Swingtime = 2.1,
+        TreeDamage = 1,
+        TwoHandWeapon = true,
+        WeaponLength = 0.55,
+        WeaponSprite = CelestialShovel,
+        Tags = base:clearashes;base:diggrave;base:digplow;base:takedirt;base:takedung;base:hastoolhead;base:killanimal;base:repairwithglue;base:repairwithtape;base:hasmetal,
+        DigType = Shovel,
+        HeadCondition = 30,
+        HeadConditionLowerChanceMultiplier = 1.0,
+        OnBreak = OnBreak.HandleSpade,
+    }
+}

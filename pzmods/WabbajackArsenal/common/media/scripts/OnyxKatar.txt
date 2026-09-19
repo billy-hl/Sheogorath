@@ -1,0 +1,169 @@
+/*
+ * The Onyx Katar - a push dagger, on its own mesh.
+ *
+ * THIS SHIPS ITS OWN GEOMETRY. models_X/weapons/1handed/OnyxKatar.x is a real
+ * katar: a broad blade tapering in a straight line to the point, a collar, two
+ * side rails running back along the forearm, and the two transverse bars the
+ * fist closes on. 408 verts, 136 triangles, modelled at life size (465mm).
+ *
+ * The mesh, its texture and the inventory icon are all emitted by
+ * scripts/make-katar-assets.py, and that file is the source: do not hand-edit
+ * the .x or the 512, they are overwritten on the next run. The UV atlas lives
+ * in that script too, shared between the geometry and the paint so the two
+ * cannot drift apart.
+ *
+ * EVERYTHING BELOW IS NOW READ OFF 42.20, NOT REMEMBERED
+ * Earlier versions of this file carried a "verify before publish" block,
+ * because it was written on a machine with no copy of the game. The vanilla
+ * scripts and models have since been pulled off the install and read, and the
+ * numbers here are diffed against the real Base.HuntingKnife rather than
+ * against a recollection of it. Four things that were wrong are now right:
+ *
+ *   - damage was not actually raised. B42's hunting knife is ALREADY 0.6/1.2;
+ *     the "1.5x" in earlier notes was 1.5x of B41's 0.4/0.8, so the katar was
+ *     shipping with a knife's exact damage. It is 0.9/1.8 now, which is the
+ *     multiplier that was always intended.
+ *   - CritDmgMultiplier was 10.0 against vanilla's 3.0. That was a memory of
+ *     an old value and it was an enormous unintended buff on a weapon that
+ *     already crits half the time.
+ *   - the hand attachment was Bip01_Prop1. Vanilla's knife uses Bip01_Prop2,
+ *     and so does the shovel; only ten models in the entire game use Prop1.
+ *   - four field names were the wrong case (MaxHitCount, SwingTime,
+ *     MinimumSwingTime) and several tags did not exist.
+ *
+ * WHAT DIFFERS FROM Base.HuntingKnife, AND ONLY THIS
+ *   MinDamage      0.6 -> 0.9    1.5x
+ *   MaxDamage      1.2 -> 1.8    1.5x
+ *   ConditionMax    10 -> 15     1.5x, NOT the shovel's 3x - see below
+ *   DoorDamage       1 -> 2      a katar is still no good against a door
+ *   Weight         1.0 -> 1.2    more steel in it than a knife
+ *   MetalValue    30.0 -> 40.0   likewise, if it is ever scrapped
+ *   WeaponLength  0.25 -> 0.35   the mesh really is that much longer
+ * Everything else is vanilla knife to the letter, deliberately.
+ *
+ * WHY DURABILITY IS 1.5x HERE AND 3x ON THE SHOVEL
+ * Short blades carry the from-behind instant kill (CloseKillMove below, and
+ * Categories = base:smallblade is what gates it - that guess turned out to be
+ * right). A shovel with three times the durability is a shovel you swing more
+ * often; a short blade with three times the durability is three times as many
+ * guaranteed kills, which is the strongest thing in the game bought with the
+ * least risk. The stealth kill is kept, because a short blade that cannot do
+ * it is not a short blade - the durability is the axis that gives instead.
+ *
+ * ON THE SWING. THERE IS NO PUNCH TO ASSIGN.
+ * The game does ship punch animations - Bob_AttackPunch01_Hit and friends are
+ * right there in anims_X - but SwingAnim cannot reach them. Across every weapon
+ * in the game only nine values are ever used: Bat, Stab, Heavy, Throw, Spear,
+ * Rifle, Handgun, Stone and Shove. "Punch" is not one of them.
+ *
+ * The punches belong to Base.BareHands, which is Categories = base:unarmed with
+ * SwingAnim = Shove and WeaponSprite = null - so the engine is choosing the
+ * punch internally for an unarmed attacker, not being told to by the item. A
+ * held weapon cannot ask for it by name.
+ *
+ * Stab is therefore the closest of the nine and is what is set: a forward
+ * thrust from the shoulder rather than an arc, which is most of what a katar
+ * does. The one alternative is to make this base:unarmed with SwingAnim =
+ * Shove and see whether the engine gives it the punch - but that trade costs
+ * the Jaw_Stab stealth kill and the small blade category outright, trains
+ * Unarmed instead, and may simply produce the shove animation instead. That is
+ * an experiment to run in game, not a change to make on paper.
+ *
+ * DELIBERATE OMISSIONS
+ * Researchablerecipes is dropped. Vanilla's knife carries five forge recipes
+ * and researching one consumes the item; on a common knife that is a fair
+ * trade, on the rarest thing on the server it is a way to destroy it by
+ * misclicking. They are all learnable from any ordinary hunting knife.
+ * OnBreak is dropped too - vanilla's OnBreak.HuntingKnife exists to leave
+ * hunting knife debris behind, which is not what this should leave.
+ */
+
+module Base
+{
+    model OnyxKatar
+    {
+        mesh = weapons/1handed/OnyxKatar,
+        texture = weapons/1handed/OnyxKatar,
+        /* Both blocks copied from vanilla model HuntingKnife, which is legal
+           because the katar is built on the same convention its mesh uses:
+           metres, long axis +Y, origin at the grip.
+           The world offset is the one number that is ours - it centres the
+           model on the attachment point, so it is the mesh's own midpoint along
+           whichever axis the blade lies on. Vanilla's 0.115 is exactly that for
+           its own mesh, which is how the rule was worked out. The blade is on
+           +Y (ORIENT = "forward"), bounds -0.115..0.350, so this is that
+           midpoint. Re-derive it if ORIENT ever changes. */
+        attachment world
+        {
+            offset = 0.0 0.1175 0.0,
+            rotate = 180.0 0.0 180.0,
+        }
+        /* THE ROTATION IS BOILERPLATE. THE MESH DOES THE AIMING.
+           These are vanilla's knife numbers verbatim, and they are deliberately
+           not tuned: Knife_Bone and HuntingKnife carry byte-identical rotations
+           despite being different shapes, Hammer uses 0.0 -86.9102 0.0, and 193
+           of the 284 vanilla models that set one sit within 10 degrees of -85.
+           Vanilla's *_Hand.x meshes are authored already pointing the right
+           way. Four different values were tried on this item in game and every
+           one rendered identically, which is the same fact learned the hard way.
+           To change how the katar hangs, set ORIENT in
+           scripts/make-katar-assets.py and rebuild the mesh. Not this line. */
+        attachment Bip01_Prop2
+        {
+            offset = 0.0 0.0 0.0,
+            rotate = 0.0 -82.5857 2.9014,
+        }
+    }
+
+    item OnyxKatar
+    {
+        DisplayName = Onyx Katar,
+        DisplayCategory = Weapon,
+        ItemType = base:weapon,
+        Weight = 1.2,
+        Icon = OnyxKatar,
+        AimingMod = 0.8,
+        AttachmentType = Knife,
+        BreakSound = HuntingKnifeBreak,
+        Categories = base:smallblade,
+        CloseKillMove = Jaw_Stab,
+        ConditionLowerChanceOneIn = 15,
+        ConditionMax = 15,
+        CritDmgMultiplier = 3.0,
+        CriticalChance = 50.0,
+        DamageCategory = Slash,
+        DamageMakeHole = true,
+        DoorDamage = 2,
+        DoorHitSound = HuntingKnifeHit,
+        DropSound = HuntingKnifeDrop,
+        HitFloorSound = HuntingKnifeHit,
+        HitSound = HuntingKnifeHit,
+        IdleAnim = Idle_Weapon2,
+        ImpactSound = HuntingKnifeHit,
+        IsAimedHandWeapon = true,
+        KnockBackOnNoDeath = false,
+        KnockdownMod = 0.0,
+        MaxDamage = 1.8,
+        MaxHitcount = 1,
+        MaxRange = 0.9,
+        MetalValue = 40.0,
+        MinAngle = 0.65,
+        MinDamage = 0.9,
+        MinRange = 0.61,
+        MinimumSwingtime = 2.0,
+        PushBackMod = 0.01,
+        RunAnim = Run_Weapon2,
+        SplatBloodOnNoDeath = true,
+        SplatNumber = 4,
+        SubCategory = Stab,
+        SwingAmountBeforeImpact = 0.02,
+        SwingAnim = Stab,
+        SwingSound = HuntingKnifeSwing,
+        Swingtime = 2.0,
+        TreeDamage = 0,
+        WeaponLength = 0.35,
+        WeaponSprite = OnyxKatar,
+        Tags = base:cutplant;base:sharpknife;base:butcheranimal;base:sharpenable;base:killanimal;base:hasmetal,
+        Sharpness = 1.0,
+    }
+}

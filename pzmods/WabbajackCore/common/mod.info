@@ -1,0 +1,7 @@
+name=Wabbajack Core
+id=WabbajackCore
+author=Wabbajack
+modversion=1.30.0
+versionMin=42.0.0
+poster=poster.png
+description=Shared foundation for the Wabbajack server mods: the staff allowlist, the admin right-click menu, and the settings spine every other Wabbajack mod reads. Does nothing on its own - install it alongside the feature mods, which all require it. Settings live in Admin Panel - Sandbox Options - Wabbajack Core.

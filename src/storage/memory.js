@@ -133,9 +133,11 @@ function addMemory(guildId, userId, memory, category = 'general') {
 function clearUserMemories(guildId, userId) {
   const memories = getMemories();
   const guild = memories.guilds[guildId];
-  if (!guild) return;
+  if (!guild) return 0;
+  const count = (guild[userId] || []).length;
   delete guild[userId];
   writeRaw(memories);
+  return count;
 }
 
 /**

@@ -24,16 +24,12 @@ process.on('exit', () => { try { fs.unlinkSync(LOCK_FILE); } catch {} });
 process.on('SIGTERM', () => process.exit(0));
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
-const { setUserActivity, getUserActivity, getUserNotes, addUserNote } = require('./storage/state');
-const { addMemory } = require('./storage/memory');
-const { getAIResponse, getAIResponseWithHistory, extractMemoryFromMessage } = require('./ai/grok');
+const { setUserActivity } = require('./storage/state');
 const { handleInstagramLinks } = require('./services/instagram');
 const { stopPlaying } = require('./music/player');
-const { parseActions, executeActions, scrub } = require('./ai/actions');
 const { isApprovalButton, handleApprovalButton } = require('./ai/approvals');
-const { isBudgetError, setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
-const { isParlour, parlourPersona, PARLOUR_PROMPT, PARLOUR_HISTORY, PARLOUR_MAX_TOKENS } = require('./services/parlour');
-const { conversationalPersona } = require('./ai/persona');
+const { setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
+const { isParlour } = require('./services/parlour');
 const { checkCooldown, setCooldown } = require('./utils/cooldowns');
 const { setClient, notifyError } = require('./utils/errorNotify');
 const { isSexualizedTextImage } = require('./services/textImageMod');
@@ -45,7 +41,7 @@ const { scheduleVideoWatch } = require('./services/youtube');
 const { scheduleUfcEvents } = require('./services/ufc');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
-const { getGuildConfig, guildIds, hasFeature, channelId, aiTitles } = require('./config/guilds');
+const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
 const {
   musicDenialReason,
   commandDenialReason,
@@ -64,11 +60,10 @@ const { schedulePlayerCount } = require('./services/zomboid/playerCount');
 const { watchDeletions } = require('./services/deletions');
 const { handleThreadCreate } = require('./services/forums/handler');
 const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
+const { askChatGPT } = require('./chat/discord');
+const { trimHistories } = require('./chat/respond');
 
 let lastInteractionTime = Date.now();
-const conversationHistory = new Map();
-// Per-user timers that fire a note-summarization pass 5 min after last exchange
-const summarizeTimers = new Map();
 // Per-user timers for the help channel — see queueHelpReply().
 const helpTimers = new Map();
 
@@ -88,90 +83,6 @@ const HELP_DEBOUNCE_MS = 4000;
  * ceiling he rarely reaches rather than an invitation to ramble.
  */
 const HELP_MAX_TOKENS = 800;
-
-/**
- * How many past entries of a conversation he is handed outside the parlour.
- *
- * Counted in entries, not exchanges — each turn stores two of them, the user's
- * line and his reply — so the old value of 5 was two and a half exchanges, and
- * he lost the thread of anything longer than a quick back-and-forth. Ten is
- * five full turns: enough to follow a conversation that develops, still far
- * short of the parlour's 20, which is his own room and priced accordingly.
- *
- * Cut from ten once the transcript existed, because the two overlap almost
- * entirely and he was being handed the same recent minutes twice — once as the
- * room's log and again as his own replayed turns. Weighted double like that,
- * the immediate past outweighed the question in front of him, and it showed:
- * asked what a word meant, he answered with who had used it and who had agreed.
- *
- * Four entries is two exchanges, which is all this needs to be now. The room is
- * carried by the transcript; what history adds on top is only the thread of
- * what HE said to THIS person, which the channel log alone can lose track of
- * when several conversations are interleaved.
- */
-const CHAT_HISTORY = 4;
-
-/**
- * Minimum gap between one person's AI replies.
- *
- * The slash-command cooldown never covered this path — talking to him by name
- * or in #help was unthrottled, and each reply is two billed requests. Six
- * seconds is longer than it takes to type a follow-up but shorter than a Grok
- * round-trip, so a real conversation never notices while a script hammering the
- * channel does. Measured from the start of the previous request, not the reply.
- */
-const AI_COOLDOWN_MS = 6000;
-const aiCooldowns = new Map(); // `${guildId}:${userId}` -> epoch ms of last request
-
-const SUMMARIZE_DELAY_MS = 5 * 60 * 1000; // 5 minutes idle before summarizing
-const SUMMARIZE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // once per 24 hours per user
-const SUMMARIZE_MIN_MESSAGES = 6; // minimum messages before bothering
-
-async function summarizeUserConversation(guildId, userId, username, history) {
-  // Require a meaningful conversation
-  if (!history || history.length < SUMMARIZE_MIN_MESSAGES) return;
-
-  // 24-hour cooldown per user
-  const activity = getUserActivity(guildId, userId);
-  const lastRun = activity.lastNoteSummary ? new Date(activity.lastNoteSummary).getTime() : 0;
-  if (Date.now() - lastRun < SUMMARIZE_COOLDOWN_MS) return;
-
-  try {
-    // Only send the last 6 messages (3 exchanges) to keep tokens low
-    const transcript = history
-      .slice(-6)
-      .map(m => `${m.role === 'user' ? username : 'Sheogorath'}: ${m.content}`)
-      .join('\n');
-
-    const { getAIResponse } = require('./ai/grok');
-    console.log(`[AutoNote] Running summarization for ${username} (${history.length} messages in history)`);
-    const raw = await getAIResponse(
-      `Based on this chat, write 1-2 short, brutally honest, NSFW and funny notes about "${username}". ` +
-      `Be crude, savage, and specific. No filter. ` +
-      `Return ONLY a JSON array of short strings. Example: ["Asks dumb questions after midnight", "Obsessed with UFC like a caveman"]\n\n${transcript}`,
-      { rawSystemPrompt: 'You are a crude, uncensored note-taker. Respond only with a valid JSON array of strings. No extra text.', maxTokens: 100 }
-    );
-    console.log(`[AutoNote] Raw response for ${username}:`, raw);
-
-    const jsonMatch = raw.match(/\[.*\]/s);
-    if (!jsonMatch) return;
-    const notes = JSON.parse(jsonMatch[0]);
-    if (!Array.isArray(notes)) return;
-
-    for (const note of notes) {
-      if (typeof note === 'string' && note.trim()) {
-        addUserNote(guildId, userId, note.trim());
-        addMemory(guildId, userId, note.trim(), 'auto-summary');
-      }
-    }
-
-    // Record the time so we don't run again for 24h
-    setUserActivity(guildId, userId, { lastNoteSummary: new Date().toISOString() });
-    console.log(`[AutoNote] Saved ${notes.length} note(s) and memories for ${username}`);
-  } catch (e) {
-    console.warn('[AutoNote] Summarization failed:', e?.message || e);
-  }
-}
 
 const requiredEnv = [
   'GROK_API_KEY',
@@ -388,13 +299,7 @@ client.once(Events.ClientReady, async () => {
     
     // If using >400MB, aggressively clear old conversation history
     if (heapUsedMB > 400) {
-      let cleared = 0;
-      for (const [key, history] of conversationHistory.entries()) {
-        if (history.length > 10) {
-          conversationHistory.set(key, history.slice(-10));
-          cleared++;
-        }
-      }
+      const cleared = trimHistories(10);
       if (cleared > 0) {
         console.log(`[Memory] High usage detected, cleared history for ${cleared} users`);
       }
@@ -1007,385 +912,6 @@ async function isReplyToMe(message) {
   }
 }
 
-/**
- * @param {import('discord.js').Message} userMessage the message to reply to
- * @param {object} [opts]
- * @param {string} [opts.contentOverride] text to answer instead of that
- *   message's own content — used by the help debounce, which has several
- *   messages' worth of question to hand and one message to reply to.
- * @param {number} [opts.maxTokens] override the reply ceiling. Left undefined
- *   everywhere but #help, so ordinary chat keeps the shared default.
- */
-async function askChatGPT(userMessage, { contentOverride = null, maxTokens = undefined } = {}) {
-  const cooldownKey = `${userMessage.guildId}:${userMessage.author.id}`;
-  const lastAsk = aiCooldowns.get(cooldownKey) || 0;
-  if (Date.now() - lastAsk < AI_COOLDOWN_MS) {
-    // Silently, deliberately: a "you are on cooldown" notice in #help is worse
-    // than the pause it is explaining, and the debounce already merges the
-    // bursts this would otherwise catch.
-    console.log(`[AI] Skipped ${userMessage.author.username} — within the ${AI_COOLDOWN_MS}ms cooldown.`);
-    return;
-  }
-  aiCooldowns.set(cooldownKey, Date.now());
-
-  // Keep the "is typing" indicator alive every 8s until we're done
-  userMessage.channel.sendTyping();
-  const typingInterval = setInterval(() => {
-    userMessage.channel.sendTyping().catch(() => {});
-  }, 8000);
-  
-  const userId = userMessage.author.id;
-  const guildId = userMessage.guildId;
-  // Keyed per guild so the same person talking in two servers gets two
-  // separate conversations rather than one bleeding into the other.
-  const historyKey = `${guildId}:${userId}`;
-  const history = conversationHistory.get(historyKey) || [];
-  const isHelpChannel = userMessage.channelId === channelId(guildId, 'help');
-  const inParlour = isParlour(guildId, userMessage.channelId);
-  // How much of the conversation he is handed, and how much room he gets to
-  // answer in. The parlour is the only place either is raised.
-  const historyDepth = inParlour ? PARLOUR_HISTORY : CHAT_HISTORY;
-  const replyTokens = inParlour ? PARLOUR_MAX_TOKENS : maxTokens;
-
-  console.log(`Processing AI request from ${userMessage.author.username} in channel ${userMessage.channelId}`);
-  
-  try {
-    // Clean up user mentions to use actual usernames
-    const sourceContent = contentOverride || userMessage.content;
-    let cleanedContent = sourceContent;
-    const mentionRegex = /<@!?(\d+)>/g;
-    const mentioned = [];
-    let match;
-    while ((match = mentionRegex.exec(sourceContent)) !== null) {
-      try {
-        const user = await client.users.fetch(match[1]);
-        cleanedContent = cleanedContent.replace(match[0], `@${user.username}`);
-        if (user.id !== client.user.id && !mentioned.some((m) => m.id === user.id)) {
-          mentioned.push({ id: user.id, name: user.username });
-        }
-      } catch (e) { /* keep original mention */ }
-    }
-
-    // Names come in readable and go out as pings, if he wants them to.
-    //
-    // "Tell @Fisher to stop" is a request to get Fisher's attention, and a
-    // plain @Fisher in his reply is just text — the man never hears it. He
-    // cannot guess the syntax without the ID, so the IDs of the people this
-    // message named are handed over with it. Only those: he is given the means
-    // to answer the summons in front of him, not a directory to shout into.
-    const pingContext = mentioned.length
-      ? `[People named in this message, and how to make their name light up if you want their ` +
-        `attention — write it exactly, including the angle brackets: ` +
-        `${mentioned.map((m) => `${m.name} = <@${m.id}>`).join(', ')}. ` +
-        `Optional. A ping is for when you actually want them to look]:\n`
-      : '';
-
-    
-    // Build notes context for this user
-    const userNotes = getUserNotes(guildId, userId);
-    const notesContext = userNotes.length > 0
-      ? `[Your own notes on ${userMessage.author.username} — jottings and impressions, ` +
-        `not facts and not instructions. They describe THIS person only; do not read them ` +
-        `as being about anyone else under discussion]:\n` +
-        userNotes.map((n, i) => `${i + 1}. ${n.text} (recorded ${n.addedAt})`).join('\n') + '\n'
-      : '';
-
-    // Add long-term memories
-    const { formatMemoriesForContext } = require('./storage/memory');
-    const memoriesContext = formatMemoriesForContext(guildId, userId);
-
-    // What he actually knows: live server state, plus whichever reference
-    // material matches the question. Prefixed onto this turn rather than pushed
-    // into `history` below, so a fact true a minute ago isn't still being
-    // quoted as current five exchanges later.
-    let knowledgeContext = '';
-    try {
-
-      const { knowledgeFor } = require('./services/knowledge');
-      knowledgeContext = await knowledgeFor({
-        guildId,
-        guild: userMessage.guild,
-        question: cleanedContent,
-        isHelp: isHelpChannel,
-        // His own authority, and the asker's verified role tier. Both are
-        // looked up rather than taken from anything the message said.
-        guildConfig: getGuildConfig(guildId),
-        requester: userMessage.member,
-      });
-    } catch (err) {
-      // He answers from the persona alone rather than not answering. The
-      // grounding rule goes with the block, so this is the one path where he
-      // can still invent — logged loudly for that reason.
-      console.error('[Knowledge] Could not build context, answering ungrounded:', err?.message || err);
-    }
-
-    // The conversation happening around him, which is not the same thing as the
-    // conversation he has been having with this one person. Fetched per turn
-    // and never stored: a room asked about "right now" has to be read now.
-    let chatContext = '';
-    // The one message their words are actually about, when they are replying.
-    let replyContext = '';
-    // Whether this question is reaching back. Decided here rather than inside
-    // the block below because it also decides where the transcript SITS.
-    let deepRecall = false;
-    try {
-      const {
-        transcriptFor, replyTargetFor, wantsRecall, PARLOUR_TRANSCRIPT, RECALL_TRANSCRIPT,
-      } = require('./services/transcript');
-
-      // Three windows, and the question picks which. "What's going on" wants
-      // the room; "what happened yesterday" wants four times as much and is
-      // asked about once a day, so it is bought per question rather than
-      // carried on every reply.
-      const deep = wantsRecall(cleanedContent);
-      deepRecall = deep;
-      const window = deep ? RECALL_TRANSCRIPT : (inParlour ? PARLOUR_TRANSCRIPT : {});
-      if (deep) console.log(`[Transcript] Deep recall for ${userMessage.author.username}`);
-
-      // Only a question that reaches back makes the log the subject. Everywhere
-      // else it is background he happens to have, and saying so is the
-      // difference between a bot that knows the room and one that cannot stop
-      // reciting it.
-      chatContext = await transcriptFor(userMessage, { ...window, asSubject: deep });
-
-      // Kept apart from the room, because the two belong at opposite ends of
-      // the prompt. The room is background; the message somebody is replying to
-      // is the thing their words are about, and when it travelled with the room
-      // to the far end he answered a reply by repeating his own last message —
-      // there was nothing near the question for him to answer.
-      replyContext = await replyTargetFor(userMessage);
-    } catch (err) {
-      console.warn('[Transcript] Skipped:', err?.message || err);
-    }
-
-    // What was taken back, and only when somebody is asking about it.
-    let deletionContext = '';
-    try {
-      const { deletionsFor } = require('./services/deletions');
-      deletionContext = deletionsFor(guildId, cleanedContent, userMessage.channelId);
-    } catch (err) {
-      console.warn('[Deletions] Skipped:', err?.message || err);
-    }
-
-    // Order is weight.
-    //
-    // Everything here is prefixed onto the turn, and what sits closest to the
-    // question pulls hardest on the answer — so the ordering is not
-    // housekeeping, it is how much each block matters. The transcript is the
-    // biggest by far and the least often relevant, and when it sat second he
-    // answered ordinary questions with the history of the conversation. It goes
-    // to the far end, where he can still hear the room without the room being
-    // the loudest thing in front of him.
-    //
-    // What ends up nearest the question is what bears on answering it: the
-    // server's facts and the grounding rule, then anything only present because
-    // it was asked for — the deletions block, and the IDs of people named in
-    // this message.
-    //
-    // Reversed when somebody asks him to look back, because then the log IS the
-    // question and belongs where the question is.
-    const blocks = deepRecall
-      ? [notesContext, memoriesContext, knowledgeContext, deletionContext, replyContext, pingContext, chatContext]
-      : [chatContext, notesContext, memoriesContext, knowledgeContext, deletionContext, replyContext, pingContext];
-    const prefix = blocks.filter(Boolean).join('\n');
-    const messages = [
-      ...history.slice(-historyDepth),
-      { role: 'user', content: prefix + (prefix ? '\n' : '') + cleanedContent }
-    ];
-    
-    const askOnce = (extraSuffix = '') => getAIResponseWithHistory(messages, replyTokens, {
-      // The persona's own "1-2 sentences max" is cut either way and replaced
-      // with the right length for the room: none at all in the parlour, a few
-      // sentences everywhere else. Someone who has gone to the trouble of
-      // addressing him deserves more than a punchline.
-      systemBase: inParlour ? parlourPersona() : conversationalPersona(),
-      systemSuffix: (inParlour ? PARLOUR_PROMPT : '') + extraSuffix,
-      // Which server he is standing in. Decides which powers he is told he has
-      // and what this guild calls the people above him.
-      guildId,
-    });
-
-    let assistantReply = await askOnce();
-
-    // Said it already? Ask once more, with that fact in front of him.
-    //
-    // Told not to repeat himself he still did, because when the context barely
-    // changes between two turns the most probable reply is the one he just
-    // gave. A prompt rule cannot outvote that; being shown the duplicate can.
-    // One retry only — a repeated message is worse than a fresh one and much
-    // better than silence, so the second answer goes out either way.
-    try {
-      const { isRepeat, retryNudge, previousReply, remember } = require('./ai/repetition');
-      const check = isRepeat(userMessage.channelId, assistantReply);
-      if (check.repeated) {
-        console.warn(`[Repetition] ${Math.round(check.score * 100)}% the same as his last — asking again.`);
-        const second = await askOnce(retryNudge(previousReply(userMessage.channelId)));
-        if (second && second.trim()) assistantReply = second;
-      }
-      remember(userMessage.channelId, assistantReply);
-    } catch (err) {
-      console.warn('[Repetition] Check skipped:', err?.message || err);
-    }
-
-    const raw = assistantReply && assistantReply.trim()
-      ? assistantReply
-      : "The Mad King contemplates your words... but finds them unworthy of a proper response. Try again, mortal!";
-
-    console.log('[AI Response]', raw.substring(0, 200)); // Log first 200 chars to see if actions are present
-
-    // Parse and execute any AI-initiated actions
-    const { cleanResponse, actions } = parseActions(raw);
-    let actionResults = [];
-    // Filled by executors with prose that should follow his reply rather than
-    // precede it — the early chronicle, mainly. Drained after sendReply.
-    const followUps = [];
-    if (actions.length > 0) {
-      console.log(`[Actions] Detected ${actions.length} action(s):`, actions.map(a => `${a.type} for ${a.userId || 'N/A'}`));
-      actionResults = await executeActions(actions, {
-        guild: userMessage.guild,
-        message: userMessage,
-        guildId,
-        followUps,
-        // Who Sheogorath is replying to, and their roles. The gate needs both:
-        // the first bounds who he may act on unasked, the second decides
-        // whether this person can point him at anyone else.
-        authorId: userMessage.author.id,
-        requester: userMessage.member,
-      });
-    }
-
-    // Final scrub — strip any remaining action tags regardless of parse result,
-    // and handle the edge case where cleanResponse came back empty (falls back
-    // to raw). Shared with actions.js so the two can't drift.
-    const finalReply = scrub(cleanResponse) || scrub(raw);
-
-    // Say what actually happened, in code rather than in the prompt.
-    //
-    // Told twice, in two different places, to say "I have asked" rather than
-    // "it is done" for anything held for approval, he kept announcing held
-    // actions as completed — "restarting in five minutes!" for a restart no
-    // Sheriff had approved yet. The gate already knows the verdict, so there is
-    // no reason to be asking the model to remember it. This appends the truth
-    // regardless of how he phrased it, as Discord subtext so it reads as a note
-    // rather than as him talking.
-    const proposed = actionResults.filter(r => r.verdict === 'propose');
-    const refused = actionResults.filter(r => r.verdict === 'deny');
-    const titles = aiTitles(getGuildConfig(guildId));
-    const notes = [];
-    if (proposed.length) {
-      notes.push(
-        `-# ⏳ Sent to the ${titles.approver}s for approval — **nothing has happened yet**. ` +
-        `${proposed.length === 1 ? 'It runs' : 'They run'} only once ${
-          titles.approver.match(/^[aeiou]/i) ? 'an' : 'a'} ${titles.approver} approves in the log channel.`,
-      );
-    }
-    if (refused.length) {
-      notes.push(`-# ⛔ Refused: ${refused.map(r => r.reason).join('; ')}.`);
-    }
-    // Allowed, attempted, and then it threw. Same reasoning as the two above:
-    // the model narrates what it intended, not what happened, so it will say
-    // "done" over the top of a Discord error every time. Left unsaid, a member
-    // is told they have been given something they have not, and goes looking
-    // for it — which is precisely how a failed title turned into four minutes
-    // of being told to reload Discord.
-    const failed = actionResults.filter(r => r.error);
-    if (failed.length) {
-      notes.push(`-# ⚠️ That did not work: ${failed.map(r => r.error).join('; ')}.`);
-    }
-    const sentReply = notes.length ? `${finalReply}\n\n${notes.join('\n')}` : finalReply;
-    
-    // Store conversation (keep last 15 exchanges)
-    history.push(
-      { role: 'user', content: cleanedContent },
-      { role: 'assistant', content: finalReply }
-    );
-    // Twice the depth he is handed, so the window can slide without the oldest
-    // turn vanishing the moment it is read.
-    const historyCap = historyDepth * 2;
-    if (history.length > historyCap) history.splice(0, history.length - historyCap);
-    conversationHistory.set(historyKey, history);
-
-    // Background memory extraction — fire-and-forget, no blocking.
-    //
-    // Skipped in #help: it is a second billed request on every single message,
-    // and a troubleshooting channel is the least likely place for someone to
-    // reveal a fact worth keeping. Halves the cost of the busiest channel.
-    if (!isHelpChannel) extractMemoryFromMessage(userMessage.author.username, cleanedContent).then(fact => {
-      if (fact) {
-        addMemory(guildId, userId, fact);
-        console.log(`[Memory] Auto-extracted for ${userMessage.author.username}: ${fact}`);
-      }
-    }).catch(() => {});
-
-    // Schedule a post-conversation note summarization (resets on each message)
-    if (summarizeTimers.has(historyKey)) clearTimeout(summarizeTimers.get(historyKey));
-    const snapHistory = [...history];
-    const snapUsername = userMessage.author.username;
-    summarizeTimers.set(historyKey, setTimeout(async () => {
-      summarizeTimers.delete(historyKey);
-      await summarizeUserConversation(guildId, userId, snapUsername, snapHistory);
-    }, SUMMARIZE_DELAY_MS));
-    
-    clearInterval(typingInterval);
-
-    await sendReply(userMessage.channel, sentReply);
-
-    // Anything an action produced for the channel goes out after he has spoken,
-    // so the introduction reads as an introduction.
-    for (const part of followUps) {
-      await userMessage.channel.send(part).catch(err =>
-        console.warn('[Actions] Could not post follow-up:', err.message));
-    }
-  } catch (error) {
-    clearInterval(typingInterval);
-
-    // Out of allowance is a decision, not a fault. It gets a straight answer in
-    // his own voice rather than an error card, and it is not reported as a
-    // crash — the owner already knows, having been told at 50, 80 and 95%.
-    if (isBudgetError(error)) {
-      console.log(`[AI] Refused — monthly budget spent: ${error.message}`);
-      const { approvers } = aiTitles(getGuildConfig(guildId));
-      await userMessage.reply(
-        "The Mad God's coffers are empty for this month, mortal. Even madness runs on coin. " +
-        `Go and pester the ${approvers} about my allowance.`,
-      ).catch(() => {});
-      return;
-    }
-
-    console.error('Error in askChatGPT:', error.message);
-    notifyError(`askChatGPT failed for ${userMessage.author.username}`, error);
-    await userMessage.reply('❌ An error occurred while trying to fetch the AI response. The Mad King is... temporarily indisposed.');
-  }
-
-  async function sendReply(channel, reply) {
-    // Split into 2000-char chunks if needed (Discord's limit)
-    const chunks = [];
-    let remaining = reply;
-    while (remaining.length > 0) {
-      if (remaining.length <= 2000) {
-        chunks.push(remaining);
-        break;
-      }
-      let splitAt = remaining.lastIndexOf('\n', 2000);
-      if (splitAt < 1000) splitAt = remaining.lastIndexOf(' ', 2000);
-      if (splitAt < 1000) splitAt = 2000;
-      chunks.push(remaining.slice(0, splitAt));
-      remaining = remaining.slice(splitAt).trimStart();
-    }
-    
-    for (let i = 0; i < chunks.length; i++) {
-      // People can be pinged; @everyone and role pings cannot. He is handed
-      // user IDs so he can answer "tell so-and-so..." properly, and talking him
-      // into a mass ping should not be one line of chat away.
-      const mentions = { allowedMentions: { parse: ['users'] } };
-      if (i === 0) {
-        await userMessage.reply({ content: chunks[i], ...mentions });
-      } else {
-        await channel.send({ content: chunks[i], ...mentions });
-      }
-    }
-  }
-}
 
 // Clean shutdown handler
 process.on('SIGINT', () => {

@@ -197,10 +197,18 @@ async function extractMemoryFromMessage(username, message) {
         messages: [
           {
             role: 'system',
-            content: 'You extract memorable personal facts from chat messages. ' +
+            content: 'You extract durable personal facts from chat messages. ' +
               'If the message reveals a personal fact, preference, event, hobby, job, relationship, goal, or opinion about the user, ' +
               'reply with ONE short sentence (max 15 words) stating that fact, written in third-person about "the user". ' +
-              'If there is nothing worth remembering, reply with exactly: NONE'
+              'If there is nothing worth remembering, reply with exactly: NONE\n\n' +
+              'Only keep what the user is genuinely telling you about themselves and what would ' +
+              'still be true and worth knowing weeks from now. Crude or sexual subject matter is ' +
+              'not itself a reason to reject a fact — someone stating a real preference counts. ' +
+              'But a line that is a move in a bit the room is currently running — a ranking, a ' +
+              'dare, a punchline, playing along with a joke premise, a claim about their own body ' +
+              'made mid-banter — is not a fact about the person, however sincerely it is phrased. ' +
+              'Those read as biography and are replayed back at the user forever, long after the ' +
+              'joke is dead. When a line only makes sense as part of the joke around it: NONE'
           },
           { role: 'user', content: `User "${username}" said: ${message}` }
         ],

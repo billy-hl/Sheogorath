@@ -25,7 +25,7 @@
  */
 const path = require('path');
 const { voiceModel, guardModel, voiceReply, guardCheck, GUARD_CATEGORIES } = require('./local');
-const { parseActions, scrub } = require('./actions');
+const { parseActions, scrub, ACTION_TYPES } = require('./actions');
 const { appendRecord, LOG_DIR } = require('../utils/auditLog');
 
 const LOG_FILE = path.join(LOG_DIR, 'ai-voice.jsonl');
@@ -94,6 +94,10 @@ const STOCK_REFUSAL = /\b(I (cannot|can't|can not|am unable to|won't be able to|
  *     single *word* mid-sentence is emphasis and keeps the word.
  *   - [Sheogorath squints at an imaginary scroll] — the same thing in brackets,
  *     on a line of its own. Action tags are left alone.
+ *   - [pin] [thread:1343] — half-written action tags, missing the "ACTION:"
+ *     the parser needs, so they did nothing and were posted as text.
+ *   - Closing questions. It ended nearly every reply with "How may I serve
+ *     you? Anything else?" — see trimClosingQuestions.
  */
 function tidy(text) {
   let t = text.trim();
@@ -101,8 +105,47 @@ function tidy(text) {
   t = t.replace(/^[ \t]*\*[^*\n]{1,80}\*[ \t]*/gm, '');
   t = t.replace(/\*([^*\n]{1,80})\*/g, (whole, inner) => (/\s/.test(inner.trim()) ? '' : inner));
   t = t.replace(/^\s*\[(?!\s*ACTION\b)[^\]\n]{3,200}\]\s*$/gim, '');
-  return t.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  t = t.replace(new RegExp(`\\[\\s*(${ACTION_TYPES})\\b[^\\]\\n]{0,80}\\]`, 'gi'), '');
+  t = t.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return trimClosingQuestions(t);
 }
+
+/**
+ * End on a statement. Told to ask fewer questions it still closed almost every
+ * reply with one, so any questions at the end are cut as long as something
+ * that isn't a question comes before them. Questions mid-reply are left alone,
+ * and a reply that is nothing but a question is sent as it is.
+ */
+function trimClosingQuestions(text) {
+  // Action tags are set aside first: a question followed by a tag would
+  // otherwise look like it wasn't the last thing said, and be left at the end
+  // once the tag is stripped for sending.
+  const tags = text.match(/\[ACTION:[^\]]+\]/g) || [];
+  const body = text.replace(/\s*\[ACTION:[^\]]+\]/g, '').trim();
+  const sentences = body.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [body];
+  // "Do share!" and "Tell Uncle Sheo what's wrong!" are the same closer
+  // without the question mark.
+  const isQ = (s) => /\?["')\]]*\s*$/.test(s)
+    || /^\s*(so,? |now,? |well,? )?(do |please )?(tell|share|spill|let me know|go on|speak up|enlighten)\b/i.test(s);
+  while (sentences.length > 1 && isQ(sentences[sentences.length - 1]) && sentences.some((s) => !isQ(s) && s.trim())) {
+    sentences.pop();
+  }
+  return [sentences.join('').trim(), ...tags].join(' ').trim();
+}
+
+/**
+ * Added to the system prompt for the local voice only. Grok does not need
+ * telling; Mag-Mell drifted into a servant's manners — "this humble Mad God",
+ * "Master", a question and an offer of service closing every reply.
+ */
+const LOCAL_STYLE = `
+
+HOW YOU SOUND. You are a god, not a servant. Never call anyone Master, never call
+yourself humble, and never offer to "serve", "cater to" or "assist" anyone. Do not
+end replies by asking what else they want. Ask at most one question in a reply,
+and only when you actually want the answer. Plenty of replies should end on a
+statement. Action tags are only ever written in full as [ACTION:type:...] — never
+[pin], [thread] or any other shorthand.`;
 
 /**
  * Names that appear as speakers in the room, so that "Mudcrab_Mike: hey
@@ -194,7 +237,7 @@ async function speak(opts) {
   // the CPU and the voice on the GPU, so doing both costs no extra wait. A
   // request the guard rejects throws the local reply away unread.
   const inputCheck = guardCheck([{ role: 'user', content: turnText }]).catch((err) => ({ error: err }));
-  const localReply = voiceReply(system, messages, maxTokens).catch((err) => ({ error: err }));
+  const localReply = voiceReply(system + LOCAL_STYLE, messages, maxTokens).catch((err) => ({ error: err }));
 
   const input = await inputCheck;
   if (input.error) return viaGrok(`guard unavailable: ${input.error.message}`);

@@ -93,7 +93,7 @@ const STOCK_REFUSAL = /\b(I (cannot|can't|can not|am unable to|won't be able to|
  *     when they are several words or open a line (*sneers* Oh, Mike...); a
  *     single *word* mid-sentence is emphasis and keeps the word.
  *   - [Sheogorath squints at an imaginary scroll] — the same thing in brackets,
- *     on a line of its own. Action tags are left alone.
+ *     on its own line or tacked onto the end of one. Action tags are left alone.
  *   - [pin] [thread:1343] — half-written action tags, missing the "ACTION:"
  *     the parser needs, so they did nothing and were posted as text.
  *   - Closing questions. It ended nearly every reply with "How may I serve
@@ -105,6 +105,7 @@ function tidy(text) {
   t = t.replace(/^[ \t]*\*[^*\n]{1,80}\*[ \t]*/gm, '');
   t = t.replace(/\*([^*\n]{1,80})\*/g, (whole, inner) => (/\s/.test(inner.trim()) ? '' : inner));
   t = t.replace(/^\s*\[(?!\s*ACTION\b)[^\]\n]{3,200}\]\s*$/gim, '');
+  t = t.replace(/\s*\[(?!\s*ACTION\b)(?=[^\]\n]*\s[^\]\n]*\s)[^\]\n]{3,200}\]/g, '');
   t = t.replace(new RegExp(`\\[\\s*(${ACTION_TYPES})\\b[^\\]\\n]{0,80}\\]`, 'gi'), '');
   t = t.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   return trimClosingQuestions(t);

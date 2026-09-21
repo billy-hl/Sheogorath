@@ -255,6 +255,9 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
         // The parlour is the only place either is raised.
         historyDepth: inParlour ? PARLOUR_HISTORY : CHAT_HISTORY,
         maxTokens: inParlour ? PARLOUR_MAX_TOKENS : maxTokens,
+        // #help stays on Grok: it is where a wrong answer costs someone the
+        // most, and the local voice invented facts in testing.
+        localVoice: !isHelpChannel && getGuildConfig(guildId)?.ai?.localVoice !== false,
       }),
       context: () => gatherContext(userMessage, { cleanedContent, ping, isHelpChannel, inParlour }),
       executeActions: (actions, { followUps }) => executeActions(actions, {

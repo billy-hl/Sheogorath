@@ -37,7 +37,8 @@
  * memories and conversation history hang off, so two surfaces sharing a
  * spaceId deliberately share a mind, and two that do not, do not.
  */
-const { getAIResponseWithHistory, getAIResponse, extractMemoryFromMessage } = require('../ai/grok');
+const { getAIResponseWithHistory, getAIResponse, extractMemoryFromMessage, buildSystemPrompt } = require('../ai/grok');
+const { speak } = require('../ai/voice');
 const { addMemory, formatMemoriesForContext } = require('../storage/memory');
 const {
   getUserNotes, addUserNote, getUserActivity, setUserActivity,
@@ -161,7 +162,7 @@ async function respond(turn, surface) {
 
   const {
     systemBase, systemSuffix = '', guildId = null,
-    historyDepth = CHAT_HISTORY, maxTokens,
+    historyDepth = CHAT_HISTORY, maxTokens, localVoice = false,
   } = surface.persona();
 
   const history = conversationHistory.get(key) || [];
@@ -219,13 +220,30 @@ async function respond(turn, surface) {
     { role: 'user', content: prefix + (prefix ? '\n' : '') + text },
   ];
 
-  const askOnce = (extraSuffix = '') => getAIResponseWithHistory(messages, maxTokens, {
+  const askGrok = (extraSuffix = '') => getAIResponseWithHistory(messages, maxTokens, {
     systemBase,
     systemSuffix: systemSuffix + extraSuffix,
     // Which server he is standing in, if he is standing in one. Decides which
     // powers he is told he has and what that place calls the people above him.
     guildId,
   });
+
+  // The local voice speaks when the surface allows it and the turn passes
+  // ai/voice.js's checks; Grok answers everything else. A catch-me-up question
+  // always goes to Grok — it is a question about facts in the log, and the
+  // local model's recaps got people and details wrong.
+  const askOnce = (extraSuffix = '') => speak({
+    system: buildSystemPrompt(systemBase, systemSuffix + extraSuffix, guildId),
+    messages,
+    maxTokens: maxTokens || 500,
+    turnText: text,
+    replyBlock: blocks.reply || '',
+    chatBlock: blocks.chat || '',
+    username,
+    allowLocal: localVoice && !deepRecall,
+    where: `${spaceId}/${roomId}`,
+    askGrok: () => askGrok(extraSuffix),
+  }).then((r) => r.text);
 
   let assistantReply = await askOnce();
 

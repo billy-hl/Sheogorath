@@ -139,6 +139,9 @@ function normalizeGuild(id, raw) {
         staff: typeof raw.ai?.titles?.staff === 'string' ? raw.ai.titles.staff.trim() : null,
         veteran: typeof raw.ai?.titles?.veteran === 'string' ? raw.ai.titles.veteran.trim() : null,
       },
+      // Whether the local voice (ai/voice.js) may speak here. On unless a guild
+      // says `false` — and nowhere at all unless LOCAL_VOICE_MODEL is set.
+      localVoice: raw.ai?.localVoice !== false,
     },
     // Roles members may give themselves from a button, and the only roles a
     // self-assign button is ever allowed to grant. Anything not on this list is

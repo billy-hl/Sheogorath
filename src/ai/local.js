@@ -142,11 +142,19 @@ const GUARD_CATEGORIES = {
  * of every other message. What is enforced is real-world harm: instructions
  * that would work, hate aimed at people, anything sexual involving minors,
  * doxxing, and self-harm. Overridable with LOCAL_GUARD_BLOCK=S1,S2,...
+ *
+ * Replies are held to the same list minus S1. On his own words the 1B guard
+ * called violent crimes on things like him agreeing to call someone "Warden";
+ * a request for real violence is still caught on the way in, before he
+ * answers. Overridable separately with LOCAL_GUARD_BLOCK_REPLY.
  */
-function blockedCategories() {
-  const raw = process.env.LOCAL_GUARD_BLOCK;
+function blockedCategories(kind = 'request') {
+  const raw = kind === 'reply'
+    ? process.env.LOCAL_GUARD_BLOCK_REPLY ?? process.env.LOCAL_GUARD_BLOCK
+    : process.env.LOCAL_GUARD_BLOCK;
   if (raw) return new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean));
-  return new Set(['S1', 'S2', 'S3', 'S4', 'S7', 'S9', 'S10', 'S11']);
+  const all = ['S1', 'S2', 'S3', 'S4', 'S7', 'S9', 'S10', 'S11'];
+  return new Set(kind === 'reply' ? all.filter((c) => c !== 'S1') : all);
 }
 
 /**
@@ -175,7 +183,8 @@ async function guardCheck(turns) {
   }, 20000);
   const out = (data.message?.content || '').trim().toLowerCase();
   const categories = (out.match(/s\d{1,2}/g) || []).map((s) => s.toUpperCase());
-  const block = blockedCategories();
+  // The last turn decides which list applies: a reply ends with his words.
+  const block = blockedCategories(turns[turns.length - 1]?.role === 'assistant' ? 'reply' : 'request');
   const blocking = categories.filter((c) => block.has(c));
   return { safe: !out.startsWith('unsafe') || blocking.length === 0, categories, blocking };
 }

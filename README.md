@@ -15,6 +15,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **Community Forums**: Managed suggestion and mod-request forums with vote reactions, duplicate detection, and automatic Steam Workshop vetting of requested mods.
 - **Moderation**: Discord native AutoMod rules, an Ollama-backed filter for sexual ASCII/Unicode text art that keyword rules can't catch, and Sheogorath himself acting as a moderator — everything he decides to do passes through a permission gate that either performs it, holds it for a Sheriff to approve, or refuses it.
 - **Instagram Mirroring**: Reels posted in chat are downloaded and re-uploaded natively, compressed to the guild's boost-tier attachment limit.
+- **X/Twitter Mirroring**: Video from posted X links is downloaded with yt-dlp and re-uploaded the same way. Text and photo posts are left to Discord's own embed.
 
 ## Getting Started
 
@@ -368,7 +369,7 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `zomboid`, `forums`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `zomboid`, `forums`.
 
 ## Contributing
 

@@ -32,6 +32,7 @@ const FEATURES = [
   'music',        // playback, queue, radio — admin-only wherever it's enabled
   'moderation',   // /mod and /stats
   'instagram',    // auto-download of posted Instagram links
+  'twitter',      // auto-download of video from posted X/Twitter links
   'textImageMod', // Ollama-backed ASCII/Unicode explicit-art filter
   'automod',      // Discord native AutoMod rule management, /automod
   'zomboid',      // Project Zomboid server integration

@@ -26,6 +26,7 @@ const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const { setUserActivity } = require('./storage/state');
 const { handleInstagramLinks } = require('./services/instagram');
+const { handleTwitterLinks } = require('./services/twitter');
 const { stopPlaying } = require('./music/player');
 const { isApprovalButton, handleApprovalButton } = require('./ai/approvals');
 const { setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
@@ -342,6 +343,11 @@ client.on('messageCreate', async (message) => {
   // Instagram video downloader
   if (hasFeature(guildId, 'instagram')) {
     await handleInstagramLinks(message);
+  }
+
+  // X/Twitter video downloader
+  if (hasFeature(guildId, 'twitter')) {
+    await handleTwitterLinks(message);
   }
 
   // Mod requests used to be vetted here, on every message in the text channel.

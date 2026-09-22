@@ -10,6 +10,15 @@ straight out of `#rules` and `#server-info`. A copy in this directory would go
 stale the first time one is edited and not the other, and the stale copy is the
 one he'd quote.
 
+## Lore
+
+The `lore-*.md` files are what he knows about himself: who he is, what he looks
+like, his realm, his favourite things, the other Princes. They exist because
+the persona never said, and the model filled the gap by making things up (at
+one point, that he has no body). If he gets something about himself wrong,
+fix it here, and put the words people actually use in `tags:`. His own names
+(Sheogorath, Sheo, Mad God) are ignored for matching, so don't rely on them.
+
 ## Format
 
 One file per subject. The first `# heading` is the title, and matches count for

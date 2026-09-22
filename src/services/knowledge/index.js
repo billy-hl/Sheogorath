@@ -27,6 +27,9 @@ const STOPWORDS = new Set([
   'who', 'does', 'did', 'get', 'got', 'any', 'all', 'its', 'his', 'her', 'they',
   'there', 'here', 'from', 'about', 'would', 'could', 'should', 'been', 'into',
   'just', 'like', 'know', 'need', 'want', 'help', 'please', 'someone', 'anyone',
+  // His own names. Nearly every message to him contains one, so they match the
+  // lore pages on every turn and tell retrieval nothing about the question.
+  'sheogorath', 'sheogorathapp', 'sheo', 'uncle', 'mad', 'god',
 ]);
 
 /** Total characters of retrieved documents allowed into one prompt. */

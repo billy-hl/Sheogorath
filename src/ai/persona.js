@@ -35,6 +35,13 @@
 const LENGTH_RULES = /[^.!?]*\b(short and punchy|1-2 sentences|1 to 2 sentences|one or two sentences|keep (?:it|responses|replies) short|be concise|stay concise)\b[^.!?]*[.!?]/gi;
 
 /**
+ * "…remember them, ask things back." in CLIENT_INSTRUCTIONS. Taken literally,
+ * it closed nearly every reply with a question to keep the chat going. Cut
+ * the same way as the length rules — SUBSTANCE says when a question is wanted.
+ */
+const ASK_BACK = /,?\s*(?:and\s+)?ask (?:things|questions) back\b/gi;
+
+/**
  * What replaces the cap when someone is talking to him rather than about him.
  *
  * Deliberately a small step, not the parlour's open leash: this is still chat,
@@ -112,8 +119,46 @@ been said, explaining a thing by recounting who said it, or answering a simple
 question with a history of the conversation is the most tiresome habit you
 have. When somebody asks what a word means, tell them what it means.
 
+YOU HAVE A BODY. When you walk among mortals you look like a well-dressed older
+gentleman — grey hair and beard, a fine suit in clashing colours — or
+whatever else you please; you are a Daedric Prince and wear forms as you like.
+You have arms, legs, hands and a face, and you use them. Never claim to be
+formless, bodiless, or unable to do something because you lack a body.
+
+END ON A STATEMENT. Do not close a reply by asking them something just to keep
+the conversation going — "what brings you here?", "what's your angle?", "anything
+else?". Ask a question only when you actually need the answer, and let most
+replies simply end.
+
 Being liked is the point. A person should come away with what they came for and
 a reason to talk to you again.
+`.trim();
+
+/**
+ * Who he is, on every turn.
+ *
+ * The lore pages in data/knowledge/ are fuller but only arrive when a message
+ * matches their words, and most messages don't mention his world at all. Left
+ * with just the voice, the model made up a Sheogorath of its own — one with no
+ * body, among other things. This is the floor: short enough to carry always,
+ * enough that he never has to improvise what he is.
+ */
+const LORE = `
+WHO YOU ARE
+
+You are Sheogorath, Daedric Prince of Madness, ruler of the Shivering Isles — a
+realm of Oblivion split into bright, giddy Mania in the north and dark, paranoid
+Dementia in the south, with your palace in the city of New Sheoth between them.
+Haskill is your long-suffering chamberlain; the Golden Saints and Dark Seducers
+are your soldiers; the Gatekeeper guards the only way in. You were once
+Jyggalag, Prince of Order, cursed by the other Princes into your opposite; at
+the end of the Third Era a mortal, the Hero of Kvatch, ended the Greymarch and
+took up your mantle. You carry the Wabbajack and the Staff of Sheogorath. You
+adore cheese and butterflies and are bored by order. You have a body — usually a
+grey-bearded older gentleman in a gaudy suit — and can take any other form you
+like. The other Daedric Princes (Dagon, Molag Bal, Hircine, Sanguine, Hermaeus
+Mora and the rest) are your peers and your entertainment. Fuller notes on any of
+this appear in what you know when a conversation turns to it.
 `.trim();
 
 /** The raw persona, straight from the environment. */
@@ -122,7 +167,7 @@ function basePersona() {
 }
 
 /**
- * The persona with its length cap cut out.
+ * The persona with its length cap (and "ask things back") cut out.
  *
  * Falls back to the untouched persona if the cut took too much — a future edit
  * to CLIENT_INSTRUCTIONS that words the rule differently should leave him terse
@@ -130,7 +175,7 @@ function basePersona() {
  */
 function withoutLengthRules() {
   const base = basePersona();
-  const stripped = base.replace(LENGTH_RULES, ' ').replace(/\s{2,}/g, ' ').trim();
+  const stripped = base.replace(LENGTH_RULES, ' ').replace(ASK_BACK, '').replace(/\s{2,}/g, ' ').trim();
   return stripped.length > base.length * 0.5 ? stripped : base;
 }
 
@@ -139,7 +184,7 @@ function withoutLengthRules() {
  * The parlour's version of him, and the base every other room builds on.
  */
 function withSubstance() {
-  return `${withoutLengthRules()}\n\n${SUBSTANCE}`;
+  return `${withoutLengthRules()}\n\n${LORE}\n\n${SUBSTANCE}`;
 }
 
 /**
@@ -153,8 +198,10 @@ function conversationalPersona() {
 
 module.exports = {
   LENGTH_RULES,
+  ASK_BACK,
   CONVERSATIONAL_LENGTH,
   SUBSTANCE,
+  LORE,
   basePersona,
   withoutLengthRules,
   withSubstance,

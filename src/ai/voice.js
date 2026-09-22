@@ -116,6 +116,14 @@ function tidy(text) {
  * reply with one, so any questions at the end are cut as long as something
  * that isn't a question comes before them. Questions mid-reply are left alone,
  * and a reply that is nothing but a question is sent as it is.
+ *
+ * Two dodges it found once the bare question was cut:
+ *   - A wish tacked on after the question — "What brings you here, hmm? I do
+ *     hope it's something wicked!" — so the question was no longer last. The
+ *     wish goes with the question it follows.
+ *   - Servant talk — "always ready and eager to serve my beloved Master" —
+ *     which the style note forbids and it wrote anyway. Those sentences are
+ *     dropped wherever they sit, as long as something else is left.
  */
 function trimClosingQuestions(text) {
   // Action tags are set aside first: a question followed by a tag would
@@ -123,13 +131,23 @@ function trimClosingQuestions(text) {
   // once the tag is stripped for sending.
   const tags = text.match(/\[ACTION:[^\]]+\]/g) || [];
   const body = text.replace(/\s*\[ACTION:[^\]]+\]/g, '').trim();
-  const sentences = body.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [body];
+  let sentences = body.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [body];
   // "Do share!" and "Tell Uncle Sheo what's wrong!" are the same closer
   // without the question mark.
   const isQ = (s) => /\?["')\]]*\s*$/.test(s)
     || /^\s*(so,? |now,? |well,? )?(do |please )?(tell|share|spill|let me know|go on|speak up|enlighten)\b/i.test(s);
-  while (sentences.length > 1 && isQ(sentences[sentences.length - 1]) && sentences.some((s) => !isQ(s) && s.trim())) {
-    sentences.pop();
+  const isWish = (s) => /^\s*((I|we) (do |so |really )?(hope|trust|wager|bet|imagine|expect)|hopefully|surely|pray)\b/i.test(s);
+  const isServile = (s) => /\b(my|beloved|dear|great) (master|creator|lord)\b|\b(serve|assist|cater to) (you|my|thee)\b|\b(eager|ready|here|happy|delighted|live) to (serve|assist|please)\b|\bhumble (mad god|servant|self)\b|\byour (humble |loyal |devoted )?servant\b/i.test(s);
+
+  const kept = sentences.filter((s) => !isServile(s));
+  if (kept.some((s) => s.trim())) sentences = kept;
+
+  const statementBefore = (upTo) => sentences.slice(0, upTo).some((s) => s.trim() && !isQ(s) && !isWish(s));
+  for (;;) {
+    const n = sentences.length;
+    if (n > 1 && isQ(sentences[n - 1]) && statementBefore(n - 1)) sentences.pop();
+    else if (n > 2 && isWish(sentences[n - 1]) && isQ(sentences[n - 2]) && statementBefore(n - 2)) sentences.splice(n - 2);
+    else break;
   }
   return [sentences.join('').trim(), ...tags].join(' ').trim();
 }
@@ -220,7 +238,11 @@ async function speak(opts) {
   const started = Date.now();
 
   const viaGrok = async (reason, extra = {}) => {
-    const text = await askGrok();
+    // Grok closes on a question too, and in a chat room it's the same person
+    // reading either way. Rooms that don't allow the local voice (#help,
+    // catch-me-up) keep their questions — there, "which version are you on?"
+    // is often the useful part.
+    const text = allowLocal ? trimClosingQuestions(await askGrok()) : await askGrok();
     log({ where, engine: 'grok', reason, ms: Date.now() - started, ...extra });
     if (reason !== 'local voice off') console.log(`[Voice] Grok answered: ${reason}`);
     return { text, engine: 'grok', reason };

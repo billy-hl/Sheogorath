@@ -81,6 +81,10 @@
         {
           "appId": 899770,
           "name": "Last Epoch"
+        },
+        {
+          "appId": 2272360,
+          "name": "Dawn of War IV"
         }
       ],
       "events": [
@@ -110,6 +114,15 @@
           "hours": 4,
           "location": "World of Warcraft: Forever",
           "description": "Blizzard's reimagined take on original World of Warcraft, built around the journey and discovery through Azeroth, with years of planned growth.\n\nStart time confirmed by Blizzard: 3:00 p.m. PST."
+        },
+        {
+          "key": "dow4-launch",
+          "name": "Warhammer 40,000: Dawn of War IV launch",
+          "appId": 2272360,
+          "start": "2026-12-03T17:00:00Z",
+          "hours": 4,
+          "location": "Dawn of War IV",
+          "description": "The return of the RTS series on Kronus: Space Marines, Orks, Necrons and Adeptus Mechanicus, with Crusade mode back. Commander Edition owners get in from 30 November with the 3-day early unlock.\n\nThe date is confirmed. The time is a guess based on Steam's usual 10am Pacific unlock."
         },
         {
           "key": "poe2-1.0",

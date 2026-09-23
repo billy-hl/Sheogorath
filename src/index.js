@@ -40,6 +40,7 @@ const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./serv
 const { scheduleStreamWatch } = require('./services/twitch');
 const { scheduleVideoWatch } = require('./services/youtube');
 const { scheduleUfcEvents } = require('./services/ufc');
+const { scheduleGameNews } = require('./services/gameNews');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
@@ -224,6 +225,13 @@ client.once(Events.ClientReady, async () => {
     scheduleVideoWatch(client);
   } catch (err) {
     console.error('[YouTube] Failed to schedule video watch:', err?.message || err);
+  }
+
+  // Game news, rare sales and hand-listed game dates for #game-updates.
+  try {
+    scheduleGameNews(client);
+  } catch (err) {
+    console.error('[GameNews] Failed to schedule game news:', err?.message || err);
   }
 
   // Weekly UFC card events. Same isolation: ESPN being down is not a boot failure.

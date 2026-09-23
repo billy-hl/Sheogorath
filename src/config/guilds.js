@@ -200,6 +200,53 @@ function normalizeGuild(id, raw) {
             }))
         : [],
     } : null,
+    // Steam announcements into `channel`, plus hand-listed dates (a wipe, a
+    // season launch) as scheduled events (services/gameNews.js). An event with
+    // no `voiceChannel` is External, and Discord then needs `location` and an
+    // end, so `hours` defaults to 4.
+    gameNews: raw.gameNews && typeof raw.gameNews === 'object' && raw.gameNews.channel ? {
+      channel: raw.gameNews.channel,
+      pingRole: raw.gameNews.pingRole || null,
+      pollMinutes: Number(raw.gameNews.pollMinutes) > 0 ? Number(raw.gameNews.pollMinutes) : 30,
+      steamApps: Array.isArray(raw.gameNews.steamApps)
+        ? raw.gameNews.steamApps
+            .filter((a) => a && /^\d+$/.test(String(a.appId || '')))
+            .map((a) => ({ appId: String(a.appId), name: typeof a.name === 'string' && a.name.trim() ? a.name.trim() : `App ${a.appId}` }))
+        : [],
+      events: Array.isArray(raw.gameNews.events)
+        ? raw.gameNews.events
+            .filter((e) => e && typeof e.key === 'string' && typeof e.name === 'string'
+              && !Number.isNaN(new Date(e.start).getTime()))
+            .map((e) => {
+              const start = new Date(e.start);
+              const hours = Number(e.hours) > 0 ? Number(e.hours) : 4;
+              return {
+                key: e.key,
+                name: e.name.slice(0, 100),
+                description: typeof e.description === 'string' ? e.description.slice(0, 1000) : null,
+                start,
+                end: new Date(start.getTime() + hours * 3600 * 1000),
+                location: typeof e.location === 'string' && e.location.trim() ? e.location.trim().slice(0, 100) : 'Online',
+                voiceChannel: e.voiceChannel || null,
+              };
+            })
+        : [],
+      // Rare sales. Absent means none are posted. `stores` are CheapShark ids
+      // (1 Steam, 7 GOG, 25 Epic).
+      deals: raw.gameNews.deals && typeof raw.gameNews.deals === 'object' ? (() => {
+        const d = raw.gameNews.deals;
+        const num = (v, dflt) => (Number(v) >= 0 && v !== null && v !== '' ? Number(v) : dflt);
+        return {
+          stores: Array.isArray(d.stores) && d.stores.length ? d.stores.map(String) : ['1'],
+          pollMinutes: num(d.pollMinutes, 180) || 180,
+          minSavings: num(d.minSavings, 60),
+          minNormalPrice: num(d.minNormalPrice, 20),
+          minRating: num(d.minRating, 85),
+          minReviews: num(d.minReviews, 2000),
+          maxPerDay: num(d.maxPerDay, 4),
+        };
+      })() : null,
+    } : null,
     // Weekly UFC and Contender Series events (services/ufc.js). `voiceChannel`
     // is where the event is held; `channel` gets a link when one is created.
     ufc: raw.ufc && typeof raw.ufc === 'object' ? {

@@ -111,8 +111,7 @@
       ],
       "deals": {
         "stores": [
-          "1",
-          "25"
+          "1"
         ],
         "pollMinutes": 180,
         "minSavings": 60,

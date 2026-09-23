@@ -234,7 +234,7 @@ function normalizeGuild(id, raw) {
             })
         : [],
       // Rare sales. Absent means none are posted. `stores` are CheapShark ids
-      // (1 Steam, 7 GOG, 25 Epic).
+      // (1 Steam, 7 GOG, 25 Epic); default Steam only.
       deals: raw.gameNews.deals && typeof raw.gameNews.deals === 'object' ? (() => {
         const d = raw.gameNews.deals;
         const num = (v, dflt) => (Number(v) >= 0 && v !== null && v !== '' ? Number(v) : dflt);

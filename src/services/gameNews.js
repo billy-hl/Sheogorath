@@ -267,8 +267,9 @@ async function syncEvents(client, guild, cfg) {
       setGuildState(guildId, { gameEvents: kept });
       console.log(`[GameNews] ${guildId}: created event "${ev.name}".`);
 
-      const channel = await client.channels.fetch(cfg.channel).catch(() => null);
+      const channel = await client.channels.fetch(cfg.eventsChannel).catch(() => null);
       if (channel) await channel.send({ content: created.url, allowedMentions: { parse: [] } });
+      else console.warn(`[GameNews] ${guildId}: events channel ${cfg.eventsChannel} is unreachable.`);
     } catch (err) {
       console.warn(`[GameNews] ${guildId}: event "${ev.name}" failed: ${err?.message || err}`);
     }

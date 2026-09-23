@@ -66,6 +66,7 @@
     },
     "gameNews": {
       "channel": "991703618849878026",
+      "eventsChannel": "380486887309180929",
       "pingRole": null,
       "pollMinutes": 30,
       "steamApps": [

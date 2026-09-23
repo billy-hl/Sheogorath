@@ -206,6 +206,8 @@ function normalizeGuild(id, raw) {
     // end, so `hours` defaults to 4.
     gameNews: raw.gameNews && typeof raw.gameNews === 'object' && raw.gameNews.channel ? {
       channel: raw.gameNews.channel,
+      // Where a new event's link is posted. Defaults to the news channel.
+      eventsChannel: raw.gameNews.eventsChannel || raw.gameNews.channel,
       pingRole: raw.gameNews.pingRole || null,
       pollMinutes: Number(raw.gameNews.pollMinutes) > 0 ? Number(raw.gameNews.pollMinutes) : 30,
       steamApps: Array.isArray(raw.gameNews.steamApps)

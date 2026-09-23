@@ -220,6 +220,27 @@ async function pollDeals(client, guildId, cfg) {
   setGuildState(guildId, { gameDealsSeen: seen, gameDealsDay: day, gameDealsToday: today });
 }
 
+/**
+ * An event's cover: its game's Steam header art, as a Buffer, or null. The
+ * address comes from the store API because newer games keep their art under a
+ * hashed path that cannot be guessed from the app id.
+ */
+async function coverArt(appId, guildId) {
+  if (!appId) return null;
+  try {
+    const res = await axios.get('https://store.steampowered.com/api/appdetails', {
+      params: { appids: appId, filters: 'basic' }, timeout: 15000,
+    });
+    const url = res.data?.[appId]?.data?.header_image;
+    if (!url) return null;
+    const img = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
+    return Buffer.from(img.data);
+  } catch (err) {
+    console.warn(`[GameNews] ${guildId}: no cover art for app ${appId}: ${err?.message || err}`);
+    return null;
+  }
+}
+
 function eventFields(ev) {
   const base = { name: ev.name, description: ev.description || undefined, scheduledStartTime: ev.start };
   if (ev.voiceChannel) return { ...base, channel: ev.voiceChannel };
@@ -248,15 +269,19 @@ async function syncEvents(client, guild, cfg) {
           || (fields.channel ? existing.channelId !== fields.channel
             : existing.scheduledEndTimestamp !== fields.scheduledEndTime.getTime()
               || existing.entityMetadata?.location !== fields.entityMetadata.location);
-        if (changed) {
-          await existing.edit(fields);
-          console.log(`[GameNews] ${guildId}: updated event "${ev.name}".`);
+        // A missing cover is looked for again on every sync until one turns up.
+        const image = existing.image ? null : await coverArt(ev.appId, guildId);
+        if (changed || image) {
+          await existing.edit(image ? { ...fields, image } : fields);
+          console.log(`[GameNews] ${guildId}: updated event "${ev.name}"${image ? ' with its cover' : ''}.`);
         }
         continue;
       }
 
+      const image = await coverArt(ev.appId, guildId);
       const created = await guild.scheduledEvents.create({
         ...fields,
+        ...(image ? { image } : {}),
         privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
         entityType: ev.voiceChannel ? GuildScheduledEventEntityType.Voice : GuildScheduledEventEntityType.External,
       });

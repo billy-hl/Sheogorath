@@ -230,6 +230,8 @@ function normalizeGuild(id, raw) {
                 end: new Date(start.getTime() + hours * 3600 * 1000),
                 location: typeof e.location === 'string' && e.location.trim() ? e.location.trim().slice(0, 100) : 'Online',
                 voiceChannel: e.voiceChannel || null,
+                // Steam app whose header art becomes the event's cover.
+                appId: /^\d+$/.test(String(e.appId || '')) ? String(e.appId) : null,
               };
             })
         : [],

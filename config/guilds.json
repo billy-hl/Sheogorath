@@ -87,6 +87,7 @@
         {
           "key": "lastepoch-s5",
           "name": "Last Epoch Season 5: Rage of the Frostborn",
+          "appId": 899770,
           "start": "2026-10-01T16:00:00Z",
           "hours": 4,
           "location": "Last Epoch",
@@ -95,6 +96,7 @@
         {
           "key": "wardogs-s2-wipe",
           "name": "Wardogs Season 02: the wipe",
+          "appId": 1867240,
           "start": "2026-10-15T16:00:00Z",
           "hours": 4,
           "location": "Wardogs",
@@ -103,6 +105,7 @@
         {
           "key": "poe2-1.0",
           "name": "Path of Exile 2: 1.0 launch",
+          "appId": 2694490,
           "start": "2026-12-11T21:00:00Z",
           "hours": 4,
           "location": "Path of Exile 2",

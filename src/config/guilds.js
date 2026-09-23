@@ -232,6 +232,8 @@ function normalizeGuild(id, raw) {
                 voiceChannel: e.voiceChannel || null,
                 // Steam app whose header art becomes the event's cover.
                 appId: /^\d+$/.test(String(e.appId || '')) ? String(e.appId) : null,
+                // Cover image address for a game not on Steam; wins over appId.
+                image: typeof e.image === 'string' && /^https:\/\//.test(e.image) ? e.image : null,
               };
             })
         : [],

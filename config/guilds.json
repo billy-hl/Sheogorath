@@ -103,6 +103,15 @@
           "description": "Season 02 and a full progression wipe. Cash and XP reset, and unspent Cash converts to Gold Bars. Gold Bars and cosmetics stay. Heavy rain arrives with it.\n\nThe date is confirmed. The time is a guess based on Season 1's 16:00 UTC launch and will be corrected when BULKHEAD announces it."
         },
         {
+          "key": "wow-forever",
+          "name": "World of Warcraft: Forever launch",
+          "image": "https://bnetcmsus-a.akamaihd.net/cms/blog_header/4f/4FC5K327AVF01789243118942.png",
+          "start": "2026-11-04T23:00:00Z",
+          "hours": 4,
+          "location": "World of Warcraft: Forever",
+          "description": "Blizzard's reimagined take on original World of Warcraft, built around the journey and discovery through Azeroth, with years of planned growth.\n\nStart time confirmed by Blizzard: 3:00 p.m. PST."
+        },
+        {
           "key": "poe2-1.0",
           "name": "Path of Exile 2: 1.0 launch",
           "appId": 2694490,

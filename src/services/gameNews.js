@@ -221,22 +221,26 @@ async function pollDeals(client, guildId, cfg) {
 }
 
 /**
- * An event's cover: its game's Steam header art, as a Buffer, or null. The
+ * An event's cover, as a Buffer, or null: the configured `image` if there is
+ * one (a game not on Steam), otherwise its Steam game's header art. The Steam
  * address comes from the store API because newer games keep their art under a
  * hashed path that cannot be guessed from the app id.
  */
-async function coverArt(appId, guildId) {
-  if (!appId) return null;
+async function coverArt(ev, guildId) {
+  if (!ev.image && !ev.appId) return null;
   try {
-    const res = await axios.get('https://store.steampowered.com/api/appdetails', {
-      params: { appids: appId, filters: 'basic' }, timeout: 15000,
-    });
-    const url = res.data?.[appId]?.data?.header_image;
+    let url = ev.image;
+    if (!url) {
+      const res = await axios.get('https://store.steampowered.com/api/appdetails', {
+        params: { appids: ev.appId, filters: 'basic' }, timeout: 15000,
+      });
+      url = res.data?.[ev.appId]?.data?.header_image;
+    }
     if (!url) return null;
     const img = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
     return Buffer.from(img.data);
   } catch (err) {
-    console.warn(`[GameNews] ${guildId}: no cover art for app ${appId}: ${err?.message || err}`);
+    console.warn(`[GameNews] ${guildId}: no cover art for "${ev.name}": ${err?.message || err}`);
     return null;
   }
 }
@@ -270,7 +274,7 @@ async function syncEvents(client, guild, cfg) {
             : existing.scheduledEndTimestamp !== fields.scheduledEndTime.getTime()
               || existing.entityMetadata?.location !== fields.entityMetadata.location);
         // A missing cover is looked for again on every sync until one turns up.
-        const image = existing.image ? null : await coverArt(ev.appId, guildId);
+        const image = existing.image ? null : await coverArt(ev, guildId);
         if (changed || image) {
           await existing.edit(image ? { ...fields, image } : fields);
           console.log(`[GameNews] ${guildId}: updated event "${ev.name}"${image ? ' with its cover' : ''}.`);
@@ -278,7 +282,7 @@ async function syncEvents(client, guild, cfg) {
         continue;
       }
 
-      const image = await coverArt(ev.appId, guildId);
+      const image = await coverArt(ev, guildId);
       const created = await guild.scheduledEvents.create({
         ...fields,
         ...(image ? { image } : {}),

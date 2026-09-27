@@ -254,10 +254,13 @@ function normalizeGuild(id, raw) {
       })() : null,
     } : null,
     // Weekly UFC and Contender Series events (services/ufc.js). `voiceChannel`
-    // is where the event is held; `channel` gets a link when one is created.
+    // is where the event is held; `channel` gets a link when one is created, and
+    // word when the post-fight press conference goes live (services/ufcPresser.js).
     ufc: raw.ufc && typeof raw.ufc === 'object' ? {
       channel: raw.ufc.channel || null,
       voiceChannel: raw.ufc.voiceChannel || null,
+      // Pinged when the post-fight press conference goes live. Null pings nobody.
+      pingRole: raw.ufc.pingRole || null,
     } : null,
     // Join-to-create voice rooms. `lobby` is the channel joining which makes
     // you one; absent, services/voicerooms.js ignores the guild entirely.

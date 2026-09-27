@@ -39,6 +39,7 @@ const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./serv
 const { scheduleStreamWatch } = require('./services/twitch');
 const { scheduleVideoWatch } = require('./services/youtube');
 const { scheduleUfcEvents } = require('./services/ufc');
+const { schedulePresserWatch } = require('./services/ufcPresser');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
@@ -230,6 +231,13 @@ client.once(Events.ClientReady, async () => {
     scheduleUfcEvents(client);
   } catch (err) {
     console.error('[UFC] Failed to schedule card events:', err?.message || err);
+  }
+
+  // Say when the post-fight press conference goes live. Fight nights only.
+  try {
+    schedulePresserWatch(client);
+  } catch (err) {
+    console.error('[UFC] Failed to schedule presser watch:', err?.message || err);
   }
 
   // Announce the house streamers going live. Isolated like the rest — Twitch

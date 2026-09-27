@@ -7,6 +7,8 @@
       "moderation",
       "instagram",
       "twitter",
+      "tiktok",
+      "reddit",
       "textImageMod",
       "automod"
     ],
@@ -237,6 +239,8 @@
       "moderation",
       "instagram",
       "twitter",
+      "tiktok",
+      "reddit",
       "textImageMod",
       "automod"
     ],

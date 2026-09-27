@@ -33,6 +33,8 @@ const FEATURES = [
   'moderation',   // /mod and /stats
   'instagram',    // auto-download of posted Instagram links
   'twitter',      // auto-download of video from posted X/Twitter links
+  'tiktok',       // auto-download of video from posted TikTok links
+  'reddit',       // auto-download of Reddit-hosted video from posted Reddit links
   'textImageMod', // Ollama-backed ASCII/Unicode explicit-art filter
   'automod',      // Discord native AutoMod rule management, /automod
   'zomboid',      // Project Zomboid server integration

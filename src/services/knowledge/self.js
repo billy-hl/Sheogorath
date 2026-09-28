@@ -33,6 +33,7 @@ const MODE_MEANING = (approver) => ({
 const PHRASING = {
   flag: 'flag someone to staff for trying to manipulate you',
   storytime: 'summon an early tale of the day so far',
+  event: 'put events on the server calendar, and move or cancel them',
   warn: 'warn someone',
   timeout: 'time someone out, up to 10 minutes',
   delete: 'delete the message you are replying to',

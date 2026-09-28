@@ -1,6 +1,7 @@
 {
   "380486886592086037": {
     "name": "wabbajack",
+    "timeZone": "America/Chicago",
     "features": [
       "ai",
       "music",
@@ -12,7 +13,8 @@
       "textImageMod",
       "automod",
       "pickem",
-      "onthisday"
+      "onthisday",
+      "events"
     ],
     "channels": {
       "music": "534553333034123289",
@@ -43,7 +45,8 @@
         "poll",
         "nick",
         "channel",
-        "kick"
+        "kick",
+        "event"
       ],
       "titles": {
         "admin": "Creator"

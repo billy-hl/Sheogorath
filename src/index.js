@@ -46,6 +46,7 @@ const { scheduleGameNews } = require('./services/gameNews');
 const { schedulePresserWatch } = require('./services/ufcPresser');
 const { schedulePickem, isPickemButton, handleButton: handlePickemButton } = require('./services/pickem');
 const { scheduleOnThisDay } = require('./services/onThisDay');
+const { scheduleEvents } = require('./services/events');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
@@ -265,6 +266,13 @@ client.once(Events.ClientReady, async () => {
     scheduleOnThisDay(client);
   } catch (err) {
     console.error('[OnThisDay] Failed to schedule:', err?.message || err);
+  }
+
+  // The nudge before each scheduled event: its interested people, pinged.
+  try {
+    scheduleEvents(client);
+  } catch (err) {
+    console.error('[Events] Failed to schedule reminders:', err?.message || err);
   }
 
   // Announce the house streamers going live. Isolated like the rest — Twitch

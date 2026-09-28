@@ -11,16 +11,15 @@
  * backlog, so a game nobody has seen before is seeded silently and only what
  * appears afterwards is announced.
  *
- * Events are listed by hand in config — a wipe, a season launch — because no
- * feed publishes them in a shape worth trusting. Each becomes a Discord
- * scheduled event, created once and kept in step with config until it starts,
- * keyed so a restart never makes a duplicate. One deleted by hand stays
- * deleted, as in services/ufc.js.
+ * The dates that matter — a wipe, a season launch — are services/events.js's
+ * now: listed in config or put on the calendar in Discord, and kept in step by
+ * the same poll as the news.
  */
 const axios = require('axios');
-const { EmbedBuilder, GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel, PermissionFlagsBits } = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 const { getGuildConfig, guildIds } = require('../config/guilds');
 const { getGuildState, setGuildState } = require('../storage/state');
+const { syncEvents } = require('./events');
 
 const NEWS_URL = 'https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/';
 const CLAN_IMAGES = 'https://clan.akamai.steamstatic.com/images';
@@ -218,91 +217,6 @@ async function pollDeals(client, guildId, cfg) {
     console.log(`[GameNews] ${guildId}: deal "${x.title}" at $${x.salePrice}.`);
   }
   setGuildState(guildId, { gameDealsSeen: seen, gameDealsDay: day, gameDealsToday: today });
-}
-
-/**
- * An event's cover, as a Buffer, or null: the configured `image` if there is
- * one (a game not on Steam), otherwise its Steam game's header art. The Steam
- * address comes from the store API because newer games keep their art under a
- * hashed path that cannot be guessed from the app id.
- */
-async function coverArt(ev, guildId) {
-  if (!ev.image && !ev.appId) return null;
-  try {
-    let url = ev.image;
-    if (!url) {
-      const res = await axios.get('https://store.steampowered.com/api/appdetails', {
-        params: { appids: ev.appId, filters: 'basic' }, timeout: 15000,
-      });
-      url = res.data?.[ev.appId]?.data?.header_image;
-    }
-    if (!url) return null;
-    const img = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
-    return Buffer.from(img.data);
-  } catch (err) {
-    console.warn(`[GameNews] ${guildId}: no cover art for "${ev.name}": ${err?.message || err}`);
-    return null;
-  }
-}
-
-function eventFields(ev) {
-  const base = { name: ev.name, description: ev.description || undefined, scheduledStartTime: ev.start };
-  if (ev.voiceChannel) return { ...base, channel: ev.voiceChannel };
-  return { ...base, scheduledEndTime: ev.end, entityMetadata: { location: ev.location } };
-}
-
-async function syncEvents(client, guild, cfg) {
-  const guildId = guild.id;
-  const due = cfg.events.filter((ev) => ev.start.getTime() > Date.now());
-  if (!due.length) return;
-  if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageEvents)) {
-    console.warn(`[GameNews] ${guildId}: missing Manage Events — cannot schedule ${due.length} event(s).`);
-    return;
-  }
-
-  for (const ev of due) {
-    const saved = getGuildState(guildId).gameEvents || {};
-    const fields = eventFields(ev);
-    try {
-      if (saved[ev.key]) {
-        const existing = await guild.scheduledEvents.fetch(saved[ev.key].eventId).catch(() => null);
-        if (!existing) continue;   // deleted by hand; leave it deleted
-        const changed = existing.name !== fields.name
-          || (existing.description || '') !== (fields.description || '')
-          || existing.scheduledStartTimestamp !== fields.scheduledStartTime.getTime()
-          || (fields.channel ? existing.channelId !== fields.channel
-            : existing.scheduledEndTimestamp !== fields.scheduledEndTime.getTime()
-              || existing.entityMetadata?.location !== fields.entityMetadata.location);
-        // A missing cover is looked for again on every sync until one turns up.
-        const image = existing.image ? null : await coverArt(ev, guildId);
-        if (changed || image) {
-          await existing.edit(image ? { ...fields, image } : fields);
-          console.log(`[GameNews] ${guildId}: updated event "${ev.name}"${image ? ' with its cover' : ''}.`);
-        }
-        continue;
-      }
-
-      const image = await coverArt(ev, guildId);
-      const created = await guild.scheduledEvents.create({
-        ...fields,
-        ...(image ? { image } : {}),
-        privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
-        entityType: ev.voiceChannel ? GuildScheduledEventEntityType.Voice : GuildScheduledEventEntityType.External,
-      });
-      // Forget events a month gone, so the record never grows.
-      const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
-      const kept = Object.fromEntries(Object.entries(saved).filter(([, v]) => v.start > cutoff));
-      kept[ev.key] = { eventId: created.id, start: ev.start.getTime() };
-      setGuildState(guildId, { gameEvents: kept });
-      console.log(`[GameNews] ${guildId}: created event "${ev.name}".`);
-
-      const channel = await client.channels.fetch(cfg.eventsChannel).catch(() => null);
-      if (channel) await channel.send({ content: created.url, allowedMentions: { parse: [] } });
-      else console.warn(`[GameNews] ${guildId}: events channel ${cfg.eventsChannel} is unreachable.`);
-    } catch (err) {
-      console.warn(`[GameNews] ${guildId}: event "${ev.name}" failed: ${err?.message || err}`);
-    }
-  }
 }
 
 async function pollOnce(client) {

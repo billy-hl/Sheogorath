@@ -426,6 +426,33 @@ async function runAction(action, ctx) {
         : `started a server restart now — ${reason}`;
     }
 
+    case 'event': {
+      // The rules about who may move what live with the calendar, so this only
+      // works out who is asking and says what happened. The follow-up carries
+      // the time as Discord renders it, in everyone's own zone — the model
+      // narrates what it meant, and this is what it did.
+      const events = require('../services/events');
+      const member = ctx.requester || message?.member;
+      if (!member) throw new Error('I cannot tell who is asking');
+      const existing = events.findEvent(guildId, action.name);
+      if (action.cancel) {
+        if (!existing) throw new Error(`there is no event called "${action.name}" coming up`);
+        const gone = await events.removeEvent(guild.client, guild, existing.key, member);
+        await follow([`🗑️ **${gone.name}** is off the calendar.`]);
+        return `took "${gone.name}" off the calendar`;
+      }
+      const fields = { when: action.when, hours: action.hours, where: action.where };
+      const { ev, discordEvent } = existing
+        ? await events.editEvent(guild.client, guild, existing.key, fields, member)
+        : await events.addEvent(guild.client, guild, { name: action.name, ...fields }, member);
+      const at = Math.floor(ev.start.getTime() / 1000);
+      await follow([{
+        content: `📅 **${ev.name}** — <t:${at}:F> (<t:${at}:R>)${discordEvent ? `\n${discordEvent.url}` : ''}`,
+        allowedMentions: { parse: [] },
+      }]);
+      return `${existing ? 'moved' : 'put'} "${ev.name}" ${existing ? 'to' : 'on the calendar for'} ${ev.start.toISOString()}`;
+    }
+
     case 'pzcommand': {
       // Required lazily: the Zomboid stack pulls in the whole RCON toolchain,
       // and guilds without the feature should not load it to run a warning.
@@ -462,6 +489,9 @@ function describeAction(action) {
     case 'poll':      return `Poll the room — "${action.question}" (${action.options.join(', ')})`;
     case 'nick':      return `Rename <@${action.userId}> to "${action.name}"`;
     case 'channel':   return `Make a channel called #${action.name}`;
+    case 'event':     return action.cancel
+      ? `Take "${action.name}" off the calendar`
+      : `Put "${action.name}" on the calendar${action.when ? ` for ${action.when}` : ''}`;
     case 'pzcommand': return `Run on the game server: \`${action.command}\``;
     case 'pzrestart': return action.minutes > 0
       ? `Restart the game server in ${action.minutes} minute(s) — ${action.reason || 'no reason given'}`

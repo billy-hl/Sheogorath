@@ -12,6 +12,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **Music Streaming**: Play YouTube music in voice channels — URL or search phrase — with a queue, saved playlists, autoplay, and a radio list loaded from `radio.csv`.
 - **UFC Pick'em**: Each card is posted in fight week for everyone to call the winners, locked block by block as the night starts, and scored from ESPN's results into a season table. The best picker each week wears a title.
 - **On This Day**: Each morning, the message the hall made the most of on this date in an earlier year, posted again with a line from Sheogorath, along with anyone's anniversary in the hall.
+- **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Project Zomboid Integration**: Leaderboards, roleplay character sheets, and RCON server admin from Discord, plus log watchers that post kills, raids, deaths, mod updates and story-time recaps.
 - **Community Forums**: Managed suggestion and mod-request forums with vote reactions, duplicate detection, and automatic Steam Workshop vetting of requested mods.
@@ -92,6 +93,22 @@ Contender Series nights are left out unless `ufc.pickem.contender` is `true`, si
 Each morning from `onThisDay.hour` (default 10) in `onThisDay.timeZone` (default `America/Chicago`), the bot reads today's date in every earlier year and posts again the message the room made the most of: reactions, plus replies from other people that same day, at least `onThisDay.minScore` (default 2) between them. It goes out with a jump link, the picture if there was one, the message it was answering, and a line from Sheogorath. Anyone whose anniversary in the hall falls today is listed underneath, and on the hall's own birthday it says so. A day with nothing worth digging up posts nothing.
 
 It reads only text channels the whole server can see, less `onThisDay.exclude` — or exactly `onThisDay.sources`, when those are named. It never quotes bots, anyone who has opted out, or anyone who has left (unless `onThisDay.includeLeft` is `true`), and a message the daily post has shown is not shown again, so the best of a date does not win it every year. Nothing pings. Reaching a date costs about one request per channel per year, because a message id encodes its timestamp; reading one takes 10–20 seconds and is cached for six hours. The post goes out within three hours of its hour or waits for tomorrow, so a restart late at night never posts a memory at bedtime. Sheogorath's line is the only model call, once a day.
+
+### 🗓️ Events
+*Requires the `events` feature and a `gameNews.eventsChannel`.*
+
+- `/event add <name> <when> [hours] [voice] [where] [game] [about]` - Put an event on the calendar
+- `/event edit <event> [name] [when] [hours] [voice] [where] [about]` - Change one; only what you give changes
+- `/event remove <event>` - Take one off
+- `/event list` - What's coming up
+
+`when` reads the way people say it: `Friday 8pm`, `tomorrow 7:30pm`, `tonight 9`, `next monday 9am`, `Dec 11 1pm PT`, `10/15 11am`, `2026-12-11 13:00 UTC`, `in 2 hours`, or an ISO time with its offset. A time without a named zone is in the guild's `timeZone` (default `America/Chicago`). It always needs a time of day, and the reply shows the result as a Discord timestamp, so a misreading is visible at once. `where` naming a voice channel makes it a voice event; `game` picks one of the `gameNews.steamApps` for the cover art.
+
+Sheogorath can do all of it too, with `[ACTION:event:name|when|hours|where]` or `[ACTION:event:name|cancel]` — "Sheo, put movie night on Friday at 8 in Watch Party", "the wipe moved to 17:00 UTC". He is told the current time and the calendar in his knowledge block, so "Friday" means the right Friday and he can answer "when does PoE2 launch?" from the calendar itself. He posts the result underneath as a Discord timestamp, the same as the command.
+
+Anyone may add an event. Moving or removing one is for whoever added it and an Owner; the launches listed in `gameNews.events` belong to no one, so only an Owner changes them. Events added in Discord, and changes to listed ones, live in guild state as an override laid over config, so the config file never needs editing for a date again. An edit brings back an event somebody deleted by hand in Discord; a removed config launch stays removed.
+
+Fifteen minutes before **any** scheduled event in the server — these, the UFC cards, and ones made by hand in Discord — the people who clicked Interested are pinged by name in the events channel, with a link, and a thread is opened for the evening. Nobody interested means no post, and a UFC card gets no thread because pick'em runs its own. Each event is reminded once.
 
 ### 🧟 Project Zomboid
 *Requires the `zomboid` feature.*
@@ -396,7 +413,9 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`, `onthisday`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`, `onthisday`, `events`.
+
+`timeZone` (an IANA name, default `America/Chicago`) is where a guild's people live: what "Friday 8pm" means in `/event` and in chat, and the clock Sheogorath is told the time by.
 
 ## Contributing
 

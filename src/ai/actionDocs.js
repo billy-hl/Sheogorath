@@ -40,6 +40,7 @@ const TAG_LINES = {
   poll:       '  [ACTION:poll:question:one|two|three]    — Put a poll to the room (2-8 options)',
   nick:       '  [ACTION:nick:userId:new name]           — Change what someone is called in this server',
   channel:    '  [ACTION:channel:name:topic]             — Make a new text channel',
+  event:      '  [ACTION:event:name|when|hours|where]    — Put an event on the server calendar, or move one ([ACTION:event:name|cancel] takes it off)',
   storytime:  '  [ACTION:storytime:reason]               — Tell an early tale of the day so far',
   pzcommand:  '  [ACTION:pz:command]                     — Run a command on the game server',
   pzrestart:  '  [ACTION:pzrestart:minutes:reason]       — Restart the game server (0 = now)',
@@ -130,6 +131,15 @@ visits. Nobody is punished by a note, so you never need to hold back on those.`.
     their own. Titling SOMEONE ELSE is open to ${an(rung)} and above; asked by
     anyone below that, it becomes a request ${an(approver)} has to approve, so
     say you have asked rather than that it is done.`);
+  }
+  if (can('event')) {
+    consequences.push(`  * EVENTS. "when" is a time with its UTC offset, like 2026-12-11T13:00-08:00.
+    Work it out from the clock and the calendar in what you know, and if the day
+    or the hour is unclear, ask rather than guess — a wrong time is worse than
+    none. To move an event, name it exactly as the calendar lists it and give only
+    what changes. "hours" and "where" may be left empty; "where" may name a voice
+    channel. Anyone may add an event. Moving or cancelling one is for whoever
+    added it and ${an(admin)}, and the listed launches are ${an(admin)}'s alone.`);
   }
   if (can('storytime')) {
     consequences.push(`  * STORY TIME. A chronicle of each day is posted every night. When someone asks

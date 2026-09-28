@@ -37,6 +37,8 @@ const COMMAND_FEATURES = {
   pickem: 'pickem',
 
   onthisday: 'onthisday',
+
+  event: 'events',
 };
 
 /** Music additionally requires admin, not just the feature. */

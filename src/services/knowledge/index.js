@@ -14,7 +14,7 @@
  * what he may do with them. He keeps every bit of the voice. He loses only the
  * freedom to make the substance up.
  */
-const { aiTitles } = require('../../config/guilds');
+const { aiTitles, hasFeature } = require('../../config/guilds');
 const { liveFacts, modsDoc } = require('./live');
 const { allDocs } = require('./sources');
 const { selfFacts } = require('./self');
@@ -207,6 +207,18 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
     }
   } catch (err) {
     console.warn('[Knowledge] Live facts failed:', err?.message || err);
+  }
+
+  if (guild && hasFeature(guildId, 'events')) {
+    try {
+      // Required here rather than at the top: the calendar pulls in Discord's
+      // event types, which guilds without the feature never need.
+      const { calendarFacts } = require('../events');
+      const lines = await calendarFacts(guild);
+      if (lines.length) sections.push(`THE CLOCK AND THE CALENDAR (measured just now)\n${lines.join('\n')}`);
+    } catch (err) {
+      console.warn('[Knowledge] Calendar failed:', err?.message || err);
+    }
   }
 
   try {

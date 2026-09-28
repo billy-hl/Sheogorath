@@ -40,6 +40,7 @@ const { getGuildState, setGuildState } = require('../storage/state');
 const { getAIResponse } = require('../ai/grok');
 const { conversationalPersona } = require('../ai/persona');
 const { scrub } = require('../ai/actions');
+const { partsIn, midnight } = require('../utils/time');
 
 const PARCHMENT = 0xd4b483;
 const MINUTE_MS = 60 * 1000;
@@ -79,39 +80,6 @@ const pad = (n) => String(n).padStart(2, '0');
 const dateName = (month, day, year) => `${day} ${MONTHS[month - 1]}${year ? ` ${year}` : ''}`;
 
 // --- Time -------------------------------------------------------------------
-
-/** The wall-clock parts of `date` in `timeZone`. */
-function partsIn(date, timeZone) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  }).formatToParts(date).map((p) => [p.type, p.value]));
-  return {
-    year: +parts.year, month: +parts.month, day: +parts.day,
-    hour: +parts.hour, minute: +parts.minute, second: +parts.second,
-  };
-}
-
-/** How far `timeZone`'s clocks are from UTC at the instant `ms`. */
-function offsetAt(ms, timeZone) {
-  const p = partsIn(new Date(ms), timeZone);
-  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - ms;
-}
-
-/**
- * Midnight at the start of a date in `timeZone`, as epoch ms, or null for a
- * date that year does not have — 29 February, three years in four.
- *
- * Two passes, because the offset has to be the one in force at that midnight:
- * read at any other hour, it is an hour out on the days the clocks change, and
- * the day loses its first hour or gains the last hour of the day before.
- */
-function midnight(year, month, day, timeZone) {
-  const wall = Date.UTC(year, month - 1, day);
-  if (new Date(wall).getUTCMonth() !== month - 1) return null;
-  const guess = wall - offsetAt(wall, timeZone);
-  return wall - offsetAt(guess, timeZone);
-}
 
 /** The start and end of a date in `timeZone`, or null if that year does not have it. */
 function dayBounds(year, month, day, timeZone) {

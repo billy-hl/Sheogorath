@@ -13,6 +13,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { validTimeZone } = require('../utils/time');
 
 const CONFIG_DIR = path.join(__dirname, '..', '..', 'config');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'guilds.json');
@@ -41,18 +42,8 @@ const FEATURES = [
   'forums',       // suggestion / mod-request forum channels, /forums
   'pickem',       // UFC pick'em in the `ufc.channel`, /pickem
   'onthisday',    // the best of this date in years gone by, /onthisday
+  'events',       // /event, events added by telling him, and reminders before each one
 ];
-
-/** An IANA time zone Intl accepts, or null. */
-function validTimeZone(zone) {
-  if (typeof zone !== 'string' || !zone) return null;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone });
-    return zone;
-  } catch {
-    return null;
-  }
-}
 
 let cache = null;
 
@@ -64,6 +55,9 @@ function normalizeGuild(id, raw) {
   return {
     id,
     name: raw.name || id,
+    // The zone the people here live in: what "Friday 8pm" means when they say
+    // it, and the clock he is told the time by.
+    timeZone: validTimeZone(raw.timeZone) || 'America/Chicago',
     features,
     channels: {
       // Where now-playing cards are posted.

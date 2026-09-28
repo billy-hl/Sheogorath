@@ -35,7 +35,7 @@ const { logAiAction, notifyStaff } = require('../utils/aiAudit');
 const { getGuildConfig } = require('../config/guilds');
 
 const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|storytime|note|clearnotes|memory|'
-  + 'title|untitle|dm|say|react|pin|thread|poll|nick|channel|pzrestart|pz';
+  + 'title|untitle|dm|say|react|pin|thread|poll|nick|channel|event|pzrestart|pz';
 
 /**
  * Pull action tags out of a reply and strip them from the visible text.
@@ -153,6 +153,16 @@ function parseActions(response) {
       case 'channel': {
         const [name, ...topicParts] = parts;
         if (name) actions.push({ type: 'channel', name: name.trim(), topic: topicParts.join(':').trim() });
+        break;
+      }
+
+      case 'event': {
+        // name|when|hours|where, or name|cancel. Pipes rather than colons,
+        // as with a poll: a time has colons in it.
+        const [name, when, hours, where] = parts.join(':').split('|').map((p) => p.trim());
+        if (!name) break;
+        if (/^cancel(led)?$/i.test(when || '')) actions.push({ type: 'event', name, cancel: true });
+        else actions.push({ type: 'event', name, when: when || null, hours: Number(hours) || null, where: where || null });
         break;
       }
 

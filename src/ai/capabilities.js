@@ -157,6 +157,13 @@ const CAPABILITIES = {
   thread:     { tier: 'auto',    targets: 'none',   immune: false, perHour: 5, maxLength: 90 },
   poll:       { tier: 'auto',    targets: 'none',   immune: false, perHour: 5, maxOptions: 8 },
 
+  // Putting something on the server calendar, or moving it. Nobody is acted on,
+  // and the line that matters is held in services/events.js rather than here:
+  // anyone may add an event, but only whoever added one, or an Owner, may move
+  // or cancel it. So the worst a room can talk him into is an event nobody
+  // wanted, which the person who asked for it can take off again.
+  event:      { tier: 'auto',    targets: 'none',   immune: false, perHour: 6, requires: 'events' },
+
   // Renaming somebody is where "harmless and reversible" stops being obviously
   // true: it changes how a person appears to everyone, and unlike a title it
   // replaces something they chose. Owners rename freely; everyone else's

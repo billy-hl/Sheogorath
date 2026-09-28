@@ -273,15 +273,25 @@ function methodText(result) {
   return head ? `${head}${extra.length ? ` (${extra.join(', ')})` : ''}` : null;
 }
 
-/** How it ended, in a sentence: "**KO/TKO (punches)** in round 2 at 3:19". */
-function howItEnded(result) {
+/** The card's title: how it ended and when. "KO/TKO (punches) · Round 2 · 3:19", "Decision (split) · 3 rounds". */
+function resultTitle(result) {
   const method = methodText(result);
-  const when = wentTheDistance(result)
-    ? result.round && `after ${result.round} rounds`
-    : result.round && `in round ${result.round}${result.clock ? ` at ${result.clock}` : ''}`;
-  if (method) return `**${method}**${when ? ` ${when}` : ''}`;
-  if (when) return `${capitalised(when)}.`;
-  return result.winner ? null : 'Ends without a winner.';
+  let when = null;
+  if (result.round) {
+    when = wentTheDistance(result)
+      ? `${result.round} rounds`
+      : `Round ${result.round}${result.clock ? ` · ${result.clock}` : ''}`;
+  }
+  if (method) return when ? `${method} · ${when}` : method;
+  if (when) return wentTheDistance(result) ? `Went the distance · ${when}` : when;
+  return result.winner ? 'Final' : 'No winner';
+}
+
+/** "Flyweight · Main Event · UFC Flyweight Title": the division, and what the bout was billed as. */
+function billingLine(result) {
+  return String(result.billing || '').split(' - ').filter(Boolean)
+    .map((part) => (result.title && /^title fight$/i.test(part) ? result.title : part))
+    .join(' · ') || null;
 }
 
 /** The same, cut down to a line of the full card: "KO/TKO (punches), R2 3:19". Null when there is nothing to say. */
@@ -310,13 +320,25 @@ function headline(result, before) {
 /** Winner first; with no winner, in ESPN's order. */
 const cornerOrder = (result) => (result.winnerId ? [result.winnerId, result.loserId] : result.ids);
 
-/** The moneyline each went in at, as ESPN carried it, and whether the underdog won. */
-function oddsLine(result, fc) {
+/**
+ * The small labelled tiles under the title: the judges' cards, the moneyline
+ * each went in at as ESPN carried it (and whether the underdog won), and the
+ * referee. The judges themselves go at the foot, well away from the cards:
+ * ESPN does not say which judge gave which, and side by side they would look
+ * as though it did.
+ */
+function tiles(result, fc) {
+  const out = [];
+  if (result.scores) out.push({ name: 'Scorecards', value: result.scores.join('\n'), inline: true });
   const corners = cornerOrder(result).map((id) => fc?.corners.find((c) => c.id === id));
-  if (!corners.every((c) => c?.odds)) return null;
-  const price = (odds) => Number(String(odds).replace('+', ''));
-  const upset = result.winnerId && price(corners[0].odds) > price(corners[1].odds);
-  return `**Odds:** ${corners.map((c) => `${c.lastName} ${c.odds}`).join(' · ')}${upset ? ' · underdog win' : ''}`;
+  if (corners.every((c) => c?.odds)) {
+    const price = (odds) => Number(String(odds).replace('+', ''));
+    const upset = result.winnerId && price(corners[0].odds) > price(corners[1].odds);
+    const lines = corners.map((c) => `${c.lastName} ${c.odds}`);
+    out.push({ name: 'Odds', value: [...lines, upset && '*Underdog won*'].filter(Boolean).join('\n'), inline: true });
+  }
+  if (fc?.referee) out.push({ name: 'Referee', value: fc.referee, inline: true });
+  return out;
 }
 
 /** A record as it stands after tonight: one more win, loss or draw. A no contest leaves it alone. */
@@ -329,13 +351,15 @@ function recordAfter(record, outcome) {
 }
 
 /**
- * Both fighters side by side, winner first, in a code block so the columns
- * line up on a phone as well as a desktop. Rows neither fighter has a value
- * for are left out.
+ * The fight's numbers and the tale of the tape, each a table with both
+ * fighters side by side, winner first. Code blocks, so the columns line up on
+ * a phone as well as a desktop; the two share their column widths, so one sits
+ * squarely under the other. Rows neither fighter has a value for are left out,
+ * and a table with no rows left is not drawn.
  */
-function statsTable(result, fc, before) {
+function tables(result, fc, before) {
   const corners = cornerOrder(result).map((id) => fc?.corners.find((c) => c.id === id) || null);
-  if (!corners.every(Boolean)) return null;
+  if (!corners.every(Boolean)) return { stats: null, tape: null };
   const landed = (v) => (v ? String(v).split('/')[0] : null);
   const accuracy = (v) => {
     const [hit, thrown] = String(v || '').split('/').map(Number);
@@ -345,66 +369,60 @@ function statsTable(result, fc, before) {
     if (result.winnerId) return id === result.winnerId ? 'W' : 'L';
     return /^draw/i.test(result.method || '') ? 'D' : null;
   };
-  const row = (label, value) => [label, ...corners.map(value)];
-  const rows = [
-    row('Record', (c) => recordAfter(before?.records?.[c.id], outcome(c.id))),
+  const cell = (v) => (v ? String(v) : '—').slice(0, CELL);
+  const row = (label, value) => [label, ...corners.map((c) => value(c))];
+  const kept = (rows) => rows.filter((r) => r[1] || r[2]).map((r) => [r[0], cell(r[1]), cell(r[2])]);
+  const stats = kept([
     row('Sig. strikes', (c) => c.stats?.sig),
-    row('  accuracy', (c) => accuracy(c.stats?.sig)),
-    row('  head/body/leg', (c) => c.stats && [c.stats.head, c.stats.body, c.stats.leg].map(landed).join('/')),
+    row('  Accuracy', (c) => accuracy(c.stats?.sig)),
+    row('  Head', (c) => landed(c.stats?.head)),
+    row('  Body', (c) => landed(c.stats?.body)),
+    row('  Leg', (c) => landed(c.stats?.leg)),
     row('Total strikes', (c) => c.stats?.total),
     row('Takedowns', (c) => c.stats?.takedowns),
     row('Knockdowns', (c) => c.stats?.knockdowns),
     row('Sub attempts', (c) => c.stats?.submissions),
-    row('Control', (c) => c.stats?.control),
-    null,
+    row('Control time', (c) => c.stats?.control),
+  ]);
+  const tape = kept([
+    row('Record', (c) => recordAfter(before?.records?.[c.id], outcome(c.id))),
     row('Age', (c) => c.tape.age),
     row('Height', (c) => c.tape.height),
     row('Reach', (c) => c.tape.reach),
     row('Stance', (c) => c.tape.stance),
     row('Country', (c) => c.tape.country),
-  ].filter((r) => r === null || r[1] || r[2]);
-  // A spacer only between two groups that both survived.
-  const kept = rows.filter((r, i) => r !== null || (i > 0 && i < rows.length - 1 && rows[i - 1] !== null));
-  if (!kept.some(Boolean)) return null;
+  ]);
 
-  const cell = (v) => (v ? String(v) : '—').slice(0, CELL);
   const head = ['', ...corners.map((c) => cell(c.lastName))];
-  const body = kept.map((r) => r && [r[0], cell(r[1]), cell(r[2])]);
-  const width = (i) => Math.max(head[i].length, ...body.filter(Boolean).map((r) => r[i].length));
+  const width = (i) => Math.max(head[i].length, ...[...stats, ...tape].map((r) => r[i].length));
   const line = (r) => `${r[0].padEnd(width(0))}  ${r[1].padStart(width(1))}  ${r[2].padStart(width(2))}`.trimEnd();
-  return ['```', line(head), ...body.map((r) => (r ? line(r) : '')), '```'].join('\n');
-}
-
-function officialsLine(fc) {
-  const parts = [];
-  if (fc?.referee) parts.push(`Referee: ${fc.referee}`);
-  if (fc?.judges?.length) parts.push(`Judges: ${fc.judges.join(', ')}`);
-  return parts.join(' · ') || null;
+  const rule = line(['', '─'.repeat(width(1)), '─'.repeat(width(2))]);
+  const draw = (rows) => (rows.length ? ['```', line(head), rule, ...rows.map(line), '```'].join('\n') : null);
+  return { stats: draw(stats), tape: draw(tape) };
 }
 
 /**
- * One result, as it happens: the result and its headshot, then the numbers in
- * an embed of their own, so the table has the full width a thumbnail would
- * take from it.
+ * One result, as it happens, as a single card: how it ended as the title and
+ * the billing under it, tiles for the cards, the odds and the referee, then
+ * the fight's numbers and the tale of the tape under headings of their own,
+ * and the judges at the foot.
  */
 function resultMessage(card, espnId, result, fc, before) {
-  const colour = !result.winner ? NO_RESULT_GREY : isTitle(result) ? TITLE_GOLD : UFC_RED;
-  const summary = new EmbedBuilder()
-    .setColor(colour)
+  const embed = new EmbedBuilder()
+    .setColor(!result.winner ? NO_RESULT_GREY : isTitle(result) ? TITLE_GOLD : UFC_RED)
     .setAuthor({ name: [card.name, result.block].filter(Boolean).join(' · ').slice(0, 256), url: fightcenterLink(espnId) })
-    .setDescription([
-      howItEnded(result),
-      result.scores && `**Scorecards:** ${result.scores.join(', ')}`,
-      result.billing?.split(' - ').join(' · '),
-      oddsLine(result, fc),
-    ].filter(Boolean).join('\n') || '​');
-  if (result.headshot) summary.setThumbnail(result.headshot);
-  const embeds = [summary];
-  const table = statsTable(result, fc, before);
-  if (table) embeds.push(new EmbedBuilder().setColor(colour).setDescription(table));
-  const officials = officialsLine(fc);
-  if (officials) embeds[embeds.length - 1].setFooter({ text: officials });
-  return { content: headline(result, before), embeds, allowedMentions: { parse: [] } };
+    .setTitle(resultTitle(result).slice(0, 256));
+  const billing = billingLine(result);
+  if (billing) embed.setDescription(billing);
+  if (result.headshot) embed.setThumbnail(result.headshot);
+  const { stats, tape } = tables(result, fc, before);
+  embed.addFields(
+    ...tiles(result, fc),
+    ...(stats ? [{ name: 'Fight stats', value: stats }] : []),
+    ...(tape ? [{ name: 'Tale of the tape', value: tape }] : []),
+  );
+  if (fc?.judges?.length) embed.setFooter({ text: `Judges: ${fc.judges.join(', ')}` });
+  return { content: headline(result, before), embeds: [embed], allowedMentions: { parse: [] } };
 }
 
 /** The whole card once it is over: main card first, each block with its main event on top. */
@@ -624,8 +642,8 @@ module.exports = {
   resultOf,
   resultMessage,
   summaryMessage,
-  statsTable,
-  howItEnded,
+  tables,
+  resultTitle,
   shortHow,
   stateOf,
 };

@@ -421,7 +421,7 @@ what has been withheld.
 
 ### Credentials — `.env`
 
-See `.env.example` for the annotated list. In short: `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` and `ADMIN_USER_ID` for Discord; `GROK_API_KEY` plus `CLIENT_NAME`, `CLIENT_INSTRUCTIONS` and `CLIENT_MODEL` for the AI persona; `OLLAMA_URL` / `OLLAMA_MOD_MODEL` for the text-image filter; `CONTROL_API_*` and `CONTROL_GUEST_PASSWORD` for the companion app; `ERROR_CHANNEL_ID` and `LOG_LEVEL` optionally.
+See `.env.example` for the annotated list. In short: `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` and `ADMIN_USER_ID` for Discord; `GROK_API_KEY` plus `CLIENT_NAME`, `CLIENT_INSTRUCTIONS` and `CLIENT_MODEL` for the AI persona; `OLLAMA_URL` / `OLLAMA_MOD_MODEL` for the text-image filter; `CONTROL_API_*` and `CONTROL_GUEST_PASSWORD` for the companion app; `ERROR_CHANNEL_ID` (without it, or once that channel is gone, errors go to `ADMIN_USER_ID` by DM) and `LOG_LEVEL` optionally.
 
 ### Per-guild settings — `config/guilds.json`
 

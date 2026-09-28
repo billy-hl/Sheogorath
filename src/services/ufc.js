@@ -63,12 +63,14 @@ function easternDay(date) {
     .format(date).replace(/-/g, '');
 }
 
-/** Every card whose fight week has begun and that has not finished. */
-async function upcomingCards(now = new Date()) {
+/**
+ * The cards on ESPN's calendar that `keep` accepts, each fetched from its own
+ * day and read by `parse`. Shared with services/pickem.js, which wants every
+ * bout rather than the main card this file describes.
+ */
+async function calendarCards(keep, parse = parseCard, limit = Infinity) {
   const calendar = (await scoreboard()).leagues?.[0]?.calendar || [];
-  const due = calendar.filter((c) => c.label && c.startDate
-    && new Date(c.endDate || c.startDate) > now
-    && fightWeekStart(new Date(c.startDate)) <= now);
+  const due = calendar.filter((c) => c.label && c.startDate && keep(c)).slice(0, limit);
 
   const cards = [];
   for (const entry of due) {
@@ -76,10 +78,16 @@ async function upcomingCards(now = new Date()) {
     // the card's own day and match on the name.
     const events = (await scoreboard(easternDay(new Date(entry.startDate)))).events || [];
     const event = events.find((e) => e.name === entry.label);
-    const card = event && parseCard(event);
+    const card = event && parse(event);
     if (card) cards.push(card);
   }
   return cards;
+}
+
+/** Every card whose fight week has begun and that has not finished. */
+function upcomingCards(now = new Date()) {
+  return calendarCards((c) => new Date(c.endDate || c.startDate) > now
+    && fightWeekStart(new Date(c.startDate)) <= now);
 }
 
 /**
@@ -270,4 +278,7 @@ function scheduleUfcEvents(client) {
   console.log(`[UFC] Posting weekly cards to ${guilds.length} guild(s), re-synced every ${SYNC_HOURS}h.`);
 }
 
-module.exports = { scheduleUfcEvents, syncOnce, upcomingCards, parseCard, describe, eventArt, fightWeekStart };
+module.exports = {
+  scheduleUfcEvents, syncOnce, upcomingCards, calendarCards, parseCard, describe, eventArt,
+  fightWeekStart, scoreboard, easternDay, TZ,
+};

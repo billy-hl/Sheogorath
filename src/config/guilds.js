@@ -39,6 +39,7 @@ const FEATURES = [
   'automod',      // Discord native AutoMod rule management, /automod
   'zomboid',      // Project Zomboid server integration
   'forums',       // suggestion / mod-request forum channels, /forums
+  'pickem',       // UFC pick'em in the `ufc.channel`, /pickem
 ];
 
 let cache = null;
@@ -263,6 +264,15 @@ function normalizeGuild(id, raw) {
       voiceChannel: raw.ufc.voiceChannel || null,
       // Pinged when the post-fight press conference goes live. Null pings nobody.
       pingRole: raw.ufc.pingRole || null,
+      // Pick'em (services/pickem.js), where the `pickem` feature is on: the
+      // title the week's best picker wears, and whether Contender Series nights
+      // count. Off by default — five fights on a Tuesday would decide the season.
+      pickem: {
+        title: typeof raw.ufc.pickem?.title === 'string' && raw.ufc.pickem.title.trim()
+          ? raw.ufc.pickem.title.trim()
+          : null,
+        contender: raw.ufc.pickem?.contender === true,
+      },
     } : null,
     // Join-to-create voice rooms. `lobby` is the channel joining which makes
     // you one; absent, services/voicerooms.js ignores the guild entirely.

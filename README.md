@@ -10,6 +10,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **AI Chat**: Talk to Sheogorath in character using Grok (xAI). The persona keeps per-user notes and long-term memories across conversations, and can act on the server through embedded action tags (warn, timeout, delete, remember). He answers on a mention or on his name anywhere, and unprompted in the help channel.
 - **Image Generation**: `/imagine` conjures images through Grok, with the Mad God riffing on your prompt first.
 - **Music Streaming**: Play YouTube music in voice channels — URL or search phrase — with a queue, saved playlists, autoplay, and a radio list loaded from `radio.csv`.
+- **UFC Pick'em**: Each card is posted in fight week for everyone to call the winners, locked block by block as the night starts, and scored from ESPN's results into a season table. The best picker each week wears a title.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Project Zomboid Integration**: Leaderboards, roleplay character sheets, and RCON server admin from Discord, plus log watchers that post kills, raids, deaths, mod updates and story-time recaps.
 - **Community Forums**: Managed suggestion and mod-request forums with vote reactions, duplicate detection, and automatic Steam Workshop vetting of requested mods.
@@ -67,6 +68,18 @@ Commands are loaded from `src/commands/*.js`. Two things decide whether a comman
 - `/autoplay` - Toggle autoplay — automatically play similar songs when the queue is empty
 - `/radio [filter] [limit]` - Queue songs from the radio playlist (default: 25, max: 100)
 - `/playlist save|load|list|delete <name>` - Manage custom playlists (`list` takes no name)
+
+### 🥊 UFC Pick'em
+*Requires the `pickem` feature and a `ufc.channel`.*
+
+- `/pickem standings [season]` - The season table (this year by default)
+- `/pickem open` - Open picks for the next card now instead of waiting for fight week *(bot admin)*
+
+Everything else happens on the card itself. On the Monday of fight week, alongside the Discord event, the card is posted in `ufc.channel` with a button per block of bouts: main card, prelims, early prelims. A button opens a private panel with a row per bout; one click picks a fighter, a second takes it back. Nobody sees anyone else's picks until they lock.
+
+A block locks when it starts, by ESPN's time for it, so someone who only turns up for the main card still plays. The first lock opens a thread on the card, and each lock posts how the room split. Results arrive in that thread as ESPN marks each bout final, with who called it; nobody is pinged. When the last bout is in, the card is scored — a point per winner called, nothing for a draw or no contest — and the reply names the week's best, who takes the weekly title (`ufc.pickem.title`, default *Oracle of the Octagon*) from whoever held it, along with a line from Sheogorath. That line is the only model call pick'em makes, about a tenth of a cent a week.
+
+Contender Series nights are left out unless `ufc.pickem.contender` is `true`, since five fights on a Tuesday would otherwise decide the season. A bout scratched before it happens leaves the card and its picks go with it; a replacement opponent is a new fight to call. Cards and picks live in guild state, so a restart loses nothing, and results are checked every two minutes only while a card is under way.
 
 ### 🧟 Project Zomboid
 *Requires the `zomboid` feature.*
@@ -371,7 +384,7 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`.
 
 ## Contributing
 

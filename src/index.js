@@ -44,6 +44,7 @@ const { scheduleVideoWatch } = require('./services/youtube');
 const { scheduleUfcEvents } = require('./services/ufc');
 const { scheduleGameNews } = require('./services/gameNews');
 const { schedulePresserWatch } = require('./services/ufcPresser');
+const { schedulePickem, isPickemButton, handleButton: handlePickemButton } = require('./services/pickem');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
@@ -249,6 +250,13 @@ client.once(Events.ClientReady, async () => {
     schedulePresserWatch(client);
   } catch (err) {
     console.error('[UFC] Failed to schedule presser watch:', err?.message || err);
+  }
+
+  // UFC pick'em: open each card in fight week, score it from ESPN's results.
+  try {
+    schedulePickem(client);
+  } catch (err) {
+    console.error("[Pickem] Failed to schedule pick'em:", err?.message || err);
   }
 
   // Announce the house streamers going live. Isolated like the rest — Twitch
@@ -587,6 +595,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // music gate, which would refuse them.
       if (isSelfRoleButton(interaction)) {
         await handleSelfRoleButton(interaction);
+        return;
+      }
+
+      // Pick'em buttons, likewise: open to everyone, so they must not reach
+      // the music gate.
+      if (isPickemButton(interaction)) {
+        await handlePickemButton(interaction);
         return;
       }
 

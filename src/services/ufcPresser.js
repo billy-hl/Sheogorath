@@ -2,12 +2,13 @@
 /**
  * Says when the UFC post-fight press conference goes live on YouTube.
  *
- * Not the RSS feed services/youtube.js reads: UFC's feed 404s, and a feed would
- * say a stream exists, not that it has started. Instead the channel's Live tab
- * is read for anything titled as a post-fight press conference that is not yet
- * a finished recording, and each such video's own page settles whether it is
- * live now. The channel's /live redirect is no use here — on fight night it
- * points at whichever premiere UFC has scheduled next, not the presser.
+ * Not the RSS feed services/youtube.js reads: it goes down for hours at a time
+ * (UFC's was 404ing when this was written), and a feed would say a stream
+ * exists, not that it has started. Instead the channel's Live tab is read for
+ * anything titled as a post-fight press conference that is not yet a finished
+ * recording, and each such video's own page settles whether it is live now.
+ * The channel's /live redirect is no use here — on fight night it points at
+ * whichever premiere UFC has scheduled next, not the presser.
  *
  * Both pages are unofficial and a megabyte each, so this only looks during a
  * fight night: from the first bout of a card services/ufc.js has made an event

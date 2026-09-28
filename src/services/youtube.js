@@ -7,6 +7,13 @@
  * feed carries the last fifteen uploads with ids and timestamps, which is all an
  * announcement needs.
  *
+ * It is not dependable, though. For hours at a stretch, most days, it answers
+ * 404 or 500 for channels that plainly exist and have uploads, and not for one
+ * channel in particular. The site itself is served apart from the feed, so while
+ * a feed is down the channel's uploads playlist page stands in: the same videos
+ * in the same order, but a megabyte rather than eleven kilobytes, and with ages
+ * ("3d ago") where the feed has timestamps.
+ *
  * The failure mode this has to avoid is the loud one — a first run posting
  * fifteen videos into a channel at once. So a feed nobody has seen before is
  * *seeded* silently: its current contents are recorded as already-announced and
@@ -20,6 +27,14 @@ const { getGuildState, setGuildState } = require('../storage/state');
 
 const YOUTUBE_RED = 0xff0033;
 const FEED = 'https://www.youtube.com/feeds/videos.xml?channel_id=';
+// A channel's uploads playlist is its id with UC swapped for UU.
+const UPLOADS = 'https://www.youtube.com/playlist?list=UU';
+// English, and past the EU consent wall, so the page comes back in the shape parsed below.
+const PAGE_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (compatible; Sheogorath)',
+  'Accept-Language': 'en-US,en;q=0.9',
+  Cookie: 'CONSENT=YES+1',
+};
 // Plenty of headroom over the fifteen a feed carries, so nothing falls out of
 // the record while it is still in the feed and gets announced twice.
 const REMEMBER = 50;
@@ -50,6 +65,85 @@ async function fetchFeed(channelId) {
   return parseFeed(res.data);
 }
 
+/**
+ * The uploads playlist page, oldest-first like parseFeed. Only what can be
+ * watched now: a finished upload carries its duration as a badge and a live one
+ * a LIVE badge, while something scheduled has neither and waits until it does.
+ */
+function parseUploadsPage(html) {
+  const json = /var ytInitialData = (\{.*?\});<\/script>/s.exec(html)?.[1];
+  if (!json) throw new Error('no ytInitialData on the uploads page');
+  const out = [];
+  (function walk(o) {
+    if (!o || typeof o !== 'object') return;
+    const v = o.lockupViewModel;
+    if (v?.contentId && v.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO') {
+      const image = JSON.stringify(v.contentImage || {});
+      if (/"badgeStyle":"THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"/.test(image) || /"text":"\d+(:\d{2})+"/.test(image)) {
+        out.push({
+          id: v.contentId,
+          title: v.metadata?.lockupMetadataViewModel?.title?.content || v.contentId,
+          published: null,
+          thumb: `https://i.ytimg.com/vi/${v.contentId}/hqdefault.jpg`,
+        });
+      }
+      return;
+    }
+    for (const k in o) walk(o[k]);
+  })(JSON.parse(json).contents);
+  return out.reverse();
+}
+
+async function fetchUploadsPage(channelId) {
+  const res = await axios.get(UPLOADS + encodeURIComponent(channelId.slice(2)), {
+    timeout: 15000,
+    headers: PAGE_HEADERS,
+  });
+  return parseUploadsPage(String(res.data || ''));
+}
+
+// Channel ids whose feed is failing, with how many fetches in a row have failed,
+// so an outage is logged as it starts and ends rather than on every poll.
+const feedDown = new Map();
+
+/**
+ * The feed or, while it is down, the uploads page cut to start at the deepest
+ * video already on record. The page reaches further back than the feed's
+ * fifteen and leaves out uploads blocked in the bot's region, so an unrecorded
+ * id below everything on record is old rather than new: it was past the feed's
+ * reach when the feed was seeded. Seeding itself waits for the feed.
+ */
+async function fetchUploads(feed, known) {
+  let feedError;
+  try {
+    const videos = await fetchFeed(feed.channelId);
+    if (feedDown.has(feed.channelId)) {
+      console.log(`[YouTube] ${feed.name}: feed is back after ${feedDown.get(feed.channelId)} failed fetch(es).`);
+      feedDown.delete(feed.channelId);
+    }
+    return videos;
+  } catch (err) {
+    feedError = err?.message || String(err);
+  }
+
+  const failures = (feedDown.get(feed.channelId) || 0) + 1;
+  feedDown.set(feed.channelId, failures);
+  if (!known) throw new Error(`feed fetch failed: ${feedError}`);
+  if (failures === 1) {
+    console.warn(`[YouTube] ${feed.name}: feed fetch failed (${feedError}); reading the uploads page until it is back.`);
+  }
+
+  let videos;
+  try {
+    videos = await fetchUploadsPage(feed.channelId);
+  } catch (err) {
+    throw new Error(`feed fetch failed (${feedError}), and so did the uploads page: ${err?.message || err}`);
+  }
+  const deepest = videos.findIndex((v) => known.includes(v.id));
+  if (deepest === -1) throw new Error(`feed fetch failed (${feedError}), and nothing on the uploads page is on record`);
+  return videos.slice(deepest);
+}
+
 function buildEmbed(video, feedName) {
   const url = `https://www.youtube.com/watch?v=${video.id}`;
   const embed = new EmbedBuilder()
@@ -77,15 +171,15 @@ async function pollGuild(client, guildId, { announce = true } = {}) {
   let seeded = 0;
 
   for (const feed of cfg.feeds) {
+    const known = state[feed.channelId];
     let videos;
     try {
-      videos = await fetchFeed(feed.channelId);
+      videos = await fetchUploads(feed, known);
     } catch (err) {
-      console.warn(`[YouTube] ${feed.name}: feed fetch failed: ${err?.message || err}`);
+      console.warn(`[YouTube] ${feed.name}: ${err?.message || err}`);
       continue;
     }
 
-    const known = state[feed.channelId];
     if (!known) {
       // First sight of this feed. Record, say nothing.
       next[feed.channelId] = videos.map((v) => v.id).slice(-REMEMBER);
@@ -142,4 +236,6 @@ function scheduleVideoWatch(client) {
   console.log(`[YouTube] Watching ${guilds.length} guild(s) every ${minutes} minute(s).`);
 }
 
-module.exports = { scheduleVideoWatch, pollOnce, pollGuild, fetchFeed, parseFeed };
+module.exports = {
+  scheduleVideoWatch, pollOnce, pollGuild, fetchFeed, parseFeed, fetchUploadsPage, parseUploadsPage,
+};

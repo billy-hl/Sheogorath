@@ -11,6 +11,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **Image Generation**: `/imagine` conjures images through Grok, with the Mad God riffing on your prompt first.
 - **Music Streaming**: Play YouTube music in voice channels — URL or search phrase — with a queue, saved playlists, autoplay, and a radio list loaded from `radio.csv`.
 - **UFC Pick'em**: Each card is posted in fight week for everyone to call the winners, locked block by block as the night starts, and scored from ESPN's results into a season table. The best picker each week wears a title.
+- **On This Day**: Each morning, the message the hall made the most of on this date in an earlier year, posted again with a line from Sheogorath, along with anyone's anniversary in the hall.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Project Zomboid Integration**: Leaderboards, roleplay character sheets, and RCON server admin from Discord, plus log watchers that post kills, raids, deaths, mod updates and story-time recaps.
 - **Community Forums**: Managed suggestion and mod-request forums with vote reactions, duplicate detection, and automatic Steam Workshop vetting of requested mods.
@@ -80,6 +81,17 @@ Everything else happens on the card itself. On the Monday of fight week, alongsi
 A block locks when it starts, by ESPN's time for it, so someone who only turns up for the main card still plays. The first lock opens a thread on the card, and each lock posts how the room split. Results arrive in that thread as ESPN marks each bout final, with who called it; nobody is pinged. When the last bout is in, the card is scored — a point per winner called, nothing for a draw or no contest — and the reply names the week's best, who takes the weekly title (`ufc.pickem.title`, default *Oracle of the Octagon*) from whoever held it, along with a line from Sheogorath. That line is the only model call pick'em makes, about a tenth of a cent a week.
 
 Contender Series nights are left out unless `ufc.pickem.contender` is `true`, since five fights on a Tuesday would otherwise decide the season. A bout scratched before it happens leaves the card and its picks go with it; a replacement opponent is a new fight to call. Cards and picks live in guild state, so a restart loses nothing, and results are checked every two minutes only while a card is under way.
+
+### 📜 On This Day
+*Requires the `onthisday` feature and an `onThisDay.channel`.*
+
+- `/onthisday show [date]` - The best message from a date in years past. Today by default; takes `11-15` or `Nov 15`, month first
+- `/onthisday opt-out` / `/onthisday opt-in` - Keep your old messages and your anniversary out of it, or let them back in
+- `/onthisday post` - Post today's now *(bot admin)*
+
+Each morning from `onThisDay.hour` (default 10) in `onThisDay.timeZone` (default `America/Chicago`), the bot reads today's date in every earlier year and posts again the message the room made the most of: reactions, plus replies from other people that same day, at least `onThisDay.minScore` (default 2) between them. It goes out with a jump link, the picture if there was one, the message it was answering, and a line from Sheogorath. Anyone whose anniversary in the hall falls today is listed underneath, and on the hall's own birthday it says so. A day with nothing worth digging up posts nothing.
+
+It reads only text channels the whole server can see, less `onThisDay.exclude` — or exactly `onThisDay.sources`, when those are named. It never quotes bots, anyone who has opted out, or anyone who has left (unless `onThisDay.includeLeft` is `true`), and a message the daily post has shown is not shown again, so the best of a date does not win it every year. Nothing pings. Reaching a date costs about one request per channel per year, because a message id encodes its timestamp; reading one takes 10–20 seconds and is cached for six hours. The post goes out within three hours of its hour or waits for tomorrow, so a restart late at night never posts a memory at bedtime. Sheogorath's line is the only model call, once a day.
 
 ### 🧟 Project Zomboid
 *Requires the `zomboid` feature.*
@@ -384,7 +396,7 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`, `onthisday`.
 
 ## Contributing
 

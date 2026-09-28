@@ -45,6 +45,7 @@ const { scheduleUfcEvents } = require('./services/ufc');
 const { scheduleGameNews } = require('./services/gameNews');
 const { schedulePresserWatch } = require('./services/ufcPresser');
 const { schedulePickem, isPickemButton, handleButton: handlePickemButton } = require('./services/pickem');
+const { scheduleOnThisDay } = require('./services/onThisDay');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
@@ -257,6 +258,13 @@ client.once(Events.ClientReady, async () => {
     schedulePickem(client);
   } catch (err) {
     console.error("[Pickem] Failed to schedule pick'em:", err?.message || err);
+  }
+
+  // The best of this date in years gone by, each morning.
+  try {
+    scheduleOnThisDay(client);
+  } catch (err) {
+    console.error('[OnThisDay] Failed to schedule:', err?.message || err);
   }
 
   // Announce the house streamers going live. Isolated like the rest — Twitch

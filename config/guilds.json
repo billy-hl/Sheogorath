@@ -11,7 +11,8 @@
       "reddit",
       "textImageMod",
       "automod",
-      "pickem"
+      "pickem",
+      "onthisday"
     ],
     "channels": {
       "music": "534553333034123289",
@@ -66,6 +67,15 @@
     "ufc": {
       "channel": "380486887309180929",
       "voiceChannel": "949392766453043260"
+    },
+    "onThisDay": {
+      "channel": "380486887309180929",
+      "hour": 10,
+      "timeZone": "America/Chicago",
+      "exclude": [
+        "1387454004803538974",
+        "1337976938194796618"
+      ]
     },
     "gameNews": {
       "channel": "991703618849878026",

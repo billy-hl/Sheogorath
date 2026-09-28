@@ -40,7 +40,19 @@ const FEATURES = [
   'zomboid',      // Project Zomboid server integration
   'forums',       // suggestion / mod-request forum channels, /forums
   'pickem',       // UFC pick'em in the `ufc.channel`, /pickem
+  'onthisday',    // the best of this date in years gone by, /onthisday
 ];
+
+/** An IANA time zone Intl accepts, or null. */
+function validTimeZone(zone) {
+  if (typeof zone !== 'string' || !zone) return null;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return zone;
+  } catch {
+    return null;
+  }
+}
 
 let cache = null;
 
@@ -273,6 +285,23 @@ function normalizeGuild(id, raw) {
           : null,
         contender: raw.ufc.pickem?.contender === true,
       },
+    } : null,
+    // On this day (services/onThisDay.js), where the `onthisday` feature is on:
+    // the best of this date in earlier years, posted to `channel` from `hour` in
+    // `timeZone`. The rooms it digs in are every text channel the whole server
+    // can see, less `exclude` — or exactly `sources`, when a guild names them.
+    onThisDay: raw.onThisDay && typeof raw.onThisDay === 'object' && raw.onThisDay.channel ? {
+      channel: raw.onThisDay.channel,
+      hour: Number.isInteger(raw.onThisDay.hour) && raw.onThisDay.hour >= 0 && raw.onThisDay.hour <= 23
+        ? raw.onThisDay.hour
+        : 10,
+      timeZone: validTimeZone(raw.onThisDay.timeZone) || 'America/Chicago',
+      // Reactions plus replies a message needs before it is worth digging up.
+      minScore: Number(raw.onThisDay.minScore) > 0 ? Number(raw.onThisDay.minScore) : 2,
+      sources: Array.isArray(raw.onThisDay.sources) ? raw.onThisDay.sources.filter((id) => SNOWFLAKE.test(id)) : null,
+      exclude: Array.isArray(raw.onThisDay.exclude) ? raw.onThisDay.exclude.filter((id) => SNOWFLAKE.test(id)) : [],
+      // Whether somebody who has left can be quoted back. Off: they never agreed to it.
+      includeLeft: raw.onThisDay.includeLeft === true,
     } : null,
     // Join-to-create voice rooms. `lobby` is the channel joining which makes
     // you one; absent, services/voicerooms.js ignores the guild entirely.

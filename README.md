@@ -11,6 +11,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **Image Generation**: `/imagine` conjures images through Grok, with the Mad God riffing on your prompt first.
 - **Music Streaming**: Play YouTube music in voice channels — URL or search phrase — with a queue, saved playlists, autoplay, and a radio list loaded from `radio.csv`.
 - **UFC Pick'em**: Each card is posted in fight week for everyone to call the winners, locked block by block as the night starts, and scored from ESPN's results into a season table. The best picker each week wears a title.
+- **UFC Results**: Every fight on every UFC card and Contender Series night, posted in a channel of its own as it ends: how it ended, the judges' scorecards, both fighters' stats side by side, and the whole card in one message once the main event is done.
 - **On This Day**: Each morning, the message the hall made the most of on this date in an earlier year, posted again with a line from Sheogorath, along with anyone's anniversary in the hall.
 - **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
@@ -82,6 +83,21 @@ Everything else happens on the card itself. On the Monday of fight week, alongsi
 A block locks when it starts, by ESPN's time for it, so someone who only turns up for the main card still plays. The first lock opens a thread on the card, and each lock posts how the room split. Results arrive in that thread as ESPN marks each bout final, with who called it; nobody is pinged. When the last bout is in, the card is scored — a point per winner called, nothing for a draw or no contest — and the reply names the week's best, who takes the weekly title (`ufc.pickem.title`, default *Oracle of the Octagon*) from whoever held it, along with a line from Sheogorath. That line is the only model call pick'em makes, about a tenth of a cent a week.
 
 Contender Series nights are left out unless `ufc.pickem.contender` is `true`, since five fights on a Tuesday would otherwise decide the season. A bout scratched before it happens leaves the card and its picks go with it; a replacement opponent is a new fight to call. Cards and picks live in guild state, so a restart loses nothing, and results are checked every two minutes only while a card is under way.
+
+### 🏆 UFC Results
+*Requires `ufc.results.channel`.*
+
+Every card on ESPN's UFC calendar is followed: numbered events, Fight Nights and Contender Series nights alike. As ESPN marks each bout final, it is posted in that channel with everything ESPN has on it:
+
+- **The headline**, as plain text so a notification says who won. On a title fight it says whether the belt stayed or changed hands.
+- **How it ended**: *KO/TKO (punches) in round 2 at 3:19*, *Submission (rear naked choke)*, *Decision (split) after 3 rounds*, with the **judges' scorecards** on any decision or draw, read winner first.
+- **The billing**: division, main event, title fight, and the odds each fighter went in at, with a note when the underdog won.
+- **Both fighters' numbers side by side**, winner first: significant strikes and accuracy, head/body/leg, total strikes, takedowns, knockdowns, submission attempts and control time, then each one's record after the fight, age, height, reach, stance and country.
+- **The officials**: the referee, and the judges when it went to the cards.
+
+When the last bout is in, the whole card follows as one message, main card first and each block with its main event on top, decisions with their scorecards: the record of the night, for anyone who missed it. Nothing pings, and there is no model call.
+
+Results are checked once a minute from five minutes before the first bout, and not at all outside a fight night. The scoreboard says who won; everything else comes from ESPN's FightCenter feed, and a result it has not caught up on, or a decision still without its scorecards, waits up to three minutes. If FightCenter is down, results go out plainer rather than not at all. Records and belt holders are read before the card starts, every few hours through fight week, because ESPN may update them mid-card; a fighter ESPN lists at 0-0-0 is left without one. ESPN's scorecards are not tied to a named judge, so the judges are listed but not matched to a card. What has been told lives in guild state, so a restart mid-card repeats nothing and catches up on anything that landed while the bot was down. ESPN carries the fights, not Dana White's contract calls, so Contender Series contracts are not announced.
 
 ### 📜 On This Day
 *Requires the `onthisday` feature and an `onThisDay.channel`.*

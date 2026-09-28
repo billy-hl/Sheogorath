@@ -37,7 +37,7 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 const { getGuildConfig, guildIds, hasFeature } = require('../config/guilds');
 const { getGuildState, setGuildState } = require('../storage/state');
-const { calendarCards, scoreboard, easternDay, fightWeekStart, TZ } = require('./ufc');
+const { calendarCards, parseBouts, scoreboard, easternDay, fightWeekStart, TZ, CONTENDER } = require('./ufc');
 const { getAIResponse } = require('../ai/grok');
 const { conversationalPersona } = require('../ai/persona');
 const { scrub } = require('../ai/actions');
@@ -72,10 +72,6 @@ const KEEP_DAYS = 45;
 const EARLY_DAYS = 14;
 
 const DEFAULT_TITLE = 'Oracle of the Octagon';
-const CONTENDER = /contender series/i;
-
-/** ESPN's words for how a fight ended, as people say them. */
-const METHODS = { kotko: 'KO/TKO', submission: 'submission', decision: 'decision' };
 
 const unix = (ms) => Math.floor(ms / 1000);
 const firstStart = (card) => Math.min(...card.bouts.map((b) => b.start));
@@ -92,46 +88,6 @@ const channelFor = (guildId) => {
   return ufc?.pickem?.channel || ufc?.channel || null;
 };
 const pickemGuilds = () => guildIds().filter((id) => hasFeature(id, 'pickem') && channelFor(id));
-
-// --- Reading ESPN -----------------------------------------------------------
-
-function methodOf(competition) {
-  for (const detail of competition.details || []) {
-    const said = /^unofficial winner (.+)$/i.exec(detail?.type?.text || '')?.[1];
-    if (said) return METHODS[said.toLowerCase()] || said.toLowerCase();
-  }
-  return null;
-}
-
-/**
- * A card as pick'em reads it: every bout, not only the main card, with ESPN's
- * ids for the bout and both fighters, and the result once there is one.
- */
-function parseForPicks(event) {
-  const bouts = (event.competitions || []).map((c) => {
-    const fighters = [...(c.competitors || [])]
-      .sort((a, b) => (a.order || 0) - (b.order || 0))
-      .map((p) => ({ id: String(p.id || p.athlete?.id || ''), name: p.athlete?.displayName, won: p.winner === true }))
-      .filter((f) => f.id && f.name);
-    const state = c.status?.type?.state || 'pre';
-    return {
-      id: String(c.id || ''),
-      start: new Date(c.startDate || c.date).getTime(),
-      weight: c.type?.abbreviation || '',
-      fighters: fighters.map(({ id, name }) => ({ id, name })),
-      state,
-      final: state === 'post',
-      result: {
-        winner: fighters.find((f) => f.won)?.id || null,
-        method: methodOf(c),
-        round: c.status?.period || null,
-        clock: c.status?.displayClock || null,
-      },
-    };
-  }).filter((b) => b.id && b.fighters.length === 2 && Number.isFinite(b.start));
-  if (!bouts.length) return null;
-  return { espnId: String(event.id), name: event.name, contender: CONTENDER.test(event.name || ''), bouts };
-}
 
 // --- The stored record ------------------------------------------------------
 
@@ -729,7 +685,7 @@ async function pollCard(client, guildId, espnId, eventsOn, now = Date.now()) {
   const start = firstStart(before);
   const events = await eventsOn(easternDay(new Date(start)));
   const event = events.find((e) => String(e.id) === espnId);
-  const parsed = event ? parseForPicks(event) : null;
+  const parsed = event ? parseBouts(event) : null;
 
   let news = null;
   let scored = null;
@@ -804,7 +760,7 @@ async function discover(client, now = new Date()) {
     try {
       cards = await calendarCards((c) => new Date(c.endDate || c.startDate) > now
         && fightWeekStart(new Date(c.startDate)) <= now
-        && (guilds.some(wantsContender) || !CONTENDER.test(c.label)), parseForPicks);
+        && (guilds.some(wantsContender) || !CONTENDER.test(c.label)), parseBouts);
     } catch (err) {
       console.warn(`[Pickem] ESPN lookup failed: ${err?.response?.status || ''} ${err?.message || err}`);
       return;
@@ -841,7 +797,7 @@ async function openNext(client, guildId, now = new Date()) {
   const contender = !!cfg.ufc.pickem?.contender;
   const [parsed] = await calendarCards((c) => new Date(c.startDate) > now
     && new Date(c.startDate) - now < EARLY_DAYS * DAY_MS
-    && (contender || !CONTENDER.test(c.label)), parseForPicks, 1);
+    && (contender || !CONTENDER.test(c.label)), parseBouts, 1);
   if (!parsed) return `There is no card in the next ${EARLY_DAYS} days to open.`;
 
   const open = stateOf(guildId).cards[parsed.espnId];
@@ -909,7 +865,7 @@ module.exports = {
   openNext,
   currentSeason,
   // For tests and scripts.
-  parseForPicks,
+  parseBouts,
   mergeBouts,
   recordPick,
   scoreCard,

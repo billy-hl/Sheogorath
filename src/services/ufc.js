@@ -37,6 +37,10 @@ const SYNC_HOURS = 6;
 // The event itself opens with the prelims, when people start watching.
 const MAIN_CARD_HOURS = 4;
 const TZ = 'America/New_York';
+const CONTENDER = /contender series/i;
+
+/** ESPN's words for how a fight ended, as people say them. */
+const METHODS = { kotko: 'KO/TKO', submission: 'submission', decision: 'decision' };
 
 async function scoreboard(dates) {
   const res = await axios.get(SCOREBOARD_URL, { params: dates ? { dates } : {}, timeout: 15000 });
@@ -113,13 +117,54 @@ function parseCard(event) {
     espnId: String(event.id),
     name: event.name,
     // A Contender Series night has no main event, just five fights for a contract.
-    contender: /contender series/i.test(event.name || ''),
+    contender: CONTENDER.test(event.name || ''),
     start: firstStart,
     mainStart,
     prelimsStart: firstStart < mainStart ? firstStart : null,
     broadcast: main[0].broadcast || 'Paramount+',
     main,
   };
+}
+
+function methodOf(competition) {
+  for (const detail of competition.details || []) {
+    const said = /^unofficial winner (.+)$/i.exec(detail?.type?.text || '')?.[1];
+    if (said) return METHODS[said.toLowerCase()] || said.toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * A card as pick'em and the results feed read it: every bout, not only the
+ * main card, with ESPN's ids for the bout and both fighters, and the result
+ * once there is one.
+ */
+function parseBouts(event) {
+  const bouts = (event.competitions || []).map((c) => {
+    const fighters = [...(c.competitors || [])]
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+      .map((p) => ({ id: String(p.id || p.athlete?.id || ''), name: p.athlete?.displayName, won: p.winner === true }))
+      .filter((f) => f.id && f.name);
+    const state = c.status?.type?.state || 'pre';
+    return {
+      id: String(c.id || ''),
+      start: new Date(c.startDate || c.date).getTime(),
+      weight: c.type?.abbreviation || '',
+      fighters: fighters.map(({ id, name }) => ({ id, name })),
+      state,
+      final: state === 'post',
+      // Over without being fought: ESPN marks a cancelled or postponed bout 'post' too.
+      cancelled: /cancel|postpone/i.test(c.status?.type?.name || ''),
+      result: {
+        winner: fighters.find((f) => f.won)?.id || null,
+        method: methodOf(c),
+        round: c.status?.period || null,
+        clock: c.status?.displayClock || null,
+      },
+    };
+  }).filter((b) => b.id && b.fighters.length === 2 && Number.isFinite(b.start));
+  if (!bouts.length) return null;
+  return { espnId: String(event.id), name: event.name, contender: CONTENDER.test(event.name || ''), bouts };
 }
 
 function describe(card) {
@@ -279,6 +324,6 @@ function scheduleUfcEvents(client) {
 }
 
 module.exports = {
-  scheduleUfcEvents, syncOnce, upcomingCards, calendarCards, parseCard, describe, eventArt,
-  fightWeekStart, scoreboard, easternDay, TZ,
+  scheduleUfcEvents, syncOnce, upcomingCards, calendarCards, parseCard, parseBouts, describe, eventArt,
+  fightWeekStart, scoreboard, easternDay, TZ, CONTENDER,
 };

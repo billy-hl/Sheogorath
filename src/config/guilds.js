@@ -281,6 +281,12 @@ function normalizeGuild(id, raw) {
           : null,
         contender: raw.ufc.pickem?.contender === true,
       },
+      // Every result as the fight ends, and the whole card once it is over
+      // (services/ufcResults.js), Contender Series nights included. Unset, no
+      // results are posted.
+      results: {
+        channel: SNOWFLAKE.test(String(raw.ufc.results?.channel || '')) ? raw.ufc.results.channel : null,
+      },
     } : null,
     // On this day (services/onThisDay.js), where the `onthisday` feature is on:
     // the best of this date in earlier years, posted to `channel` from `hour` in

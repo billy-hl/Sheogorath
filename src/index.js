@@ -45,6 +45,7 @@ const { scheduleUfcEvents } = require('./services/ufc');
 const { scheduleGameNews } = require('./services/gameNews');
 const { schedulePresserWatch } = require('./services/ufcPresser');
 const { schedulePickem, isPickemButton, handleButton: handlePickemButton } = require('./services/pickem');
+const { scheduleUfcResults } = require('./services/ufcResults');
 const { scheduleOnThisDay } = require('./services/onThisDay');
 const { scheduleEvents } = require('./services/events');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
@@ -259,6 +260,13 @@ client.once(Events.ClientReady, async () => {
     schedulePickem(client);
   } catch (err) {
     console.error("[Pickem] Failed to schedule pick'em:", err?.message || err);
+  }
+
+  // Every UFC result as the fight ends, Contender Series included, in a channel of its own.
+  try {
+    scheduleUfcResults(client);
+  } catch (err) {
+    console.error('[UFC] Failed to schedule results:', err?.message || err);
   }
 
   // The best of this date in years gone by, each morning.

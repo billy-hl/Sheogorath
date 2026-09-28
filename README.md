@@ -71,12 +71,12 @@ Commands are loaded from `src/commands/*.js`. Two things decide whether a comman
 - `/playlist save|load|list|delete <name>` - Manage custom playlists (`list` takes no name)
 
 ### 🥊 UFC Pick'em
-*Requires the `pickem` feature and a `ufc.channel`.*
+*Requires the `pickem` feature and a channel: `ufc.pickem.channel`, or `ufc.channel` when that is unset.*
 
 - `/pickem standings [season]` - The season table (this year by default)
 - `/pickem open` - Open picks for the next card now instead of waiting for fight week *(bot admin)*
 
-Everything else happens on the card itself. On the Monday of fight week, alongside the Discord event, the card is posted in `ufc.channel` with a button per block of bouts: main card, prelims, early prelims. A button opens a private panel with a row per bout; one click picks a fighter, a second takes it back. Nobody sees anyone else's picks until they lock.
+Everything else happens on the card itself. On the Monday of fight week, alongside the Discord event, the card is posted in pick'em's channel with a button per block of bouts: main card, prelims, early prelims. A card already open when that channel changes moves to the new one before its first bout, picks and all, and leaves a pointer where it was. A button opens a private panel with a row per bout; one click picks a fighter, a second takes it back. Nobody sees anyone else's picks until they lock.
 
 A block locks when it starts, by ESPN's time for it, so someone who only turns up for the main card still plays. The first lock opens a thread on the card, and each lock posts how the room split. Results arrive in that thread as ESPN marks each bout final, with who called it; nobody is pinged. When the last bout is in, the card is scored — a point per winner called, nothing for a draw or no contest — and the reply names the week's best, who takes the weekly title (`ufc.pickem.title`, default *Oracle of the Octagon*) from whoever held it, along with a line from Sheogorath. That line is the only model call pick'em makes, about a tenth of a cent a week.
 

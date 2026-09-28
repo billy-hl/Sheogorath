@@ -86,7 +86,12 @@ const currentSeason = () => seasonOf(Date.now());
 const titleFor = (guildId) =>
   (getGuildConfig(guildId)?.ufc?.pickem?.title || DEFAULT_TITLE).replace(/\s+/g, ' ').trim().slice(0, 90);
 const messageLink = (guildId, card) => `https://discord.com/channels/${guildId}/${card.channelId}/${card.messageId}`;
-const pickemGuilds = () => guildIds().filter((id) => hasFeature(id, 'pickem') && getGuildConfig(id)?.ufc?.channel);
+/** Where cards are posted: pick'em's own channel, or the UFC channel when it has none. */
+const channelFor = (guildId) => {
+  const ufc = getGuildConfig(guildId)?.ufc;
+  return ufc?.pickem?.channel || ufc?.channel || null;
+};
+const pickemGuilds = () => guildIds().filter((id) => hasFeature(id, 'pickem') && channelFor(id));
 
 // --- Reading ESPN -----------------------------------------------------------
 
@@ -539,7 +544,7 @@ async function postCard(client, guildId, parsed, now = Date.now()) {
   if (now >= Math.min(...parsed.bouts.map((b) => b.start))) return null;
   posting.add(key);
   try {
-    const channelId = getGuildConfig(guildId)?.ufc?.channel;
+    const channelId = channelFor(guildId);
     const channel = channelId && await client.channels.fetch(channelId).catch(() => null);
     if (!channel) {
       console.warn(`[Pickem] ${guildId}: channel ${channelId} is unreachable.`);
@@ -565,6 +570,42 @@ async function postCard(client, guildId, parsed, now = Date.now()) {
   } finally {
     posting.delete(key);
   }
+}
+
+/**
+ * A card posted before pick'em was given a channel of its own, moved there.
+ *
+ * Only before its first bout: once a card is under way its thread is where
+ * the night is happening, and moving it would split the room. The picks live
+ * in state, not on the message, so they come along untouched. The old post is
+ * cut down to a pointer rather than deleted, for anyone who goes looking for
+ * it where they last saw it.
+ */
+async function moveCard(client, guildId, card) {
+  const target = channelFor(guildId);
+  if (!target || card.channelId === target || card.finished || Date.now() >= firstStart(card)) return;
+  const channel = await client.channels.fetch(target).catch(() => null);
+  if (!channel) {
+    console.warn(`[Pickem] ${guildId}: cannot move "${card.name}" — channel ${target} is unreachable.`);
+    return;
+  }
+  const message = await channel.send(cardMessage({ ...card, channelId: channel.id }));
+  const moved = mutate(guildId, (record) => {
+    const stored = record.cards[card.espnId];
+    if (!stored) return null;
+    Object.assign(stored, { channelId: channel.id, messageId: message.id, threadId: null });
+    return stored;
+  });
+  const oldChannel = await client.channels.fetch(card.channelId).catch(() => null);
+  const old = oldChannel && await oldChannel.messages.fetch(card.messageId).catch(() => null);
+  await old?.edit({
+    content: `🥊 Pick'em has a channel of its own now: <#${channel.id}>. Picks already made came with it.`,
+    embeds: [],
+    components: [],
+    allowedMentions: { parse: [] },
+  }).catch(() => {});
+  console.log(`[Pickem] ${guildId}: moved "${card.name}" to #${channel.name}.`);
+  return moved;
 }
 
 /** Before a card starts: scratches, replacements and moved times reach the post. */
@@ -774,7 +815,10 @@ async function discover(client, now = new Date()) {
         const card = stateOf(guildId).cards[parsed.espnId];
         try {
           if (!card) await postCard(client, guildId, parsed, now.getTime());
-          else if (!card.finished && now.getTime() < firstStart(card)) await refreshCard(client, guildId, parsed);
+          else if (!card.finished && now.getTime() < firstStart(card)) {
+            await moveCard(client, guildId, card);
+            await refreshCard(client, guildId, parsed);
+          }
         } catch (err) {
           console.warn(`[Pickem] ${guildId}: sync of "${parsed.name}" failed: ${err?.message || err}`);
         }
@@ -791,8 +835,8 @@ async function discover(client, now = new Date()) {
  */
 async function openNext(client, guildId, now = new Date()) {
   const cfg = getGuildConfig(guildId);
-  if (!hasFeature(guildId, 'pickem') || !cfg?.ufc?.channel) {
-    return "❌ Pick'em is not set up here. It needs the `pickem` feature and a `ufc.channel`.";
+  if (!hasFeature(guildId, 'pickem') || !channelFor(guildId)) {
+    return "❌ Pick'em is not set up here. It needs the `pickem` feature and a `ufc.channel` or `ufc.pickem.channel`.";
   }
   const contender = !!cfg.ufc.pickem?.contender;
   const [parsed] = await calendarCards((c) => new Date(c.startDate) > now
@@ -879,6 +923,7 @@ module.exports = {
   resultPost,
   pollCard,
   discover,
+  moveCard,
   stateOf,
   verdictOn,
 };

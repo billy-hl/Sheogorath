@@ -276,10 +276,12 @@ function normalizeGuild(id, raw) {
       voiceChannel: raw.ufc.voiceChannel || null,
       // Pinged when the post-fight press conference goes live. Null pings nobody.
       pingRole: raw.ufc.pingRole || null,
-      // Pick'em (services/pickem.js), where the `pickem` feature is on: the
-      // title the week's best picker wears, and whether Contender Series nights
-      // count. Off by default — five fights on a Tuesday would decide the season.
+      // Pick'em (services/pickem.js), where the `pickem` feature is on: its own
+      // channel (the ufc channel when unset), the title the week's best picker
+      // wears, and whether Contender Series nights count. Off by default — five
+      // fights on a Tuesday would decide the season.
       pickem: {
+        channel: SNOWFLAKE.test(String(raw.ufc.pickem?.channel || '')) ? raw.ufc.pickem.channel : null,
         title: typeof raw.ufc.pickem?.title === 'string' && raw.ufc.pickem.title.trim()
           ? raw.ufc.pickem.title.trim()
           : null,

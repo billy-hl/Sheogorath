@@ -38,7 +38,7 @@ shut, and that is working as intended rather than a bug.
 ## Placement
 
 - Files here are read for every guild.
-- Files in a subdirectory named after a guild (`wabbajack/`, `zomboid/`) or its
+- Files in a subdirectory named after a guild (`wabbajack/`) or its
   ID are read only for that guild.
 
 ## Unfinished files are skipped

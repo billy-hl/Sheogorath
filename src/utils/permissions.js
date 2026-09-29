@@ -28,10 +28,6 @@ const COMMAND_FEATURES = {
   stats: 'moderation',
   automod: 'automod',
 
-  leaderboard: 'zomboid',
-  pz: 'zomboid',
-  character: 'zomboid',
-
   sheo: 'ai',
 
   pickem: 'pickem',
@@ -45,45 +41,23 @@ const MUSIC_COMMANDS = new Set(
 );
 
 /**
- * Commands that need the in-game staff tier (Sheriff) rather than full bot
- * admin. Admins pass these too — isStaff() subsumes isAdmin().
- */
-const STAFF_COMMANDS = new Set(['pz']);
-
-/**
  * Commands that need full bot admin for every subcommand.
  *
  * `/sheo` sets how much Sheogorath may do unsupervised. A Sheriff is trusted to
  * use his judgement and to rule on what he asks for — the whole approval flow
  * rests on that — but deciding whether he needs to ask at all is a rung above,
- * for the same reason `/pz access` is: a Sheriff who could move him to `enforce`
- * could widen their own reach by proxy.
+ * because a Sheriff who could move him to `enforce` could widen their own
+ * reach by proxy.
  */
 const ADMIN_COMMANDS = new Set(['sheo']);
 
-/**
- * Subcommands that need full admin even though their parent command doesn't.
- *
- * `/pz access` hands out in-game power rather than using it: a Sheriff who could
- * run it could make themselves `admin`, which would turn the whole staff tier
- * into a formality. Everything else under `/pz` is bounded — a Sheriff can
- * teleport a player, not change who is allowed to.
- *
- * `/pz raid` is here for the opposite reason: it is bounded in scope but not in
- * time. Spawned zombies are permanent — this server runs ZombieRespawn=None and
- * PZ has no RCON command that removes them — so a single mistyped option leaves
- * hundreds of zombies in the world for good. Nothing else under `/pz` is
- * irreversible.
- */
+/** Subcommands that need full admin even though their parent command doesn't. */
 const ADMIN_SUBCOMMANDS = {
-  pz: new Set(['access', 'raid']),
   pickem: new Set(['open']),
 };
 
 /** Why each entry above is restricted, shown verbatim in the refusal. */
 const ADMIN_SUBCOMMAND_REASONS = {
-  'pz access': 'it grants in-game power rather than using it',
-  'pz raid': 'its zombie spawns are permanent and cannot be undone',
   'pickem open': 'it posts a card to the whole server ahead of fight week',
 };
 
@@ -110,8 +84,8 @@ function isAdmin(member) {
 }
 
 /**
- * Whether a member holds the in-game staff tier — the rung between admin and
- * VIP that carries the Project Zomboid admin commands.
+ * Whether a member holds the staff tier — the rung between admin and VIP whose
+ * holders rule on what Sheogorath asks permission for.
  *
  * Admins are staff by definition, so the ladder stays a ladder: anything a
  * Sheriff can do, an Owner can do. Kept separate from isAdmin() because the
@@ -157,9 +131,6 @@ function commandDenialReason(commandName, guildId, member, subcommand = null) {
   }
   if (MUSIC_COMMANDS.has(commandName) && !isAdmin(member)) {
     return '❌ Music controls are admin-only.';
-  }
-  if (STAFF_COMMANDS.has(commandName) && !isStaff(member)) {
-    return '❌ Server admin commands are limited to Sheriffs and Owners.';
   }
   if (ADMIN_COMMANDS.has(commandName) && !isAdmin(member)) {
     return `❌ \`/${commandName}\` is Owners-only.`;
@@ -212,7 +183,6 @@ module.exports = {
   isVeteran,
   COMMAND_FEATURES,
   MUSIC_COMMANDS,
-  STAFF_COMMANDS,
   ADMIN_COMMANDS,
   ADMIN_SUBCOMMANDS,
   musicDenialReason,

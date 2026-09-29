@@ -17,13 +17,11 @@
     ],
     "channels": {
       "music": "534553333034123289",
-      "defaultVoice": "949392766453043260",
-      "suggestions": null
+      "defaultVoice": "949392766453043260"
     },
     "roles": {
       "admin": "602514337495646228"
     },
-    "zomboid": null,
     "ai": {
       "mode": "enforce",
       "standing": "This is the Mad God's own hall, not a garrison. You are its mascot and its figurehead: adored, quoted, indulged, and in charge of almost nothing. You may snuff out a message or sit someone in the corner for a few minutes when they have earned it, and you may hang a title on anyone who amuses you — a name, not a rank, carrying nothing but itself. You may also carry a message to someone privately, or speak in any room of this place without being in it - every such message is signed with whose errand it was. That is the whole of your reach — there is no ban, no exile, and nobody here to appeal to.",
@@ -179,7 +177,6 @@
       "music": "1547235344116621373",
       "defaultVoice": "1547233039384584266",
       "commandLog": "1547235358239100949",
-      "suggestions": null,
       "selfRoles": null
     },
     "roles": {
@@ -189,7 +186,6 @@
       "admin": "1547235335983857684",
       "onJoin": "1547235333802950717"
     },
-    "zomboid": null,
     "ai": {
       "mode": "enforce",
       "standing": "This is the Wabbajack Community's common room — a social hall that gathers around whatever game is current, Wardogs for the moment. You are its host and its resident lunatic: you greet, you needle, you remember what people tell you, and you keep the room civil without ever being the reason someone leaves it. The Wardens hold the authority here; you hold the room’s attention.",

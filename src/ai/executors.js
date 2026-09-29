@@ -391,41 +391,6 @@ async function runAction(action, ctx) {
       return `remembered something about <@${userId}>`;
     }
 
-    case 'storytime': {
-      // Posts the piece itself rather than handing it back, because it is prose
-      // for the channel, not a line for the audit log. Sheogorath's own reply
-      // still goes out alongside it — he introduces it, the chronicler writes it.
-      const { generateInterlude, storyConfig, splitForDiscord } = require('../services/zomboid/storyTime');
-      const cfg = storyConfig(guildId);
-      if (!cfg) throw new Error('story time is not configured for this server');
-      if (!message?.channel) throw new Error('there is no channel to tell it in');
-
-      // The client comes off the message rather than from requiring index.js,
-      // which would be a circular require for something already to hand.
-      const text = await generateInterlude(cfg, message.client);
-      if (!text) {
-        await follow(['-# The chronicler turns a page and finds it blank — nothing has happened today worth the ink.']);
-        return 'told an early tale, but the day was empty';
-      }
-
-      const hour = cfg.hour;
-      const footer = `\n\n-# The full chronicle comes at ${String(hour).padStart(2, '0')}:00, as it always does.`;
-      await follow(splitForDiscord(text + footer));
-      return `told an early tale (${text.length} chars)`;
-    }
-
-    case 'pzrestart': {
-      // The same path `/pz restart` uses, so players get the in-game warnings
-      // and the scheduled-restart guards apply — including the refusal when one
-      // is already running, which surfaces as a normal failure.
-      const { startRestart } = require('../services/zomboid/restart');
-      const reason = action.reason || 'asked for in chat';
-      await startRestart(guildId, action.minutes, reason);
-      return action.minutes > 0
-        ? `scheduled a server restart in ${action.minutes} minute(s) — ${reason}`
-        : `started a server restart now — ${reason}`;
-    }
-
     case 'event': {
       // The rules about who may move what live with the calendar, so this only
       // works out who is asking and says what happened. The follow-up carries
@@ -453,14 +418,6 @@ async function runAction(action, ctx) {
       return `${existing ? 'moved' : 'put'} "${ev.name}" ${existing ? 'to' : 'on the calendar for'} ${ev.start.toISOString()}`;
     }
 
-    case 'pzcommand': {
-      // Required lazily: the Zomboid stack pulls in the whole RCON toolchain,
-      // and guilds without the feature should not load it to run a warning.
-      const { rcon } = require('../services/zomboid/rcon');
-      const reply = await rcon(guildId, action.command);
-      return `ran \`${action.command}\` — ${reply ? reply.slice(0, 300) : 'no reply'}`;
-    }
-
     default:
       throw new Error(`no executor for "${action.type}"`);
   }
@@ -478,7 +435,6 @@ function describeAction(action) {
     case 'note':      return `Note against <@${action.userId}>: ${action.note}`;
     case 'clearnotes':return `Clear all notes for <@${action.userId}>`;
     case 'memory':    return `Remember about <@${action.userId}>: ${action.memory}`;
-    case 'storytime': return `Tell an early tale of the day so far — ${action.reason || 'someone asked'}`;
     case 'title':     return `Give <@${action.userId}> the title "${action.title}"`;
     case 'untitle':   return `Take the title "${action.title}" back off <@${action.userId}>`;
     case 'dm':        return `Send <@${action.userId}> a private message: ${action.text}`;
@@ -492,10 +448,6 @@ function describeAction(action) {
     case 'event':     return action.cancel
       ? `Take "${action.name}" off the calendar`
       : `Put "${action.name}" on the calendar${action.when ? ` for ${action.when}` : ''}`;
-    case 'pzcommand': return `Run on the game server: \`${action.command}\``;
-    case 'pzrestart': return action.minutes > 0
-      ? `Restart the game server in ${action.minutes} minute(s) — ${action.reason || 'no reason given'}`
-      : `Restart the game server NOW — ${action.reason || 'no reason given'}`;
     default:          return `${action.type} ${JSON.stringify(action)}`;
   }
 }

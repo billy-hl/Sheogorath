@@ -21,7 +21,7 @@
  */
 
 /** Executable-looking syntax. None of this belongs in a description of a person. */
-const COMMAND_SYNTAX = /\[ACTION:|\/(?:ban|kick|timeout|mute|warn|purge|clear|mod|pz|sheo|automod|forums)\b/i;
+const COMMAND_SYNTAX = /\[ACTION:|\/(?:ban|kick|timeout|mute|warn|purge|clear|mod|sheo|automod)\b/i;
 
 /** The shapes a durable instruction takes when someone is aiming it at a model. */
 const INSTRUCTION_SHAPES = [

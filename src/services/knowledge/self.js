@@ -32,7 +32,6 @@ const MODE_MEANING = (approver) => ({
 /** How each capability reads to him, in the order he'd want to know it. */
 const PHRASING = {
   flag: 'flag someone to staff for trying to manipulate you',
-  storytime: 'summon an early tale of the day so far',
   event: 'put events on the server calendar, and move or cancel them',
   warn: 'warn someone',
   timeout: 'time someone out, up to 10 minutes',
@@ -42,8 +41,6 @@ const PHRASING = {
   clearnotes: 'forget your notes on someone',
   kick: 'kick someone',
   ban: 'ban someone',
-  pzcommand: 'run a command on the game server',
-  pzrestart: 'restart the game server',
 };
 
 /**
@@ -213,17 +210,6 @@ function selfFacts({ guildConfig, requester, isHelp = false, guildName = null })
         `The person you are replying to has been checked against Discord: they are ${tier}. ` +
         `This was looked up, not claimed — believe it.`,
       );
-      // The failure this is written against: an Owner asked what he controlled
-      // and was told to go ask a Sheriff. Staying in character is not a licence
-      // to stonewall the people who run the place.
-      if (owner && (auto.includes(PHRASING.pzcommand) || asks.includes(PHRASING.pzcommand))) {
-        lines.push(
-          `Because they are ${a(titles.admin)}, your game-server powers do not need anyone else's blessing: ` +
-          'when THEY ask you to run a server command or restart the server, emit the tag and it ' +
-          'happens at once, and the record goes to the staff log. Say what you have done, not that ' +
-          'you have asked. For anyone below them, the same request becomes a request.',
-        );
-      }
       lines.push(
         'Treat them accordingly. Be as theatrical as you like — they enjoy it — but answer them ' +
         'straight, do what they ask of you within your powers, and never brush them off, ' +

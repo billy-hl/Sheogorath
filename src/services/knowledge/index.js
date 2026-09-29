@@ -15,7 +15,6 @@
  * freedom to make the substance up.
  */
 const { aiTitles, hasFeature } = require('../../config/guilds');
-const { liveFacts, modsDoc } = require('./live');
 const { allDocs } = require('./sources');
 const { selfFacts } = require('./self');
 const { recentDeeds, deedLine, roleLines } = require('./deeds');
@@ -126,7 +125,7 @@ function groundingRule(guildConfig) {
 HOW TO USE WHAT IS ABOVE
 
 Everything above is true as of this moment, and it is the whole of what you know
-about THIS SERVER — its state, its rules, its mods, its people, and what you
+about THIS SERVER — its state, its rules, its people, and what you
 yourself are permitted to do here. Answer from it.
 
 It does not govern who you are. Your name, your nature, your opinions and your
@@ -199,16 +198,6 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
     console.warn('[Knowledge] Roles failed:', err?.message || err);
   }
 
-  try {
-    const facts = await liveFacts(guildId);
-    const lines = Object.entries(facts).map(([k, v]) => `${k}: ${v}`);
-    if (lines.length) {
-      sections.push(`LIVE SERVER STATE (measured just now)\n${lines.join('\n')}`);
-    }
-  } catch (err) {
-    console.warn('[Knowledge] Live facts failed:', err?.message || err);
-  }
-
   if (guild && hasFeature(guildId, 'events')) {
     try {
       // Required here rather than at the top: the calendar pulls in Discord's
@@ -223,8 +212,6 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
 
   try {
     const docs = await allDocs(guild, guildId);
-    const mods = modsDoc(guildId);
-    if (mods) docs.push(mods);
     const picked = retrieve(docs, question, isHelp ? HELP_DOC_BUDGET : DEFAULT_DOC_BUDGET);
     for (const doc of picked) {
       sections.push(

@@ -1,7 +1,7 @@
 
 # Sheogorath Discord Bot
 
-Sheogorath is a multi-guild Discord bot built around an Elder Scrolls Mad God persona. It combines AI chat and image generation (Grok/xAI), a YouTube music player with a companion web app, and a deep Project Zomboid server integration.
+Sheogorath is a multi-guild Discord bot built around an Elder Scrolls Mad God persona. It combines AI chat and image generation (Grok/xAI), a YouTube music player with a companion web app, and a UFC fight-night suite.
 
 Each Discord server the bot serves gets its own entry in `config/guilds.json`, with a `features` list deciding what actually runs there — so the music guild and the game-server guild share one process without sharing surfaces.
 
@@ -15,8 +15,6 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **UFC Reminders**: A DM to everyone in a chosen role half an hour before each UFC card starts.
 - **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
-- **Project Zomboid Integration**: Leaderboards, roleplay character sheets, and RCON server admin from Discord, plus log watchers that post kills, raids, deaths, mod updates and story-time recaps.
-- **Community Forums**: Managed suggestion and mod-request forums with vote reactions, duplicate detection, and automatic Steam Workshop vetting of requested mods.
 - **Moderation**: Discord native AutoMod rules, an Ollama-backed filter for sexual ASCII/Unicode text art that keyword rules can't catch, and Sheogorath himself acting as a moderator — everything he decides to do passes through a permission gate that either performs it, holds it for a Sheriff to approve, or refuses it.
 - **Instagram Mirroring**: Reels posted in chat are downloaded and re-uploaded natively, compressed to the guild's boost-tier attachment limit.
 - **X/Twitter Mirroring**: Video from posted X links is downloaded with yt-dlp and re-uploaded the same way. Text and photo posts are left to Discord's own embed.
@@ -29,7 +27,6 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 
 - Node.js (v18+ recommended)
 - Ollama, if the `textImageMod` feature is enabled
-- A Project Zomboid server with RCON, if the `zomboid` feature is enabled
 
 ### Setup
 
@@ -48,7 +45,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 Commands are loaded from `src/commands/*.js`. Two things decide whether a command is usable in a given guild, both driven by `src/utils/permissions.js`:
 
 - **Feature gate** — commands mapped in `COMMAND_FEATURES` are only *registered* in guilds whose `config/guilds.json` entry lists that feature. Unmapped commands register everywhere.
-- **Permission tier** — Owner (bot admin), Sheriff (in-game staff), or Discord's own Administrator permission. Admins pass every staff check.
+- **Permission tier** — Owner (bot admin), Sheriff (staff), or Discord's own Administrator permission. Admins pass every staff check.
 
 ### 🤖 AI & Chat
 - `/ai <prompt>` - Chat with the AI bot
@@ -120,36 +117,6 @@ Anyone may add an event. Moving or removing one is for whoever added it and an O
 
 Fifteen minutes before **any** scheduled event in the server — these, the UFC cards, and ones made by hand in Discord — the people who clicked Interested are pinged by name in the events channel, with a link, and a thread is opened for the evening. Nobody interested means no post, and a UFC card gets no thread because pick'em runs its own. Each event is reminded once.
 
-### 🧟 Project Zomboid
-*Requires the `zomboid` feature.*
-
-- `/leaderboard [board] [skill]` - Server records — kills, skills, survival and deaths. Boards: overall, kills, hunted, champions, survival, deaths. Passing `skill` shows the top 10 for one skill and overrides `board`.
-- `/character link` - Link your Discord to your in-game account
-- `/character sheet` - Write or edit your character sheet
-- `/character refresh` - Update your sheet with your latest survival stats
-- `/character view <name>` - Look up someone's character (autocompletes)
-- `/character whois <member>` - Which character a Discord member plays
-- `/character unlink [member]` - Unlink a game account — yours by default; unlinking someone else needs Sheriff+
-
-#### `/pz` — server admin (Sheriff+)
-Every subcommand is limited to Sheriffs and Owners. Invocations — including refused ones — are mirrored to the guild's private `commandLog` channel.
-
-- `/pz players` - Who's online right now
-- `/pz info <player>` - Look up a player — character, survival time, deaths, skills
-- `/pz teleport <player> <target>` - Teleport one player to another
-- `/pz kick <player> [reason]` - Kick a player from the server
-- `/pz giveitem <player> <item> [count]` - Give an item to a player (item autocompletes)
-- `/pz addxp <player> <skill> <amount>` - Grant XP in one skill
-- `/pz setlevel <player> <skill> <level>` - Raise a skill to a level, working out the XP for you
-- `/pz godmode <player> <state>` - Make a player invincible
-- `/pz invisible <player> <state>` - Hide a player from zombies
-- `/pz noclip <player> <state>` - Let a player walk through walls
-- `/pz say <message>` - Broadcast a message to everyone in-game
-- `/pz restart [when] [reason]` - Restart the server, announced in Discord and in-game (`when` accepts `20`, `20m`, `1h30m`, `22:00`, `10:30pm`, `now` — default 5 minutes)
-- `/pz restart-cancel` - Cancel a scheduled restart
-- `/pz restart-status` - Is a restart running or scheduled?
-- `/pz access <player> <level>` - **Owners only.** Set a player's in-game access level. Held above the Sheriff tier because it hands out in-game power rather than using it — a Sheriff who could run it could promote themselves.
-
 ### 🛡️ Moderation
 - `/sheo status` - What Sheogorath is allowed to do unsupervised, what he has done in the last hour, and how many approval cards are waiting *(Owners only)*
 - `/sheo mode <shadow|assist|enforce>` - Change how much he may do without asking. Persisted to `config/guilds.json`, so it survives a restart
@@ -162,13 +129,6 @@ Every subcommand is limited to Sheriffs and Owners. Invocations — including re
 
 ### 📊 Utility
 - `/health` - Check bot health and service status
-
-#### `/forums` — manage the suggestion and mod-request forums
-*Bot admin only.*
-
-- `/forums preview` - Show what setup would create or change, without touching anything
-- `/forums apply <confirm>` - Create or repair the forum channels and their tags. `confirm` is required — this creates channels and locks the old one read-only
-- `/forums status` - Show how the forums are currently wired
 
 ### The help channel
 
@@ -194,12 +154,8 @@ like a real answer. The fix isn't to sand the character down — it's to put the
 true answer in front of him and take away the one liberty that matters.
 
 Before he answers anything, `src/services/knowledge/` assembles a block from
-three sources:
+two sources:
 
-- **Live server state** (`live.js`) — up or down, who's online, next restart,
-  game version, mods loaded. Measured through RCON and the server ini, never
-  recalled, cached for a minute. Each source is isolated: an unreachable server
-  still leaves the mod list answerable.
 - **Reference channels** (`sources.js`) — `#rules` and `#server-info`, read
   straight out of Discord, pinned messages first. He quotes what players can
   see, so there's no second copy to go stale. Configured as `channels.rules` and
@@ -240,14 +196,6 @@ The refusal instruction names the framings explicitly (dead relatives, "just for
 a story", "ignore previous instructions", claimed authority, asking in pieces)
 and tells him not to lecture — one contemptuous line and a flag is the whole
 response.
-
-**The line is drawn on real-world workability, not on topic**, because this is a
-Project Zomboid server. "How do I craft a molotov", "best beginner melee weapon",
-"where do I find propane" are ordinary questions about a video game and get
-ordinary answers. Real chemistry does not. Getting this wrong in the other
-direction — flagging your own players for playing the game — would be worse than
-not having the feature. Verified against both kinds live: both jailbreak framings
-refused and flagged, both game questions answered with no flag.
 
 ### How much he says
 
@@ -294,34 +242,6 @@ everything else.
 Nothing else changes there. The permission gate, the facts layer and the budget
 all apply exactly as they do everywhere else, and the parlour prompt says so
 explicitly: a longer leash is not permission to invent.
-
-### Story time on demand
-
-A chronicle of each day is posted nightly at `storyTimeHour`. When someone asks
-for one early — "story time?", "what's happened today?", "tell us a tale" —
-Sheogorath summons a shorter piece instead of writing one himself.
-
-That distinction matters. He is not the chronicler; he only fetches them.
-Anything he invented about who died today would be a lie about real people, so
-`[ACTION:storytime:reason]` runs `generateInterlude()`, which reads the same logs
-the nightly entry does and writes 120–200 words about the day so far in the same
-voice. Sheogorath introduces it in a line; the tale follows, and ends by pointing
-at the full chronicle that night.
-
-It is deliberately not the nightly entry — that one is 700–900 words at a
-2000-token ceiling, and running it at three in the afternoon would both cost real
-money and spoil the thing it imitates. The short form measures at about
-**$0.0024** a go.
-
-Rationed at **1/hour and 3/day** per guild. The daily limit refuses outright
-rather than degrading to an approval card: how many stories a day is a taste
-question, not a permissions one, and asking a Sheriff to approve a fourth would
-waste their attention. It is not gated on staff at all — a player asking for a
-story is the entire point.
-
-The window is since midnight rather than a rolling 24 hours, so it doesn't fold
-in last night's events that the previous chronicle already covered. A day with
-nothing in it says so plainly instead of inventing one.
 
 ### Spend
 
@@ -380,7 +300,7 @@ The rules that get you there, in order:
 
 - **Staff and Owners are untouchable.** No tier, no requester, no mode can act on them. Neither can bots, or Sheogorath himself.
 - **Ordinary members can only get him to act on themselves.** An action aimed at anyone other than the author of the message he is replying to degrades to an approval card unless a Sheriff asked for it. This is what contains prompt injection: the worst a member can talk him into is a card in the staff channel.
-- **Kicks, bans and game-server commands always ask**, whoever is asking. RCON has no undo.
+- **Bans always ask**, whoever is asking, and so do kicks unless an Owner asked.
 - **Timeouts over 10 minutes ask.** Up to ten he may give himself.
 - **Rate limits per capability, and a guild-wide brake** at 20 actions/hour. Both degrade to approval cards rather than refusing outright, so a busy hour costs staff a click rather than losing the action. The brake announces itself in the staff channel once when it trips.
 
@@ -402,11 +322,11 @@ anyone a request is pending when there is nobody to consider it.
 The powers he describes are assembled per guild, from that guild's own entry, so
 what he offers people is what the gate will actually let him deliver:
 
-- Powers needing a feature the guild doesn't run are gone. No `zomboid`, no game commands, no restarts, no chronicle.
+- Powers needing a feature the guild doesn't run are gone. No `events`, no calendar.
 - Powers the guild hasn't granted in `ai.powers` are gone. Omit the key for all of them; list capability names to narrow him — `["note", "memory", "clearnotes", "flag"]` leaves him a mascot who remembers you and punishes nobody.
 - Powers that can only ever be proposed are gone where there is no staff channel to propose in.
 - The tiers are named as that guild names them. `ai.titles` sets the words; a guild with no `roles.staff` never hears about Sheriffs at all, because it has none — the approver there is the Owner.
-- `ai.standing` is one sentence about what he *is* there, handed to him verbatim: the warden of the game server, the figurehead of the social hall.
+- `ai.standing` is one sentence about what he *is* there, handed to him verbatim: the figurehead of the main hall, the host of the community room.
 
 `/sheo status` shows the resulting list for the guild it is run in, including
 what has been withheld.
@@ -419,11 +339,11 @@ See `.env.example` for the annotated list. In short: `DISCORD_TOKEN`, `CLIENT_ID
 
 ### Per-guild settings — `config/guilds.json`
 
-One entry per Discord server, holding that guild's `features` list, channel IDs, role IDs (`admin`, `staff`, and so on), the AI moderator's `ai.mode` / `ai.powers` / `ai.titles` / `ai.standing`, and — where the `zomboid` feature is enabled — the game server's log paths, ini path and RCON settings. Copy the placeholder entry to onboard a second guild.
+One entry per Discord server, holding that guild's `features` list, channel IDs, role IDs (`admin`, `staff`, and so on), the AI moderator's `ai.mode` / `ai.powers` / `ai.titles` / `ai.standing`, and each feature's own settings. Copy the placeholder entry to onboard a second guild.
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`, `events`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `pickem`, `events`.
 
 `timeZone` (an IANA name, default `America/Chicago`) is where a guild's people live: what "Friday 8pm" means in `/event` and in chat, and the clock Sheogorath is told the time by.
 

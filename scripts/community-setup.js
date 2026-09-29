@@ -11,7 +11,7 @@
  * the whole reason the ladder is Owner/Warden/Veteran/Member and not something
  * with dogs in it.
  *
- * Follows the same contract as services/forums/setup.js: `plan()` is pure and
+ * `plan()` is pure and
  * prints what would happen, `apply()` only runs when asked, and everything is
  * idempotent — existing roles and channels are adopted by name rather than
  * duplicated, so a second run repairs whatever was deleted by hand.
@@ -413,9 +413,8 @@ async function apply(guild) {
     // selfRoles is nulled rather than carried over: the buttons channel was
     // deleted, roles are picked during onboarding instead, and a stale id here
     // makes the poster script 404 and every link to it render broken.
-    channels: { ...(prev.channels || {}), ...channelIds, suggestions: null, selfRoles: null },
+    channels: { ...(prev.channels || {}), ...channelIds, selfRoles: null },
     roles: { ...(prev.roles || {}), ...roleIds },
-    zomboid: null,
     selfRoles,
     voiceRooms: lobbyChannelId ? {
       lobby: lobbyChannelId,

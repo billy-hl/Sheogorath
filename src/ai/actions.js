@@ -21,12 +21,9 @@
  *   [ACTION:ban:userId:deleteDays:reason]
  *   [ACTION:delete:reason]
  *   [ACTION:flag:userId:reason]
- *   [ACTION:storytime:reason]
  *   [ACTION:note:userId:note text]
  *   [ACTION:clearnotes:userId]
  *   [ACTION:memory:userId:memory text]
- *   [ACTION:pz:server command]
- *   [ACTION:pzrestart:minutes:reason]
  */
 const { decide, recordExecution, BREAKER_LIMIT } = require('./capabilities');
 const { runAction } = require('./executors');
@@ -34,8 +31,8 @@ const { proposeAction } = require('./approvals');
 const { logAiAction, notifyStaff } = require('../utils/aiAudit');
 const { getGuildConfig } = require('../config/guilds');
 
-const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|storytime|note|clearnotes|memory|'
-  + 'title|untitle|dm|say|react|pin|thread|poll|nick|channel|event|pzrestart|pz';
+const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|note|clearnotes|memory|'
+  + 'title|untitle|dm|say|react|pin|thread|poll|nick|channel|event';
 
 /**
  * Pull action tags out of a reply and strip them from the visible text.
@@ -90,9 +87,6 @@ function parseActions(response) {
       }
       case 'delete':
         actions.push({ type: 'delete', reason: parts.join(':') || 'AI-initiated deletion' });
-        break;
-      case 'storytime':
-        actions.push({ type: 'storytime', reason: parts.join(':') || 'someone asked' });
         break;
       case 'flag': {
         const [userId, ...reasonParts] = parts;
@@ -194,20 +188,6 @@ function parseActions(response) {
         actions.push({ type: 'memory', userId, memory: memoryParts.join(':') });
         break;
       }
-      case 'pzrestart': {
-        const [minutes, ...reasonParts] = parts;
-        actions.push({
-          type: 'pzrestart',
-          minutes: parseInt(minutes, 10),
-          reason: reasonParts.join(':') || 'asked for in chat',
-        });
-        break;
-      }
-      case 'pz':
-        // Rejoined rather than taking parts[0]: PZ commands contain colons
-        // (`Base.Axe`), and splitting one would send a truncated command.
-        actions.push({ type: 'pzcommand', command: params.trim() });
-        break;
     }
 
     cleanResponse = cleanResponse.replace(fullMatch, '').trim();

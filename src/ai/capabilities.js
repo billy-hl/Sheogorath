@@ -59,8 +59,8 @@ const DEFAULT_MODE = 'shadow';
  * rationed, because a proposal costs a Sheriff one glance and nothing else.
  *
  * `requires` names the guild feature a power physically depends on: a guild
- * without `zomboid` has no game server for a console command to reach, so the
- * power does not exist there at all. What a guild *wants* him doing is a
+ * without `events` has no calendar for him to put things on, so the power does
+ * not exist there at all. What a guild *wants* him doing is a
  * separate question, answered by `ai.powers` in config/guilds.json — see
  * availableCapabilities(). Rows with neither work anywhere he can speak.
  */
@@ -82,13 +82,6 @@ const CAPABILITIES = {
   // in the log like anyone else. Rationed loosely: one person probing will
   // usually try several framings in a row, and staff want the whole run.
   flag:       { tier: 'auto',    targets: 'member', immune: false, perHour: 25 },
-
-  // An early chronicle, when someone asks before the nightly one is due. Costs
-  // a large generation each time, so it is rationed by the day rather than the
-  // hour — and deliberately not gated on staff, because a player asking for a
-  // story is the entire point of it.
-  storytime:  { tier: 'auto',    targets: 'none',   immune: false, perHour: 1, perDay: 3,
-                requires: 'zomboid' },
 
   // --- Corrective, bounded, and undoable within a few minutes. ---
   delete:     { tier: 'auto',    targets: 'author', immune: true,  perHour: 15 },
@@ -188,25 +181,6 @@ const CAPABILITIES = {
   kick:       { tier: 'propose', ownerTier: 'auto', targets: 'member', immune: true,  perHour: 5 },
   ban:        { tier: 'propose', targets: 'member', immune: true,  perHour: 3,
                 maxDeleteDays: 7 },
-
-  // A raw server command, shown verbatim on the approval card.
-  //
-  // `ownerTier` is the exception an Owner asking in chat earns: they are the
-  // person the approval card would have been escalated to, so making them click
-  // their own request is ceremony. It stops at Owners rather than extending to
-  // Sheriffs on purpose — permissions.js already holds `/pz access` and
-  // `/pz raid` above the Sheriff tier because they hand out power or spawn
-  // things that cannot be removed, and letting a Sheriff reach the same
-  // commands by asking Sheogorath nicely would route straight around that.
-  // A Sheriff's request still becomes a card; any Sheriff can approve it.
-  pzcommand:  { tier: 'propose', ownerTier: 'auto', targets: 'none', immune: false, perHour: 10,
-                requires: 'zomboid' },
-
-  // Restarting is not an RCON command — PZ has none — so it cannot ride on
-  // `pzcommand`. It runs through the same systemd path `/pz restart` uses,
-  // warnings to players and all.
-  pzrestart:  { tier: 'propose', ownerTier: 'auto', targets: 'none', immune: false, perHour: 3,
-                requires: 'zomboid', defaultMinutes: 5, maxMinutes: 180 },
 };
 
 /**
@@ -445,14 +419,6 @@ function decide(action, ctx) {
   if (action.type === 'ban') {
     patched = { ...action, deleteDays: Math.min(action.deleteDays || 0, cap.maxDeleteDays) };
   }
-  if (action.type === 'pzrestart') {
-    const requested = Number(action.minutes);
-    patched = {
-      ...action,
-      minutes: Math.max(0, Math.min(Number.isFinite(requested) ? requested : cap.defaultMinutes, cap.maxMinutes)),
-    };
-  }
-
   if (tier === 'propose') {
     return hold(
       requesterIsStaff && titles.staff
@@ -490,7 +456,7 @@ function decide(action, ctx) {
   // "Only act when sure" would be a gate a player can talk through simply by
   // sounding certain; "not in this channel" is a gate they cannot reach at all.
   //
-  // Note, memory, clearnotes, flag and storytime are untouched — they take
+  // Note, memory, clearnotes and flag are untouched — they take
   // nothing away from anybody, and gutting them would leave him answering help
   // with no memory of who he was talking to.
   if (PUNITIVE.has(action.type) && ctx.channelId

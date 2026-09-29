@@ -18,14 +18,14 @@ const { validTimeZone } = require('../utils/time');
 const CONFIG_DIR = path.join(__dirname, '..', '..', 'config');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'guilds.json');
 
-// Placeholder keys (e.g. "REPLACE_WITH_ZOMBOID_GUILD_ID") are intentionally
+// Placeholder keys (e.g. "REPLACE_WITH_GUILD_ID") are intentionally
 // tolerated in the file so the shape is self-documenting — they're skipped
 // everywhere rather than being registered against or looked up.
 const SNOWFLAKE = /^[0-9]{17,20}$/;
 
 /**
  * Every feature that can be switched on per guild. A guild only runs what it
- * lists — a Zomboid server has no use for the stream watcher or the Instagram
+ * lists — a server with no streamers has no use for the stream watcher or the Instagram
  * downloader, and gating beats scattering null-checks through the handlers.
  */
 const FEATURES = [
@@ -38,8 +38,6 @@ const FEATURES = [
   'reddit',       // auto-download of Reddit-hosted video from posted Reddit links
   'textImageMod', // Ollama-backed ASCII/Unicode explicit-art filter
   'automod',      // Discord native AutoMod rule management, /automod
-  'zomboid',      // Project Zomboid server integration
-  'forums',       // suggestion / mod-request forum channels, /forums
   'pickem',       // UFC pick'em in the `ufc.channel`, /pickem
   'events',       // /event, events added by telling him, and reminders before each one
 ];
@@ -64,18 +62,6 @@ function normalizeGuild(id, raw) {
       // Voice channel the companion app joins when the bot isn't already
       // connected. Unused by the slash commands, which follow the caller.
       defaultVoice: channels.defaultVoice || null,
-      // Forum channel for general server suggestions. Guild-level rather than
-      // under `zomboid` because nothing about it is game-specific — only the
-      // mod-request forum needs Workshop knowledge.
-      suggestions: channels.suggestions || null,
-      // Forum channel for in-character trading offers.
-      trading: channels.trading || null,
-      // Forum channel for safehouse claims.
-      safehouseClaims: channels.safehouseClaims || null,
-      // Forum channel holding one roleplay character sheet per thread. Guild
-      // level like the rest — the sheets are written in Discord; only the stats
-      // on them come from the game.
-      characters: channels.characters || null,
       // Where privileged command invocations are mirrored, so admins can see
       // what staff did without reading logs/commands.jsonl on the host. Every
       // command is recorded to that file regardless of this setting.
@@ -113,9 +99,8 @@ function normalizeGuild(id, raw) {
 
       // Grants bot admin without granting Discord Administrator.
       admin: roles.admin || null,
-      // One rung below admin: the in-game staff tier (Sheriff). Carries the
-      // Project Zomboid admin commands — /pz — and nothing else, so a game
-      // moderator doesn't also get music, automod and the moderation suite.
+      // One rung below admin: the staff tier (Sheriff), who rule on what
+      // Sheogorath asks permission for.
       staff: roles.staff || null,
       veteran: roles.veteran || null,
       member: roles.member || null,
@@ -303,7 +288,6 @@ function normalizeGuild(id, raw) {
       maxTotal: Number(raw.voiceRooms.maxTotal) > 0 ? Number(raw.voiceRooms.maxTotal) : 10,
       namePattern: typeof raw.voiceRooms.namePattern === 'string' ? raw.voiceRooms.namePattern : null,
     } : null,
-    zomboid: raw.zomboid || null,
   };
 }
 
@@ -322,7 +306,6 @@ function seedFromEnv() {
       features: ['ai', 'music', 'moderation', 'instagram', 'textImageMod', 'automod'],
       channels: { music: null, defaultVoice: null },
       roles: { admin: null },
-      zomboid: null,
     },
   };
 }

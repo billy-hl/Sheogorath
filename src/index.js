@@ -56,19 +56,10 @@ const {
   commandDenialReason,
   commandsForGuild,
   isAdmin,
-  STAFF_COMMANDS,
 } = require('./utils/permissions');
 const { logCommand, setClient: setAuditClient } = require('./utils/auditLog');
 const { setClient: setAiAuditClient } = require('./utils/aiAudit');
-const { scheduleRaidWatch } = require('./services/zomboid/raidWatch');
-const { scheduleModUpdates } = require('./services/zomboid/modUpdates');
-const { scheduleBusyWatch } = require('./services/zomboid/busyWatch');
-const { scheduleEulogies } = require('./services/zomboid/eulogy');
-const { scheduleLinkWatch } = require('./services/zomboid/linkWatch');
-const { schedulePlayerCount } = require('./services/zomboid/playerCount');
 const { watchDeletions } = require('./services/deletions');
-const { handleThreadCreate } = require('./services/forums/handler');
-const { scheduleTradeSweep } = require('./services/forums/tradeSweep');
 const { askChatGPT } = require('./chat/discord');
 const { trimHistories } = require('./chat/respond');
 
@@ -189,35 +180,6 @@ client.once(Events.ClientReady, async () => {
     }
   }
 
-  // The daily Project Zomboid chronicle is no longer scheduled here. It runs as
-  // a Claude Code scheduled task instead, which reads the same logs over SSH and
-  // posts to the same channel. `services/zomboid/storyTime.js` is kept because
-  // that task reuses its log collection and Discord splitting.
-
-  // Watch for players quitting mid-fight to seal their safehouse. Isolated for
-  // the same reason as above.
-  try {
-    scheduleRaidWatch(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule raid watch:', err?.message || err);
-  }
-
-  // Watch the Workshop for updates to the mods the server runs. Isolated too —
-  // this one can trigger a server restart, so a fault in it must not cascade.
-  try {
-    scheduleModUpdates(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule mod update watch:', err?.message || err);
-  }
-
-  // Ping staff when PZ trips its own overload guard — the point at which it
-  // starts dropping vehicle physics and refusing logins.
-  try {
-    scheduleBusyWatch(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule overload watch:', err?.message || err);
-  }
-
   // Clear away voice rooms that emptied while we were down.
   try {
     sweepOrphans(client).catch(err =>
@@ -289,35 +251,6 @@ client.once(Events.ClientReady, async () => {
     scheduleStreamWatch(client);
   } catch (err) {
     console.error('[Twitch] Failed to schedule stream watch:', err?.message || err);
-  }
-
-  // Say goodbye to characters who die. Isolated like the rest — this one calls
-  // out to the model, so a provider outage must not take the bot down.
-  try {
-    scheduleEulogies(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule eulogies:', err?.message || err);
-  }
-
-  // Watch the game's chat log for `/character link` verification codes.
-  try {
-    scheduleLinkWatch(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule character link watch:', err?.message || err);
-  }
-
-  // Keep the live player count in the channel list up to date.
-  try {
-    schedulePlayerCount(client);
-  } catch (err) {
-    console.error('[Zomboid] Failed to schedule player count:', err?.message || err);
-  }
-
-  // Sweep stale offers off the trading board.
-  try {
-    scheduleTradeSweep(client);
-  } catch (err) {
-    console.error('[Trading] Failed to schedule stale sweep:', err?.message || err);
   }
 
   // Clean up old temp files on startup (older than 1 hour)
@@ -409,10 +342,6 @@ client.on('messageCreate', async (message) => {
   if (hasFeature(guildId, 'reddit')) {
     await handleRedditLinks(message);
   }
-
-  // Mod requests used to be vetted here, on every message in the text channel.
-  // They now arrive as forum posts and are handled by the threadCreate
-  // listener below, which fires once per request rather than once per link.
 
   if (!hasFeature(guildId, 'ai')) return;
 
@@ -574,22 +503,6 @@ function clearPendingHelp(message) {
   helpTimers.delete(key);
 }
 
-/**
- * New forum post in #suggestions or #mod-requests.
- *
- * `newlyCreated` separates a genuine new post from the thread objects the
- * gateway replays when the bot gains access to an existing one — without it,
- * a reconnect would re-vet and re-tag the whole forum.
- */
-
-client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
-  if (!newlyCreated) return;
-  lastInteractionTime = Date.now();
-
-  await handleThreadCreate(thread).catch(err =>
-    console.error('[Forums] Thread handling failed:', err?.message || err));
-});
-
 client.on(Events.GuildMemberAdd, async (member) => {
   await onGuildMemberAdd(member).catch(err =>
     console.error('[AutoRole] Join handling failed:', err?.message || err));
@@ -731,7 +644,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     // Privileged commands are mirrored to the guild's log channel; everything
     // is written to logs/commands.jsonl either way.
-    const privileged = STAFF_COMMANDS.has(interaction.commandName) || isAdmin(interaction.member);
+    const privileged = isAdmin(interaction.member);
 
     const denied = commandDenialReason(
       interaction.commandName,

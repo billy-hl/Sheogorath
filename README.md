@@ -12,7 +12,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **Music Streaming**: Play YouTube music in voice channels — URL or search phrase — with a queue, saved playlists, autoplay, and a radio list loaded from `radio.csv`.
 - **UFC Pick'em**: Each card is posted in fight week for everyone to call the winners, locked block by block as the night starts, and scored from ESPN's results into a season table. The best picker each week wears a title.
 - **UFC Results**: Every fight on every UFC card and Contender Series night, posted in a channel of its own as it ends: how it ended, the judges' scorecards, both fighters' stats side by side, and the whole card in one message once the main event is done.
-- **On This Day**: Each morning, the message the hall made the most of on this date in an earlier year, posted again with a line from Sheogorath, along with anyone's anniversary in the hall.
+- **UFC Reminders**: A DM to everyone in a chosen role half an hour before each UFC card starts.
 - **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Project Zomboid Integration**: Leaderboards, roleplay character sheets, and RCON server admin from Discord, plus log watchers that post kills, raids, deaths, mod updates and story-time recaps.
@@ -99,16 +99,10 @@ When the last bout is in, the whole card follows as one message, main card first
 
 Results are checked once a minute from five minutes before the first bout, and not at all outside a fight night. The scoreboard says who won; everything else comes from ESPN's FightCenter feed, and a result it has not caught up on, or a decision still without its scorecards, waits up to three minutes. If FightCenter is down, results go out plainer rather than not at all. Records and belt holders are read before the card starts, every few hours through fight week, because ESPN may update them mid-card; a fighter ESPN lists at 0-0-0 is left without one. ESPN's scorecards are not tied to a named judge, so the judges are listed but not matched to a card. What has been told lives in guild state, so a restart mid-card repeats nothing and catches up on anything that landed while the bot was down. ESPN carries the fights, not Dana White's contract calls, so Contender Series contracts are not announced.
 
-### 📜 On This Day
-*Requires the `onthisday` feature and an `onThisDay.channel`.*
+### ⏰ UFC Reminders
+*Requires a `ufc.dmRole`.*
 
-- `/onthisday show [date]` - The best message from a date in years past. Today by default; takes `11-15` or `Nov 15`, month first
-- `/onthisday opt-out` / `/onthisday opt-in` - Keep your old messages and your anniversary out of it, or let them back in
-- `/onthisday post` - Post today's now *(bot admin)*
-
-Each morning from `onThisDay.hour` (default 10) in `onThisDay.timeZone` (default `America/Chicago`), the bot reads today's date in every earlier year and posts again the message the room made the most of: reactions, plus replies from other people that same day, at least `onThisDay.minScore` (default 2) between them. It goes out with a jump link, the picture if there was one, the message it was answering, and a line from Sheogorath. Anyone whose anniversary in the hall falls today is listed underneath, and on the hall's own birthday it says so. A day with nothing worth digging up posts nothing.
-
-It reads only text channels the whole server can see, less `onThisDay.exclude` — or exactly `onThisDay.sources`, when those are named. It never quotes bots, anyone who has opted out, or anyone who has left (unless `onThisDay.includeLeft` is `true`), and a message the daily post has shown is not shown again, so the best of a date does not win it every year. Nothing pings. Reaching a date costs about one request per channel per year, because a message id encodes its timestamp; reading one takes 10–20 seconds and is cached for six hours. The post goes out within three hours of its hour or waits for tomorrow, so a restart late at night never posts a memory at bedtime. Sheogorath's line is the only model call, once a day.
+Everyone holding `ufc.dmRole` gets a DM `ufc.dmMinutes` (default 30) before each card's first bout: the main card, when the prelims and main card start in their own time, where it's on, and a link to the server's event for it. Contender Series nights are left out unless `ufc.dmContender` is `true`. Cards are looked for every few hours through fight week and checked each minute, with one fresh ESPN read when the DMs are due, so a card that moves is followed. A card is marked sent before the first DM goes, so a restart never DMs anyone twice, and one after the card has started sends nothing. Members with DMs closed are skipped.
 
 ### 🗓️ Events
 *Requires the `events` feature and a `gameNews.eventsChannel`.*
@@ -429,7 +423,7 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`, `onthisday`, `events`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `zomboid`, `forums`, `pickem`, `events`.
 
 `timeZone` (an IANA name, default `America/Chicago`) is where a guild's people live: what "Friday 8pm" means in `/event` and in chat, and the clock Sheogorath is told the time by.
 

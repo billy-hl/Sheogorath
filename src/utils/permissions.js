@@ -36,8 +36,6 @@ const COMMAND_FEATURES = {
 
   pickem: 'pickem',
 
-  onthisday: 'onthisday',
-
   event: 'events',
 };
 
@@ -80,7 +78,6 @@ const ADMIN_COMMANDS = new Set(['sheo']);
 const ADMIN_SUBCOMMANDS = {
   pz: new Set(['access', 'raid']),
   pickem: new Set(['open']),
-  onthisday: new Set(['post']),
 };
 
 /** Why each entry above is restricted, shown verbatim in the refusal. */
@@ -88,7 +85,6 @@ const ADMIN_SUBCOMMAND_REASONS = {
   'pz access': 'it grants in-game power rather than using it',
   'pz raid': 'its zombie spawns are permanent and cannot be undone',
   'pickem open': 'it posts a card to the whole server ahead of fight week',
-  'onthisday post': "it posts to the server's channel on demand",
 };
 
 /**

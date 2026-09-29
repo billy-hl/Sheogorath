@@ -41,7 +41,6 @@ const FEATURES = [
   'zomboid',      // Project Zomboid server integration
   'forums',       // suggestion / mod-request forum channels, /forums
   'pickem',       // UFC pick'em in the `ufc.channel`, /pickem
-  'onthisday',    // the best of this date in years gone by, /onthisday
   'events',       // /event, events added by telling him, and reminders before each one
 ];
 
@@ -270,6 +269,11 @@ function normalizeGuild(id, raw) {
       voiceChannel: raw.ufc.voiceChannel || null,
       // Pinged when the post-fight press conference goes live. Null pings nobody.
       pingRole: raw.ufc.pingRole || null,
+      // DMed `dmMinutes` before each card's first bout (services/ufcReminders.js).
+      // Null DMs nobody. Contender Series nights only with `dmContender`.
+      dmRole: SNOWFLAKE.test(String(raw.ufc.dmRole || '')) ? raw.ufc.dmRole : null,
+      dmMinutes: Number.isInteger(raw.ufc.dmMinutes) && raw.ufc.dmMinutes > 0 ? raw.ufc.dmMinutes : 30,
+      dmContender: raw.ufc.dmContender === true,
       // Pick'em (services/pickem.js), where the `pickem` feature is on: its own
       // channel (the ufc channel when unset), the title the week's best picker
       // wears, and whether Contender Series nights count. Off by default — five
@@ -287,23 +291,6 @@ function normalizeGuild(id, raw) {
       results: {
         channel: SNOWFLAKE.test(String(raw.ufc.results?.channel || '')) ? raw.ufc.results.channel : null,
       },
-    } : null,
-    // On this day (services/onThisDay.js), where the `onthisday` feature is on:
-    // the best of this date in earlier years, posted to `channel` from `hour` in
-    // `timeZone`. The rooms it digs in are every text channel the whole server
-    // can see, less `exclude` — or exactly `sources`, when a guild names them.
-    onThisDay: raw.onThisDay && typeof raw.onThisDay === 'object' && raw.onThisDay.channel ? {
-      channel: raw.onThisDay.channel,
-      hour: Number.isInteger(raw.onThisDay.hour) && raw.onThisDay.hour >= 0 && raw.onThisDay.hour <= 23
-        ? raw.onThisDay.hour
-        : 10,
-      timeZone: validTimeZone(raw.onThisDay.timeZone) || 'America/Chicago',
-      // Reactions plus replies a message needs before it is worth digging up.
-      minScore: Number(raw.onThisDay.minScore) > 0 ? Number(raw.onThisDay.minScore) : 2,
-      sources: Array.isArray(raw.onThisDay.sources) ? raw.onThisDay.sources.filter((id) => SNOWFLAKE.test(id)) : null,
-      exclude: Array.isArray(raw.onThisDay.exclude) ? raw.onThisDay.exclude.filter((id) => SNOWFLAKE.test(id)) : [],
-      // Whether somebody who has left can be quoted back. Off: they never agreed to it.
-      includeLeft: raw.onThisDay.includeLeft === true,
     } : null,
     // Join-to-create voice rooms. `lobby` is the channel joining which makes
     // you one; absent, services/voicerooms.js ignores the guild entirely.

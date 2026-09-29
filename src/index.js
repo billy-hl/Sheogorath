@@ -46,7 +46,7 @@ const { scheduleGameNews } = require('./services/gameNews');
 const { schedulePresserWatch } = require('./services/ufcPresser');
 const { schedulePickem, isPickemButton, handleButton: handlePickemButton } = require('./services/pickem');
 const { scheduleUfcResults } = require('./services/ufcResults');
-const { scheduleOnThisDay } = require('./services/onThisDay');
+const { scheduleUfcReminders } = require('./services/ufcReminders');
 const { scheduleEvents } = require('./services/events');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
@@ -269,11 +269,11 @@ client.once(Events.ClientReady, async () => {
     console.error('[UFC] Failed to schedule results:', err?.message || err);
   }
 
-  // The best of this date in years gone by, each morning.
+  // A DM to the UFC role before each card starts.
   try {
-    scheduleOnThisDay(client);
+    scheduleUfcReminders(client);
   } catch (err) {
-    console.error('[OnThisDay] Failed to schedule:', err?.message || err);
+    console.error('[UFC] Failed to schedule reminders:', err?.message || err);
   }
 
   // The nudge before each scheduled event: its interested people, pinged.

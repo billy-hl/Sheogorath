@@ -68,6 +68,7 @@
       "channel": "380486887309180929",
       "voiceChannel": "949392766453043260",
       "dmRole": "1269321898035249325",
+      "dmContender": true,
       "pickem": {
         "channel": "1554114366285287576"
       },

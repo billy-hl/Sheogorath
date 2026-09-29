@@ -101,6 +101,11 @@ Results are checked once a minute from five minutes before the first bout, and n
 
 Everyone holding `ufc.dmRole` gets a DM `ufc.dmMinutes` (default 30) before each card's first bout: the main card, when the prelims and main card start in their own time, where it's on, and a link to the server's event for it. Contender Series nights are left out unless `ufc.dmContender` is `true` (it is, in the main hall). Cards are looked for every few hours through fight week and checked each minute, with one fresh ESPN read when the DMs are due, so a card that moves is followed. A card is marked sent before the first DM goes, so a restart never DMs anyone twice, and one after the card has started sends nothing. Members with DMs closed are skipped.
 
+### 📜 Whispers read aloud
+*Requires a `dmRelay.channel`.*
+
+Anyone who DMs Sheogorath has the message posted in `dmRelay.channel`, quoted under their server name, with a line from him mocking them for it; he tells them in the DM that the hall has heard it. Only members of a guild with `dmRelay` set are relayed, never the bot's owner (errors reach them by DM), and at most once a minute per person. Text only: an attachment is mentioned, not reposted. Nobody is pinged.
+
 ### 🗓️ Events
 *Requires the `events` feature and a `gameNews.eventsChannel`.*
 

@@ -277,6 +277,9 @@ function normalizeGuild(id, raw) {
         channel: SNOWFLAKE.test(String(raw.ufc.results?.channel || '')) ? raw.ufc.results.channel : null,
       },
     } : null,
+    // DMs to the bot, read out in `channel` with a line mocking the sender
+    // (services/dmRelay.js). Unset, DMs are ignored.
+    dmRelay: raw.dmRelay && SNOWFLAKE.test(String(raw.dmRelay.channel || '')) ? { channel: raw.dmRelay.channel } : null,
     // Join-to-create voice rooms. `lobby` is the channel joining which makes
     // you one; absent, services/voicerooms.js ignores the guild entirely.
     voiceRooms: raw.voiceRooms && typeof raw.voiceRooms === 'object' && raw.voiceRooms.lobby ? {

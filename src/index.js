@@ -22,7 +22,7 @@ try {
 }
 process.on('exit', () => { try { fs.unlinkSync(LOCK_FILE); } catch {} });
 process.on('SIGTERM', () => process.exit(0));
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Events, Partials } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const { setUserActivity } = require('./storage/state');
 const { handleInstagramLinks } = require('./services/instagram');
@@ -60,6 +60,7 @@ const {
 const { logCommand, setClient: setAuditClient } = require('./utils/auditLog');
 const { setClient: setAiAuditClient } = require('./utils/aiAudit');
 const { watchDeletions } = require('./services/deletions');
+const { handleDirectMessage } = require('./services/dmRelay');
 const { askChatGPT } = require('./chat/discord');
 const { trimHistories } = require('./chat/respond');
 
@@ -110,7 +111,10 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.DirectMessages,
   ],
+  // DM channels arrive uncached; without this their messages never fire.
+  partials: [Partials.Channel],
 });
 
 client.commands = new Map();
@@ -297,8 +301,15 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   lastInteractionTime = Date.now();
 
-  // Everything below is guild-scoped. DMs and guilds absent from
-  // config/guilds.json are ignored outright rather than half-handled.
+  // A DM is read out to the hall (services/dmRelay.js), and that is all.
+  if (!message.guildId) {
+    await handleDirectMessage(message).catch((err) =>
+      console.error('[DmRelay] Failed:', err?.message || err));
+    return;
+  }
+
+  // Everything below is guild-scoped. Guilds absent from config/guilds.json
+  // are ignored outright rather than half-handled.
   const guildId = message.guildId;
   const config = getGuildConfig(guildId);
   if (!config) return;

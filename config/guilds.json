@@ -14,8 +14,7 @@
       "automod",
       "pickem",
       "events",
-      "ledger",
-      "wardogs"
+      "ledger"
     ],
     "channels": {
       "music": "534553333034123289",

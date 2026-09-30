@@ -26,7 +26,7 @@ const crypto = require('crypto');
 const path = require('path');
 const axios = require('axios');
 const { EmbedBuilder } = require('discord.js');
-const { jsonFile, writeFileAtomic } = require('../storage/jsonFile');
+const { jsonFile } = require('../storage/jsonFile');
 
 const GAME_HOST = 'https://game.live.wardogs.bulkhead.pragmaengine.com';
 const SOCIAL_HOST = 'https://social.live.wardogs.bulkhead.pragmaengine.com';
@@ -218,39 +218,6 @@ function decodeStats(data) {
 }
 
 /**
- * The owner's whole PlayerData, every component decoded, in data/wardogs-raw.json.
- * For finding out what else the game keeps: decodeStats reads five things and
- * drops the rest. Only the owner's, overwritten each time, and never a token.
- */
-function dumpRaw(data, claims) {
-  const decode = (component) => {
-    const bytes = component?.serializedComponent?.bytes;
-    if (!bytes) return component;
-    try {
-      return { ...component, serializedComponent: JSON.parse(Buffer.from(bytes, 'base64').toString('utf8')) };
-    } catch {
-      return component;
-    }
-  };
-  try {
-    const playerData = data?.response?.payload?.playerData || {};
-    const entities = (playerData.entities || []).map((entity) => (Array.isArray(entity?.components)
-      ? { ...entity, components: entity.components.map(decode) }
-      : decode(entity)));
-    const { exp, iat, nbf, jti, ...claimInfo } = claims;
-    const dump = {
-      at: new Date().toISOString(),
-      claims: claimInfo,
-      response: { ...data, response: { ...data.response, payload: { ...data.response?.payload, playerData: { ...playerData, entities } } } },
-    };
-    writeFileAtomic(path.join(__dirname, '../../data/wardogs-raw.json'), JSON.stringify(dump, null, 2));
-    console.log(`[WARDOGS] Saved the owner's raw PlayerData (${entities.length} entities).`);
-  } catch (err) {
-    console.warn('[WARDOGS] Could not save raw PlayerData:', err.message);
-  }
-}
-
-/**
  * Finish a link from Steam's redirect. Returns { entry, userId } on success;
  * throws LinkError with a message for the player otherwise. The pending link
  * is spent either way, so a replayed callback does nothing.
@@ -276,10 +243,8 @@ async function completeLink(query) {
 
     // Pragma checks the assertion with Steam itself; a forged one is refused here.
     const tokens = await pragmaLogin(providerToken);
-    const playerData = await fetchPlayerData(tokens.pragmaGameToken);
-    const stats = decodeStats(playerData);
+    const stats = decodeStats(await fetchPlayerData(tokens.pragmaGameToken));
     const claims = { ...jwtClaims(tokens.pragmaSocialToken), ...jwtClaims(tokens.pragmaGameToken) };
-    if (link.userId === process.env.ADMIN_USER_ID) dumpRaw(playerData, claims);
 
     const now = new Date().toISOString();
     const entry = store.update((db) => {

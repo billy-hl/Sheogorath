@@ -42,6 +42,7 @@ const FEATURES = [
   'pickem',       // UFC pick'em in the `ufc.channel`, /pickem
   'events',       // /event, events added by telling him, and reminders before each one
   'ledger',       // the group's book: /bet, /ledger, rulings and kept quotes
+  'wardogs',      // /wardogs: WARDOGS stats by Steam sign-in (needs WARDOGS_PUBLIC_URL)
 ];
 
 let cache = null;

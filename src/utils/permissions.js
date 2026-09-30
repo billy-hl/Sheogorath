@@ -37,6 +37,7 @@ const COMMAND_FEATURES = {
   bet: 'ledger',
   ledger: 'ledger',
 
+  wardogs: 'wardogs',
   // The message menu's command, which Discord names by its label.
   'Keep in the Ledger': 'ledger',
 };

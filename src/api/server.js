@@ -5,6 +5,7 @@ const express = require('express');
 const { WebSocketServer } = require('ws');
 const { requireGuest, requireAdmin, roleFor, authorizeSocket, getAdminToken, getGuestPassword } = require('./auth');
 const musicRoutes = require('./routes/music');
+const wardogs = require('../services/wardogs');
 const { musicEvents, getPlaybackState } = require('../music/player');
 const { primaryGuildId } = require('../config/guilds');
 
@@ -77,6 +78,11 @@ function startControlApi(client) {
       res.setHeader('Cache-Control', 'no-cache');
     },
   }));
+
+  // Steam sign-in for /wardogs link. Unauthenticated on purpose: Steam sends
+  // the player's browser here, and a one-time nonce from the command is the
+  // only thing that gets a request past /login.
+  app.use('/wardogs', wardogs.routes());
 
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

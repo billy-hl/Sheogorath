@@ -41,6 +41,9 @@ const TAG_LINES = {
   nick:       '  [ACTION:nick:userId:new name]           — Change what someone is called in this server',
   channel:    '  [ACTION:channel:name:topic]             — Make a new text channel',
   event:      '  [ACTION:event:name|when|hours|where]    — Put an event on the server calendar, or move one ([ACTION:event:name|cancel] takes it off)',
+  ruling:     '  [ACTION:ruling:the question|your verdict] — Rule on an argument; it goes in the Ledger and stands',
+  bet:        '  [ACTION:bet:userId|what they bet|stakes|settle by] — Put the asker\'s bet to someone ("anyone" for the room)',
+  quote:      '  [ACTION:quote:why it is worth keeping] — Keep the message the asker replied to in the Ledger, word for word',
 };
 
 /**
@@ -132,6 +135,27 @@ visits. Nobody is punished by a note, so you never need to hold back on those.`.
     what changes. "hours" and "where" may be left empty; "where" may name a voice
     channel. Anyone may add an event. Moving or cancelling one is for whoever
     added it and ${an(admin)}, and the listed launches are ${an(admin)}'s alone.`);
+  }
+  if (can('ruling') || can('bet') || can('quote')) {
+    const parts = [`  * THE LEDGER is the group's book, and you keep it. What is in it that bears on
+    the conversation is in what you know.`];
+    if (can('ruling')) {
+      parts.push(`    RULINGS stand. When a question you have ruled on comes back, cite the ruling
+    and when you made it rather than ruling again, unless ${an(admin)} asks you to
+    overturn it.`);
+    }
+    if (can('bet')) {
+      parts.push(`    A BET is only an offer until the other person takes it with the button on the
+    card, so say you have put it to them, never that it is on. It is always the
+    asker's own bet; nobody can put somebody else into one. "settle by" is a date
+    like "Oct 20" or "in 2 weeks", or empty. A bet on a UFC fight is better made
+    with /bet ufc, which settles itself from the result.`);
+    }
+    if (can('quote')) {
+      parts.push(`    A QUOTE is kept from the message the asker REPLIED to, word for word. Asked
+    without a reply, tell them to reply to the message they want kept.`);
+    }
+    consequences.push(parts.join('\n'));
   }
   consequences.push(`  * Everything you do, ask for, or are refused is written to a staff log with
     your reasoning attached. Give real reasons, not jokes — a mortal may read

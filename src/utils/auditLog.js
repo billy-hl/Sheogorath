@@ -69,8 +69,8 @@ function rotateIfNeeded(file) {
  * Flatten the invoked options into something readable.
  *
  * Subcommands nest their options one level down, which is where every argument
- * to `/pz` lives — reading the top level only would log every admin action as
- * having no arguments at all.
+ * to `/event` or `/mod` lives — reading the top level only would log every
+ * admin action as having no arguments at all.
  */
 function extractOptions(interaction) {
   const out = {};
@@ -87,7 +87,7 @@ function extractOptions(interaction) {
   return out;
 }
 
-/** `/pz giveitem player:Renny item:Base.Axe` */
+/** `/mod timeout user:123 minutes:10` */
 function formatInvocation(record) {
   const parts = [`/${record.command}`];
   if (record.subcommand) parts.push(record.subcommand);

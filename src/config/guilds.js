@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const { validTimeZone } = require('../utils/time');
+const { writeFileAtomic } = require('../storage/jsonFile');
 
 const CONFIG_DIR = path.join(__dirname, '..', '..', 'config');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'guilds.json');
@@ -40,6 +41,7 @@ const FEATURES = [
   'automod',      // Discord native AutoMod rule management, /automod
   'pickem',       // UFC pick'em in the `ufc.channel`, /pickem
   'events',       // /event, events added by telling him, and reminders before each one
+  'ledger',       // the group's book: /bet, /ledger, rulings and kept quotes
 ];
 
 let cache = null;
@@ -117,9 +119,9 @@ function normalizeGuild(id, raw) {
     ai: {
       mode: typeof raw.ai?.mode === 'string' ? raw.ai.mode : null,
       // One sentence about what he *is* in this guild, handed to him verbatim.
-      // The same bot is a warden on the game server and a mascot in the social
-      // hall, and nothing else in this file says so — features describe what
-      // the bot runs, not what he is to the people in the room.
+      // The same bot is the figurehead of the main hall and the host of the
+      // community room, and nothing else in this file says so — features
+      // describe what the bot runs, not what he is to the people in the room.
       standing: typeof raw.ai?.standing === 'string' ? raw.ai.standing.trim() : null,
       // Which of his powers this guild wants him to have, by capability name
       // (see ai/capabilities.js). Absent means all of them that this guild's
@@ -395,9 +397,9 @@ function withArticle(word) {
  * What this guild calls the people above Sheogorath.
  *
  * Written against the *role ladder that actually exists here*, not against the
- * vocabulary the bot grew up with. The Zomboid guild has a staff role between
- * its owners and its members and calls them Sheriffs; the social guild has no
- * such rung at all, and telling its members that something has "gone to the
+ * vocabulary the bot grew up with. The community server has a staff role
+ * between its owners and its members and calls them Wardens; the main hall has
+ * no such rung at all, and telling its members that something has "gone to the
  * Sheriffs" names a tier they have never heard of and cannot go and find. Where
  * there is no staff role, `isStaff()` already collapses to `isAdmin()`, so the
  * words collapse the same way.
@@ -468,9 +470,9 @@ function merge(base, patch) {
  *
  * Written against the raw file rather than the normalized cache so that keys
  * this module doesn't know about — and the placeholder entries the file keeps
- * on purpose — survive the round-trip. Used by the forum setup routine to
- * record the channel IDs it creates, which otherwise would have to be
- * copy-pasted in by hand.
+ * on purpose — survive the round-trip. Used by `/sheo mode` and `/sheo parlour`
+ * to record what they change, which otherwise would have to be copied in by
+ * hand.
  *
  * @param {string} guildId
  * @param {object} patch deep-merged into the existing entry
@@ -490,8 +492,7 @@ function updateGuildConfig(guildId, patch) {
 
   raw[guildId] = merge(raw[guildId] || {}, patch);
 
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n', 'utf8');
+  writeFileAtomic(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n');
   reload();
   return getGuildConfig(guildId);
 }

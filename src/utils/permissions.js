@@ -33,6 +33,12 @@ const COMMAND_FEATURES = {
   pickem: 'pickem',
 
   event: 'events',
+
+  bet: 'ledger',
+  ledger: 'ledger',
+
+  // The message menu's command, which Discord names by its label.
+  'Keep in the Ledger': 'ledger',
 };
 
 /** Music additionally requires admin, not just the feature. */
@@ -89,8 +95,8 @@ function isAdmin(member) {
  *
  * Admins are staff by definition, so the ladder stays a ladder: anything a
  * Sheriff can do, an Owner can do. Kept separate from isAdmin() because the
- * grants are different in kind — a Sheriff is trusted with the game server, not
- * with the bot's moderation and automod surfaces.
+ * grants are different in kind — a Sheriff is trusted to rule on what he asks
+ * for, not with the bot's moderation and automod surfaces.
  *
  * @param {import('discord.js').GuildMember} member
  * @returns {boolean}

@@ -41,6 +41,9 @@ const PHRASING = {
   clearnotes: 'forget your notes on someone',
   kick: 'kick someone',
   ban: 'ban someone',
+  ruling: 'rule on arguments, and have the ruling kept in the Ledger',
+  bet: "put people's bets to each other and keep the book on them",
+  quote: 'keep quotes in the Ledger',
 };
 
 /**

@@ -16,16 +16,16 @@
  * file adds it up.
  *
  * State is on disk. A monthly ceiling held in memory would reset on every
- * restart, which for a bot that restarts on mod updates is not a ceiling at all.
+ * restart, which for a bot that restarts on every deploy is not a ceiling at all.
  */
-const fs = require('fs');
 const path = require('path');
+const { jsonFile } = require('../storage/jsonFile');
 
 const TICKS_PER_USD = 10_000_000_000; // 10^10, per xAI's cost-tracking docs
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const SPEND_FILE = path.join(DATA_DIR, 'ai-spend.json');
 
-/** Percentages at which staff are told once, before the hard stop at 100. */
+/** Percentages at which the owner is told once, before the hard stop at 100. */
 const WARN_AT = [50, 80, 95];
 const KEEP_MONTHS = 12;
 
@@ -52,15 +52,16 @@ function emptyMonth(month) {
   return { month, ticks: 0, calls: 0, days: {}, notified: [] };
 }
 
+// A damaged ledger is restored from its last good copy rather than read as $0
+// spent, which would re-open the taps and forget the history. See
+// storage/jsonFile.js.
+const store = jsonFile(SPEND_FILE, { empty: () => ({ current: emptyMonth(currentMonth()), history: [] }) });
+
 let state = null;
 
 function read() {
   if (state) return state;
-  try {
-    state = JSON.parse(fs.readFileSync(SPEND_FILE, 'utf8'));
-  } catch {
-    state = { current: emptyMonth(currentMonth()), history: [] };
-  }
+  state = store.read();
   if (!state.current) state.current = emptyMonth(currentMonth());
   if (!Array.isArray(state.history)) state.history = [];
   return rollover();
@@ -87,12 +88,7 @@ function rollover() {
 
 function write() {
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    // Temp file plus rename, so a crash mid-write can't leave a truncated
-    // ledger that reads as $0 spent and re-opens the taps.
-    const tmp = `${SPEND_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
-    fs.renameSync(tmp, SPEND_FILE);
+    store.write(state);
   } catch (err) {
     console.warn('[Budget] Could not persist spend:', err.message);
   }
@@ -197,7 +193,7 @@ function announce(percent) {
       `💸 **Sheogorath has spent ${percent}% of this month's allowance** — ` +
       `$${s.spentUsd.toFixed(2)} of $${s.limitUsd.toFixed(2)} for ${s.month}, over ${s.calls} call(s). ` +
       (percent >= 95
-        ? 'At 100% he stops answering until the month turns or an Owner raises `AI_MONTHLY_BUDGET_USD`.'
+        ? 'At 100% he stops answering until the month turns or you raise `AI_MONTHLY_BUDGET_USD`.'
         : 'Nothing has changed yet — this is a heads-up.'),
       s,
     ))

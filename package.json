@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "nodemon src/index.js --config nodemon.json",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "check": "node scripts/check.js"
   },
   "keywords": [],
   "contributors": [

@@ -3,7 +3,7 @@
 
 Sheogorath is a multi-guild Discord bot built around an Elder Scrolls Mad God persona. It combines AI chat and image generation (Grok/xAI), a YouTube music player with a companion web app, and a UFC fight-night suite.
 
-Each Discord server the bot serves gets its own entry in `config/guilds.json`, with a `features` list deciding what actually runs there — so the music guild and the game-server guild share one process without sharing surfaces.
+Each Discord server the bot serves gets its own entry in `config/guilds.json`, with a `features` list deciding what actually runs there — so the main hall and the community server share one process without sharing surfaces.
 
 ## What does it do?
 
@@ -265,13 +265,13 @@ later is budgeted without anyone remembering to budget it.
 
 - **`AI_MONTHLY_BUDGET_USD`** in `.env` (default 20) is a hard monthly ceiling
   across every guild, because spend is a property of the API key, not of a guild.
-- Staff are warned once each at **50%, 80% and 95%** in the log channel. At
-  **100%** he stops answering — in character, with no API call made — until the
+- The owner (`ADMIN_USER_ID`) is DMed once each at **50%, 80% and 95%**, and
+  nobody else is told. At **100%** he stops answering — in character, with no API call made — until the
   month turns or the ceiling goes up.
-- The ledger lives in `data/ai-spend.json`, written temp-file-and-rename so a
-  crash mid-write can't leave a truncated file that reads as $0 spent. It has to
-  be on disk: a monthly ceiling held in memory resets on every restart, and this
-  bot restarts on mod updates.
+- The ledger lives in `data/ai-spend.json`, kept the way every data file is
+  (see [Data files](#data-files)), so a crash can't leave a truncated file that
+  reads as $0 spent. It has to be on disk: a monthly ceiling held in memory
+  resets on every restart, and this bot restarts on every deploy.
 - Twelve months of history are kept, so "is $20 the right number" stays
   answerable.
 - `/sheo status` shows the month to date, today's calls, and a progress bar.
@@ -283,14 +283,10 @@ background memory-extraction call is **skipped in `#help`** — it was a second
 billed request on every message, in the channel least likely to contain a
 personal fact worth keeping.
 
-Note that `getGrokUsage()` in `src/ai/grok.js` is dead: xAI's `/v1/usage`
-endpoint now 404s, so `/health`'s spend section reports nothing. The local ledger
-is the working source.
-
 ### Sheogorath as a moderator
 
 The AI can act on the server through action tags embedded in its replies — warn,
-timeout, kick, ban, delete, notes, memories, and raw game-server commands. What
+timeout, kick, ban, delete, notes, memories, titles and more. What
 it *asks* for and what *happens* are separate steps: every tag goes through
 `src/ai/capabilities.js`, which reaches one of four verdicts.
 
@@ -351,6 +347,26 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `pickem`, `events`.
 
 `timeZone` (an IANA name, default `America/Chicago`) is where a guild's people live: what "Friday 8pm" means in `/event` and in chat, and the clock Sheogorath is told the time by.
+
+### Data files
+
+What the bot keeps between restarts lives in `data/`: `state.json` (the pick'em season, notes and titles, calendar changes, what the UFC feeds have posted), `memories.json`, `ai-spend.json` and `ledger.json`. None of it exists anywhere else, so every one of them goes through `src/storage/jsonFile.js`:
+
+- **Writes never happen in place.** Each goes to a temp file that is flushed and renamed over the real one, so a crash or a power cut leaves the old file or the new one, never half of either.
+- **A file that won't parse is never read as empty.** It is moved aside as `<name>.corrupt-<time>`, where nothing writes over it, and replaced with the last good copy the bot had read, or failing that the newest backup. The owner gets a DM saying which. Before this, one bad read (a typo in a hand edit, say) looked like "nothing stored yet", and the next chat message wrote an empty file over everything.
+- **One backup a day** goes to `data/backups/` before the first write of the day, and two weeks of them are kept.
+
+A missing file is still just an empty one, which is how a fresh install starts. Stop the bot before editing any of these by hand.
+
+## Deploying
+
+After pulling on the server, and before restarting:
+
+```sh
+npm run check && sudo systemctl restart sheogorath
+```
+
+`npm run check` looks for merge-conflict markers, compiles every script, checks that every relative `require()` names a file that exists, and parses every JSON file, all without running anything. If it fails, the old process keeps running and nothing is lost. A conflict marker that reached the server on 2026-09-26 left the bot crashing on startup and restarting every ten seconds.
 
 ## Contributing
 

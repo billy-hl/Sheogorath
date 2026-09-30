@@ -210,6 +210,18 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
     }
   }
 
+  if (hasFeature(guildId, 'ledger')) {
+    try {
+      // Required here for the same reason as the calendar: only guilds that
+      // keep a Ledger need it.
+      const { ledgerFacts } = require('../ledger');
+      const lines = ledgerFacts(guildId, { question, requester });
+      if (lines.length) sections.push(`THE LEDGER (the group's book, which you keep)\n${lines.join('\n')}`);
+    } catch (err) {
+      console.warn('[Knowledge] Ledger failed:', err?.message || err);
+    }
+  }
+
   try {
     const docs = await allDocs(guild, guildId);
     const picked = retrieve(docs, question, isHelp ? HELP_DOC_BUDGET : DEFAULT_DOC_BUDGET);

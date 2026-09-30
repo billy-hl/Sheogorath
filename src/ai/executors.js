@@ -91,6 +91,11 @@ async function resolveMemberId(guild, raw) {
 async function runAction(action, ctx) {
   const { guild, message } = ctx;
   const guildId = ctx.guildId || guild?.id;
+  // Whose errand this is. Neither path in passes it — the chat path hands over
+  // the message, and an approval card carries the message it was raised from —
+  // so without the fallback a letter was signed "of his own accord" and a word
+  // said in another room carried no name at all.
+  const requester = ctx.requester || message?.member || null;
 
   /**
    * Post something that belongs *after* Sheogorath's own reply.
@@ -99,11 +104,17 @@ async function runAction(action, ctx) {
    * on how they were ruled on — so an executor that sent prose directly would
    * have it land above the line introducing it. Anything pushed here is sent by
    * the caller once the reply is out. Approved-from-a-card actions have no
-   * reply coming, so those fall back to sending immediately.
+   * reply coming, so those fall back to sending immediately. A part may be a
+   * function of the channel, for a post whose message has to be kept.
    */
   const follow = async (parts) => {
     if (Array.isArray(ctx.followUps)) ctx.followUps.push(...parts);
-    else for (const part of parts) await message.channel.send(part);
+    else {
+      for (const part of parts) {
+        if (typeof part === 'function') await part(message.channel);
+        else await message.channel.send(part);
+      }
+    }
   };
 
   switch (action.type) {
@@ -149,7 +160,7 @@ async function runAction(action, ctx) {
       // send a message through him; nobody can send one anonymously, so the
       // worst use of it costs the sender their own name.
       const member = await guild.members.fetch(action.userId);
-      const asker = ctx.requester?.displayName || ctx.requester?.user?.username || null;
+      const asker = requester?.displayName || requester?.user?.username || null;
       const body = String(action.text).trim().slice(0, CAPABILITIES.dm.maxLength);
 
       await member.send({
@@ -184,7 +195,7 @@ async function runAction(action, ctx) {
         throw new Error(`I am not permitted to speak in ${target.name}`);
       }
 
-      const asker = ctx.requester?.displayName || ctx.requester?.user?.username || null;
+      const asker = requester?.displayName || requester?.user?.username || null;
       await target.send({
         content: String(action.text).trim().slice(0, CAPABILITIES.say.maxLength) +
           (asker ? `\n\n-# — carried from elsewhere at ${asker}'s bidding` : ''),
@@ -397,7 +408,7 @@ async function runAction(action, ctx) {
       // the time as Discord renders it, in everyone's own zone — the model
       // narrates what it meant, and this is what it did.
       const events = require('../services/events');
-      const member = ctx.requester || message?.member;
+      const member = requester;
       if (!member) throw new Error('I cannot tell who is asking');
       const existing = events.findEvent(guildId, action.name);
       if (action.cancel) {
@@ -416,6 +427,62 @@ async function runAction(action, ctx) {
         allowedMentions: { parse: [] },
       }]);
       return `${existing ? 'moved' : 'put'} "${ev.name}" ${existing ? 'to' : 'on the calendar for'} ${ev.start.toISOString()}`;
+    }
+
+    case 'ruling': {
+      // His reply is the ruling; the book only needs the question and the gist.
+      const ledger = require('../services/ledger');
+      const ruling = ledger.addRuling(guildId, {
+        question: action.question,
+        verdict: action.verdict,
+        by: requester?.id || null,
+        byName: requester?.displayName || null,
+        url: message?.url || null,
+      });
+      await follow([`-# 📜 ${ruling.replaced ? 'Revised' : 'Entered'} in the Ledger as **${ruling.id}**.`]);
+      return `ruled on "${ruling.question}" (${ruling.id})`;
+    }
+
+    case 'quote': {
+      // Kept from the message the asker replied to, never from anything he
+      // wrote: a quote is only worth keeping if it is what was actually said.
+      const ledger = require('../services/ledger');
+      const refId = message?.reference?.messageId;
+      if (!refId) throw new Error('reply to the message you want kept, and ask me again');
+      const said = await message.channel.messages.fetch(refId).catch(() => null);
+      if (!said) throw new Error('I cannot find the message that was replied to');
+      const { quote, already } = ledger.keepMessage(guildId, said, requester?.id || null);
+      await follow([`-# 📜 ${already ? 'Already' : 'Kept'} in the Ledger as **${quote.id}**.`]);
+      return already ? `found it already kept as ${quote.id}` : `kept <@${quote.authorId}>'s words as ${quote.id}`;
+    }
+
+    case 'bet': {
+      // Always the asker's bet, put to whoever they named. The card's button is
+      // the other person's consent, so nothing here commits anybody but the asker.
+      const ledger = require('../services/ledger');
+      if (!requester) throw new Error('I cannot tell who is betting');
+      let against = null;
+      if (action.userId) {
+        const id = await resolveMemberId(guild, action.userId);
+        against = await guild.members.fetch(id).catch(() => null);
+        if (!against) throw new Error('whoever that is, they are not in this server');
+        if (against.user.bot) throw new Error('bots do not bet');
+      }
+      const bet = ledger.offerBet(guildId, {
+        by: requester.id,
+        byName: requester.displayName,
+        against: against?.id || null,
+        againstName: against?.displayName || null,
+        terms: action.terms,
+        stakes: action.stakes,
+        settleBy: action.settleBy,
+        channelId: message?.channelId || null,
+      });
+      await follow([async (channel) => {
+        const card = await channel.send(ledger.offerMessage(bet));
+        ledger.attachCard(guildId, bet.id, card);
+      }]);
+      return `put ${requester.displayName}'s bet to ${against ? `<@${against.id}>` : 'the room'} (${bet.id})`;
     }
 
     default:
@@ -448,6 +515,9 @@ function describeAction(action) {
     case 'event':     return action.cancel
       ? `Take "${action.name}" off the calendar`
       : `Put "${action.name}" on the calendar${action.when ? ` for ${action.when}` : ''}`;
+    case 'ruling':    return `Rule on "${action.question}": ${action.verdict}`;
+    case 'quote':     return 'Keep the message being replied to in the Ledger';
+    case 'bet':       return `Put a bet to ${action.userId ? `<@${action.userId}>` : 'the room'}: ${action.terms}`;
     default:          return `${action.type} ${JSON.stringify(action)}`;
   }
 }

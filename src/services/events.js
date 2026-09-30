@@ -103,8 +103,8 @@ function plusDays(y, m, d, days) {
  * ISO times with their own offset ("2026-12-11T13:00-08:00"), dates and times
  * in the server's zone or a named one ("Dec 11 1pm PT", "2026-12-11 13:00 UTC",
  * "10/15 11am"), days of the week ("Friday 8pm", "next monday 9am", "tonight 9",
- * "tomorrow 7:30pm") and "in 2 hours". Always with a time of day: an event with
- * no time is a guess, and guesses are what this was built to stop.
+ * "tomorrow 7:30pm"), "in 2 hours" and "in 2 weeks". Always with a time of day:
+ * an event with no time is a guess, and guesses are what this was built to stop.
  *
  * @returns {{ at: Date } | { error: string }}
  */
@@ -128,9 +128,9 @@ function parseWhen(text, timeZone, now = Date.now()) {
     s = `${s.slice(0, named.index)} `;
   }
 
-  const relative = /^ in (\d+(?:\.\d+)?) ?(minutes?|mins?|m|hours?|hrs?|h|days?|d) $/.exec(s);
+  const relative = /^ in (\d+(?:\.\d+)?) ?(minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|wks?|w) $/.exec(s);
   if (relative) {
-    const unit = { m: MINUTE_MS, h: HOUR_MS, d: DAY_MS }[relative[2][0]];
+    const unit = { m: MINUTE_MS, h: HOUR_MS, d: DAY_MS, w: 7 * DAY_MS }[relative[2][0]];
     return inRange(new Date(now + Number(relative[1]) * unit), now);
   }
 

@@ -34,7 +34,7 @@ const { isApprovalButton, handleApprovalButton } = require('./ai/approvals');
 const { setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
 const { isParlour } = require('./services/parlour');
 const { checkCooldown, setCooldown } = require('./utils/cooldowns');
-const { setClient, notifyError } = require('./utils/errorNotify');
+const { setClient, notifyError, notifyOwner } = require('./utils/errorNotify');
 const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole');
@@ -48,6 +48,7 @@ const { schedulePickem, isPickemButton, handleButton: handlePickemButton } = req
 const { scheduleUfcResults } = require('./services/ufcResults');
 const { scheduleUfcReminders } = require('./services/ufcReminders');
 const { scheduleEvents } = require('./services/events');
+const { scheduleLedger, isLedgerButton, handleButton: handleLedgerButton } = require('./services/ledger');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
 const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
@@ -145,13 +146,10 @@ client.once(Events.ClientReady, async () => {
   // removed, the only record is the one we were already keeping.
   watchDeletions(client);
 
-  // Spend warnings go to every guild that has a staff channel. The budget is
-  // one ceiling over one API key, not one per guild, so everyone who could
-  // raise it should hear about it.
-  setBudgetNotifier(async (message) => {
-    const { notifyStaff } = require('./utils/aiAudit');
-    for (const id of guildIds()) await notifyStaff(id, message).catch(() => {});
-  });
+  // Spend warnings go to the owner by DM, and nowhere else. The budget is one
+  // ceiling over one API key, and only the owner can raise it; a server's own
+  // channels are no place for the bot's bills.
+  setBudgetNotifier((message) => notifyOwner(message));
   {
     const b = budgetStatus();
     console.log(`[Budget] ${b.month}: $${b.spentUsd.toFixed(4)} of $${b.limitUsd.toFixed(2)} spent over ${b.calls} call(s).`);
@@ -247,6 +245,13 @@ client.once(Events.ClientReady, async () => {
     scheduleEvents(client);
   } catch (err) {
     console.error('[Events] Failed to schedule reminders:', err?.message || err);
+  }
+
+  // The Ledger: offers lapse, settle-by dates are chased, UFC bets settle.
+  try {
+    scheduleLedger(client);
+  } catch (err) {
+    console.error('[Ledger] Failed to schedule:', err?.message || err);
   }
 
   // Announce the house streamers going live. Isolated like the rest — Twitch
@@ -553,6 +558,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
+      // The Ledger's bet cards: open to everyone, with the rules in the service.
+      if (isLedgerButton(interaction)) {
+        await handleLedgerButton(interaction);
+        return;
+      }
+
       const { pausePlayer, resumePlayer, skipSong, stopPlayer } = require('./music/player');
       const { removeTrackFromRadio } = require('./commands/radio');
       const guildId = interaction.guild.id;
@@ -644,7 +655,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    if (!interaction.isChatInputCommand()) return;
+    // Slash commands, and commands from a message's Apps menu ("Keep in the
+    // Ledger"), which go through the same gate, cooldown and audit.
+    if (!interaction.isChatInputCommand() && !interaction.isMessageContextMenuCommand()) return;
 
     const command = interaction.client.commands.get(interaction.commandName);
 

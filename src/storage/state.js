@@ -3,30 +3,27 @@ const fs = require('fs');
 const path = require('path');
 const { primaryGuildId } = require('../config/guilds');
 const { sanitizeObservation } = require('./sanitize');
+const { jsonFile } = require('./jsonFile');
 
 const DATA_DIR = path.join(__dirname, '../../data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+// Written on every chat message, and holding things that exist nowhere else,
+// so it is never written in place and never read as empty because it would not
+// parse. See ./jsonFile.js.
+const store = jsonFile(STATE_FILE);
 
+/**
+ * The whole file. A damaged one comes back as its last good copy, never as `{}`,
+ * and throws only when there is no copy of any kind to fall back on.
+ */
 function readRaw() {
-  try {
-    ensureDir();
-    if (!fs.existsSync(STATE_FILE)) return {};
-    const raw = fs.readFileSync(STATE_FILE, 'utf8');
-    return JSON.parse(raw || '{}');
-  } catch (e) {
-    console.warn('WARN: Failed to read state file:', e?.message || e);
-    return {};
-  }
+  return store.read();
 }
 
 function writeRaw(next) {
   try {
-    ensureDir();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(next, null, 2), 'utf8');
+    store.write(next);
     return next;
   } catch (e) {
     console.warn('WARN: Failed to write state file:', e?.message || e);

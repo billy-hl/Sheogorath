@@ -3,30 +3,24 @@ const fs = require('fs');
 const { sanitizeObservation } = require('./sanitize');
 const path = require('path');
 const { primaryGuildId } = require('../config/guilds');
+const { jsonFile } = require('./jsonFile');
 
 const MEMORY_FILE = path.join(__dirname, '..', '..', 'data', 'memories.json');
 
 const MAX_MEMORIES_PER_USER = 50;
 const CONTEXT_MEMORY_COUNT = 10;
 
+// Same protection as state.json: a file that will not parse is set aside and
+// restored from a good copy, rather than read as empty and written over.
+const store = jsonFile(MEMORY_FILE);
+
 function readRaw() {
-  try {
-    if (!fs.existsSync(MEMORY_FILE)) return {};
-    const data = fs.readFileSync(MEMORY_FILE, 'utf8');
-    return JSON.parse(data || '{}');
-  } catch (err) {
-    console.error('Error reading memories:', err);
-    return {};
-  }
+  return store.read();
 }
 
 function writeRaw(memories) {
   try {
-    const dir = path.dirname(MEMORY_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify(memories, null, 2));
+    store.write(memories);
   } catch (err) {
     console.error('Error saving memories:', err);
   }

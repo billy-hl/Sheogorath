@@ -24,6 +24,9 @@
  *   [ACTION:note:userId:note text]
  *   [ACTION:clearnotes:userId]
  *   [ACTION:memory:userId:memory text]
+ *   [ACTION:ruling:question|verdict]
+ *   [ACTION:bet:who|terms|stakes|settle by]
+ *   [ACTION:quote:reason]
  */
 const { decide, recordExecution, BREAKER_LIMIT } = require('./capabilities');
 const { runAction } = require('./executors');
@@ -32,7 +35,7 @@ const { logAiAction, notifyStaff } = require('../utils/aiAudit');
 const { getGuildConfig } = require('../config/guilds');
 
 const ACTION_TYPES = 'timeout|warn|kick|ban|delete|flag|note|clearnotes|memory|'
-  + 'title|untitle|dm|say|react|pin|thread|poll|nick|channel|event';
+  + 'title|untitle|dm|say|react|pin|thread|poll|nick|channel|event|ruling|bet|quote';
 
 /**
  * Pull action tags out of a reply and strip them from the visible text.
@@ -159,6 +162,29 @@ function parseActions(response) {
         else actions.push({ type: 'event', name, when: when || null, hours: Number(hours) || null, where: where || null });
         break;
       }
+
+      case 'ruling': {
+        // question|verdict. Pipes, since either may have a colon in it.
+        const [question, ...rest] = parts.join(':').split('|');
+        const verdict = rest.join('|').trim();
+        if (question?.trim() && verdict) actions.push({ type: 'ruling', question: question.trim(), verdict });
+        break;
+      }
+
+      case 'bet': {
+        // who|what the asker is betting|stakes|settle by. "who" empty or
+        // "anyone" means the room. Always the asker's own bet.
+        const [who, terms, stakes, settleBy] = parts.join(':').split('|').map((p) => p.trim());
+        if (!terms) break;
+        const open = !who || /^(anyone|anybody|everyone|the room)$/i.test(who);
+        actions.push({ type: 'bet', userId: open ? null : who, terms, stakes: stakes || null, settleBy: settleBy || null });
+        break;
+      }
+
+      case 'quote':
+        // Keeps the message the asker replied to; the text is only his reason.
+        actions.push({ type: 'quote', reason: parts.join(':').trim() || 'worth keeping' });
+        break;
 
       case 'dm': {
         const [userId, ...textParts] = parts;
@@ -331,7 +357,7 @@ async function executeActions(actions, context) {
 
     // --- execute ---
     try {
-      const summary = await runAction(gated, { guild, guildId, message, followUps: context.followUps });
+      const summary = await runAction(gated, { guild, guildId, message, requester, followUps: context.followUps });
       const { justTripped, count } = recordExecution(guildId, gated.type);
       logAiAction({ ...base, verdict: 'execute', summary });
       results.push({ ...gated, verdict, reason, success: true });

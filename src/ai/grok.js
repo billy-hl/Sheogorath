@@ -144,44 +144,6 @@ async function getAIResponseWithHistory(messages, maxTokens = 500, { systemSuffi
 }
 
 /**
- * Get xAI account usage and limits
- * @returns {Promise<Object>} Usage data with credits/limits
- */
-async function getGrokUsage() {
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: 'api.x.ai',
-        path: '/v1/usage',
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
-        },
-      },
-      res => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`xAI API error ${res.statusCode}: ${data}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(data));
-          } catch (err) {
-            reject(err);
-          }
-        });
-      }
-    );
-
-    req.on('error', reject);
-    req.setTimeout(10000, () => req.destroy(new Error('timeout')));
-    req.end();
-  });
-}
-
-/**
  * Extract a memorable fact from a single user message.
  * Returns a short string to save, or null if nothing notable.
  * @param {string} username - User's display name
@@ -274,4 +236,4 @@ async function generateImage(prompt) {
   return await httpsGetBuffer(url);
 }
 
-module.exports = { buildSystemPrompt, getAIResponse, getAIResponseWithHistory, getGrokUsage, extractMemoryFromMessage, generateImage };
+module.exports = { buildSystemPrompt, getAIResponse, getAIResponseWithHistory, extractMemoryFromMessage, generateImage };

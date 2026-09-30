@@ -157,6 +157,15 @@ const CAPABILITIES = {
   // wanted, which the person who asked for it can take off again.
   event:      { tier: 'auto',    targets: 'none',   immune: false, perHour: 6, requires: 'events' },
 
+  // The Ledger: record-keeping for the group rather than for one person, so
+  // nobody is acted on. A ruling and a quote are entries in a book. A bet is
+  // only an offer until the other person takes it with the button on its card,
+  // and it is always the asker's own, so nobody can be put into a wager by
+  // somebody else. The consent lives in services/ledger.js, not here.
+  ruling:     { tier: 'auto',    targets: 'none',   immune: false, perHour: 10, requires: 'ledger' },
+  bet:        { tier: 'auto',    targets: 'none',   immune: false, perHour: 6,  requires: 'ledger' },
+  quote:      { tier: 'auto',    targets: 'none',   immune: false, perHour: 10, requires: 'ledger' },
+
   // Renaming somebody is where "harmless and reversible" stops being obviously
   // true: it changes how a person appears to everyone, and unlike a title it
   // replaces something they chose. Owners rename freely; everyone else's
@@ -273,12 +282,12 @@ function canAsk(guildId) {
  *
  * Three things remove a row:
  *
- *   the missing feature it needs, so a guild with no game server is never
- *   offered a game command;
+ *   the missing feature it needs, so a guild with no calendar is never offered
+ *   one to put things on;
  *
  *   `ai.powers`, when a guild lists one — the guild saying what it wants him
- *   for. He is the warden of the game server and the mascot of the social hall,
- *   and the second job does not come with the power to time people out;
+ *   for. He is the host of one server and the figurehead of another, and not
+ *   every job he holds comes with the power to time people out;
  *
  *   for the powers that can only ever be proposed, having nobody to propose to.
  *   A kick in a guild with no staff channel is not a power he has there, and

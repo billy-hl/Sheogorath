@@ -13,7 +13,8 @@
       "textImageMod",
       "automod",
       "pickem",
-      "events"
+      "events",
+      "ledger"
     ],
     "channels": {
       "music": "534553333034123289",
@@ -43,7 +44,10 @@
         "nick",
         "channel",
         "kick",
-        "event"
+        "event",
+        "ruling",
+        "bet",
+        "quote"
       ],
       "titles": {
         "admin": "Creator"

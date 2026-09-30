@@ -287,8 +287,11 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
 
     // Anything an action produced for the channel goes out after he has spoken,
     // so the introduction reads as an introduction.
+    // A part may be a function of the channel, for a post whose message has to
+    // be kept (a bet's card, which is edited as the bet moves).
     for (const part of answer.followUps) {
-      await userMessage.channel.send(part).catch(err =>
+      const post = typeof part === 'function' ? part(userMessage.channel) : userMessage.channel.send(part);
+      await Promise.resolve(post).catch(err =>
         console.warn('[Actions] Could not post follow-up:', err.message));
     }
   } catch (error) {

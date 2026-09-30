@@ -30,18 +30,17 @@ const { isAdmin } = require('../utils/permissions');
 const MODE_BLURB = {
   shadow: 'Watching only. He records what he would have done and does none of it.',
   assist: 'Everything he wants to do comes to the staff channel for approval first.',
-  enforce: 'He handles warnings, deletions and short timeouts himself. Kicks, bans and server commands still ask.',
+  enforce: 'He handles warnings, deletions and short timeouts himself. Kicks and bans still ask.',
 };
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('sheo')
     .setDescription("Manage what Sheogorath is allowed to do on his own")
-    // Deliberately NOT setDefaultMemberPermissions(Administrator), for the same
-    // reason /pz avoids it: that hides the command from anyone without Discord's
-    // own Administrator flag, and this guild's Owners hold `roles.admin`
-    // instead — the whole point of that role being to grant bot admin without
-    // granting server-wide Discord power. Gating visibility on a flag isAdmin()
+    // Deliberately NOT setDefaultMemberPermissions(Administrator): that hides
+    // the command from anyone without Discord's own Administrator flag, and
+    // this guild's Owners hold `roles.admin` instead — the whole point of that
+    // role being to grant bot admin without granting server-wide Discord power. Gating visibility on a flag isAdmin()
     // does not require made the command invisible to the very people it is for.
     // Access is enforced centrally in utils/permissions.js (ADMIN_COMMANDS),
     // so a refusal is still recorded as one in the audit log.

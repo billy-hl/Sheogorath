@@ -77,7 +77,8 @@
       "dmRole": "1269321898035249325",
       "dmContender": true,
       "pickem": {
-        "channel": "1554114366285287576"
+        "channel": "1554114366285287576",
+        "contender": true
       },
       "results": {
         "channel": "1554131166079225866"

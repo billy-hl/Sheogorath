@@ -72,14 +72,14 @@ Commands are loaded from `src/commands/*.js`. Two things decide whether a comman
 ### 🥊 UFC Pick'em
 *Requires the `pickem` feature and a channel: `ufc.pickem.channel`, or `ufc.channel` when that is unset.*
 
-- `/pickem standings [season]` - The season table (this year by default)
+- `/pickem standings [season] [series]` - The season table (this year and UFC by default; `series:Contender Series` for that table)
 - `/pickem open` - Open picks for the next card now instead of waiting for fight week *(bot admin)*
 
 Everything else happens on the card itself. On the Monday of fight week, alongside the Discord event, the card is posted in pick'em's channel with a button per block of bouts: main card, prelims, early prelims. A card already open when that channel changes moves to the new one before its first bout, picks and all, and leaves a pointer where it was. A button opens a private panel with a row per bout; one click picks a fighter, a second takes it back. Nobody sees anyone else's picks until they lock.
 
 A block locks when it starts, by ESPN's time for it, so someone who only turns up for the main card still plays. The first lock opens a thread on the card, and each lock posts how the room split. Results arrive in that thread as ESPN marks each bout final, with who called it; nobody is pinged. When the last bout is in, the card is scored — a point per winner called, nothing for a draw or no contest — and the reply names the week's best, who takes the weekly title (`ufc.pickem.title`, default *Oracle of the Octagon*) from whoever held it, along with a line from Sheogorath. That line is the only model call pick'em makes, about a tenth of a cent a week.
 
-Contender Series nights are left out unless `ufc.pickem.contender` is `true`, since five fights on a Tuesday would otherwise decide the season. A bout scratched before it happens leaves the card and its picks go with it; a replacement opponent is a new fight to call. Cards and picks live in guild state, so a restart loses nothing, and results are checked every two minutes only while a card is under way.
+Contender Series nights are played where `ufc.pickem.contender` is `true` (it is, in the main hall). They run the same way, every fight locking when the night starts, but are scored into a Contender Series table of their own with its own title (`ufc.pickem.contenderTitle`, default *Talent Scout*), so five fights on a Tuesday cannot decide the UFC season. Their Standings button shows that table. A bout scratched before it happens leaves the card and its picks go with it; a replacement opponent is a new fight to call. A bout ESPN still lists with a fighter TBA is left off until both are named, and a card with nothing but TBAs waits for the next sync rather than opening empty. Cards and picks live in guild state, so a restart loses nothing, and results are checked every two minutes only while a card is under way.
 
 ### 🏆 UFC Results
 *Requires `ufc.results.channel`.*

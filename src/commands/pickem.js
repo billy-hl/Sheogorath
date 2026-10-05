@@ -13,7 +13,14 @@ module.exports = {
         .setName('season')
         .setDescription('Which year (this one by default)')
         .setMinValue(2026)
-        .setMaxValue(2100)))
+        .setMaxValue(2100))
+      .addStringOption((opt) => opt
+        .setName('series')
+        .setDescription('UFC cards or Contender Series nights (UFC by default)')
+        .addChoices(
+          { name: 'UFC', value: 'ufc' },
+          { name: 'Contender Series', value: 'contender' },
+        )))
     .addSubcommand((sub) => sub
       .setName('open')
       .setDescription('Open picks for the next card now, instead of waiting for fight week')),
@@ -23,8 +30,9 @@ module.exports = {
 
     if (sub === 'standings') {
       const season = String(interaction.options.getInteger('season') || currentSeason());
+      const contender = interaction.options.getString('series') === 'contender';
       return interaction.reply({
-        embeds: [standingsEmbed(interaction.guildId, season)],
+        embeds: [standingsEmbed(interaction.guildId, season, contender)],
         allowedMentions: { parse: [] },
       });
     }

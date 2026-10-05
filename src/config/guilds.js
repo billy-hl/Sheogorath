@@ -264,14 +264,18 @@ function normalizeGuild(id, raw) {
       dmContender: raw.ufc.dmContender === true,
       // Pick'em (services/pickem.js), where the `pickem` feature is on: its own
       // channel (the ufc channel when unset), the title the week's best picker
-      // wears, and whether Contender Series nights count. Off by default — five
-      // fights on a Tuesday would decide the season.
+      // wears, and whether Contender Series nights are played. Those are scored
+      // in a table of their own, with `contenderTitle` for their best, so five
+      // fights on a Tuesday cannot decide the UFC season. Off by default.
       pickem: {
         channel: SNOWFLAKE.test(String(raw.ufc.pickem?.channel || '')) ? raw.ufc.pickem.channel : null,
         title: typeof raw.ufc.pickem?.title === 'string' && raw.ufc.pickem.title.trim()
           ? raw.ufc.pickem.title.trim()
           : null,
         contender: raw.ufc.pickem?.contender === true,
+        contenderTitle: typeof raw.ufc.pickem?.contenderTitle === 'string' && raw.ufc.pickem.contenderTitle.trim()
+          ? raw.ufc.pickem.contenderTitle.trim()
+          : null,
       },
       // Every result as the fight ends, and the whole card once it is over
       // (services/ufcResults.js), Contender Series nights included. Unset, no

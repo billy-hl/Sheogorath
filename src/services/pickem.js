@@ -33,6 +33,10 @@
  * A bout that vanishes from ESPN before it has a result is a scratch: it leaves
  * the card and its picks go with it. One that ends without a winner — a draw, a
  * no contest — counts for nobody.
+ *
+ * Contender Series nights, where a guild plays them, run the same way but are
+ * scored into a table and a title of their own. Five fights on a Tuesday would
+ * otherwise decide the UFC season for whoever happened to be about that night.
  */
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 const { getGuildConfig, guildIds, hasFeature } = require('../config/guilds');
@@ -72,15 +76,29 @@ const KEEP_DAYS = 45;
 const EARLY_DAYS = 14;
 
 const DEFAULT_TITLE = 'Oracle of the Octagon';
+const DEFAULT_CONTENDER_TITLE = 'Talent Scout';
 
 const unix = (ms) => Math.floor(ms / 1000);
 const firstStart = (card) => Math.min(...card.bouts.map((b) => b.start));
 const seasonOf = (ms) => new Intl.DateTimeFormat('en-US', { timeZone: TZ, year: 'numeric' }).format(new Date(ms));
 const currentSeason = () => seasonOf(Date.now());
+/** Whether a card is a Contender Series night, by the same test that let it in. */
+const isContender = (card) => CONTENDER.test(card?.name || '');
 // Normalised the way the title executor normalises a name, so the title handed
 // out and the one looked for when taking it back are the same string.
-const titleFor = (guildId) =>
-  (getGuildConfig(guildId)?.ufc?.pickem?.title || DEFAULT_TITLE).replace(/\s+/g, ' ').trim().slice(0, 90);
+const clean = (name) => name.replace(/\s+/g, ' ').trim().slice(0, 90);
+/**
+ * The title a card's best picker takes. The two are kept apart even if
+ * configured alike: a role of one name cannot be two titles, and handing one
+ * over would take the other off whoever wore it.
+ */
+function titleFor(guildId, contender = false) {
+  const cfg = getGuildConfig(guildId)?.ufc?.pickem;
+  const ufc = clean(cfg?.title || DEFAULT_TITLE);
+  if (!contender) return ufc;
+  const own = clean(cfg?.contenderTitle || DEFAULT_CONTENDER_TITLE);
+  return own === ufc ? clean(`${own} (DWCS)`) : own;
+}
 const messageLink = (guildId, card) => `https://discord.com/channels/${guildId}/${card.channelId}/${card.messageId}`;
 /** Where cards are posted: pick'em's own channel, or the UFC channel when it has none. */
 const channelFor = (guildId) => {
@@ -91,11 +109,23 @@ const pickemGuilds = () => guildIds().filter((id) => hasFeature(id, 'pickem') &&
 
 // --- The stored record ------------------------------------------------------
 
-/** This guild's pick'em record, with every part present. */
+/**
+ * This guild's pick'em record, with every part present. The UFC season table
+ * and title sit at the top, where they always have; the Contender Series keeps
+ * its own under `contender`.
+ */
 function stateOf(guildId) {
   const saved = getGuildState(guildId).pickem || {};
-  return { cards: saved.cards || {}, seasons: saved.seasons || {}, title: saved.title || null };
+  return {
+    cards: saved.cards || {},
+    seasons: saved.seasons || {},
+    title: saved.title || null,
+    contender: { seasons: saved.contender?.seasons || {}, title: saved.contender?.title || null },
+  };
 }
+
+/** Where a card's points and title are kept: the UFC season's, or the Contender Series' own. */
+const boardOf = (record, contender) => (contender ? record.contender : record);
 
 /**
  * Read, change and write one guild's record in a single synchronous pass.
@@ -113,6 +143,22 @@ function mutate(guildId, change) {
   }
   setGuildState(guildId, { pickem: record });
   return result;
+}
+
+/** ESPN's stand-in for a fighter not yet named: "TBA", "Opponent TBA". */
+const PLACEHOLDER = /^(opponent\s+)?tb[ad]$/i;
+
+/**
+ * A card as pick'em plays it: only the bouts with both fighters named. ESPN
+ * lists a Contender Series night as one "Opponent TBA vs TBA" bout until the
+ * week's fights are announced, and a late replacement as "Opponent TBA" until
+ * one is signed; neither is a fight anyone can call. A card with nothing to
+ * call yet is not posted, and is looked for again on the next sync.
+ */
+function readCard(event) {
+  const parsed = parseBouts(event);
+  const bouts = (parsed?.bouts || []).filter((b) => !b.fighters.some((f) => PLACEHOLDER.test(f.name)));
+  return bouts.length ? { ...parsed, bouts } : null;
 }
 
 /** Whether a bout can no longer be picked. */
@@ -227,7 +273,8 @@ function recordPick(guildId, espnId, boutId, fighterId, userId, now = Date.now()
  */
 function scoreCard(record, card) {
   const season = seasonOf(firstStart(card));
-  const table = record.seasons[season] || (record.seasons[season] = {});
+  const { seasons } = boardOf(record, isContender(card));
+  const table = seasons[season] || (seasons[season] = {});
   const rows = [];
   for (const [userId, picks] of Object.entries(card.picks)) {
     let points = 0;
@@ -256,8 +303,8 @@ function ranked(rows, score) {
 const rate = (row) => (row.picks ? row.points / row.picks : 0);
 const medal = (rank) => ['🥇', '🥈', '🥉'][rank - 1] || `**${rank}.**`;
 
-function seasonRows(guildId, season) {
-  return Object.entries(stateOf(guildId).seasons[season] || {})
+function seasonRows(guildId, season, contender = false) {
+  return Object.entries(boardOf(stateOf(guildId), contender).seasons[season] || {})
     .map(([userId, row]) => ({ userId, ...row }))
     .sort((a, b) => b.points - a.points || rate(b) - rate(a) || b.cards - a.cards);
 }
@@ -289,11 +336,19 @@ function cardEmbed(card, now = Date.now()) {
       name: `Picks in (${players.length})`,
       value: players.length ? `${shown}${players.length > 40 ? ` and ${players.length - 40} more` : ''}` : 'Nobody yet.',
     })
-    .setFooter({
-      text: card.finished
-        ? 'Scored. /pickem standings for the season.'
-        : 'A point for every winner you call. Picks stay hidden until they lock.',
-    });
+    .setFooter({ text: cardFooter(card) });
+}
+
+function cardFooter(card) {
+  if (isContender(card)) {
+    return card.finished
+      ? 'Scored. /pickem standings series:Contender Series for the table.'
+      : 'A point for every winner you call, in a Contender Series table apart from the UFC season. '
+        + 'Picks stay hidden until they lock.';
+  }
+  return card.finished
+    ? 'Scored. /pickem standings for the season.'
+    : 'A point for every winner you call. Picks stay hidden until they lock.';
 }
 
 function cardComponents(card) {
@@ -307,7 +362,10 @@ function cardComponents(card) {
   }
   rows.push(new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`${PREFIX}mine:${card.espnId}`).setLabel('My picks').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`${PREFIX}table`).setLabel('Standings').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(isContender(card) ? `${PREFIX}table:contender` : `${PREFIX}table`)
+      .setLabel('Standings')
+      .setStyle(ButtonStyle.Secondary),
   ));
   return rows;
 }
@@ -381,16 +439,20 @@ function mineView(card, userId) {
   return lines.join('\n').slice(0, 2000);
 }
 
-function standingsEmbed(guildId, season = currentSeason()) {
-  const rows = ranked(seasonRows(guildId, season), (r) => r.points).slice(0, 25);
+/** The name a season goes by: the UFC year, or that year's Contender Series. */
+const seasonName = (season, contender) => (contender ? `${season} Contender Series` : `${season} season`);
+
+function standingsEmbed(guildId, season = currentSeason(), contender = false) {
+  const rows = ranked(seasonRows(guildId, season, contender), (r) => r.points).slice(0, 25);
+  const noun = contender ? 'night' : 'card';
   const embed = new EmbedBuilder()
     .setColor(UFC_RED)
-    .setTitle(`🥊 Pick'em · ${season} season`)
+    .setTitle(`🥊 Pick'em · ${seasonName(season, contender)}`)
     .setDescription(rows.length
       ? rows.map((r) => `${medal(r.rank)} <@${r.userId}> · **${r.points}** pts · `
-        + `${Math.round(rate(r) * 100)}% · ${r.cards} card${r.cards === 1 ? '' : 's'}`).join('\n')
-      : 'No card has been scored this season yet.');
-  const { title } = stateOf(guildId);
+        + `${Math.round(rate(r) * 100)}% · ${r.cards} ${noun}${r.cards === 1 ? '' : 's'}`).join('\n')
+      : `No ${contender ? 'Contender Series night' : 'card'} has been scored this season yet.`);
+  const { title } = boardOf(stateOf(guildId), contender);
   if (title?.holders?.length) {
     embed.addFields({ name: `👑 ${title.name}`, value: title.holders.map((id) => `<@${id}>`).join(' ') });
   }
@@ -398,16 +460,19 @@ function standingsEmbed(guildId, season = currentSeason()) {
 }
 
 function resultsEmbed(guildId, card, ranks, season) {
-  const table = ranked(seasonRows(guildId, season), (r) => r.points).slice(0, 5);
+  const contender = isContender(card);
+  const table = ranked(seasonRows(guildId, season, contender), (r) => r.points).slice(0, 5);
   return new EmbedBuilder()
     .setColor(UFC_RED)
     .setTitle(`🏁 Pick'em · ${card.name}`.slice(0, 256))
     .setDescription(ranks.map((r) => `${medal(r.rank)} <@${r.userId}> · **${r.points}** of ${r.picks}`).join('\n').slice(0, 4096))
     .addFields({
-      name: `${season} season`,
+      name: seasonName(season, contender),
       value: table.map((r) => `${medal(r.rank)} <@${r.userId}> · **${r.points}** pts`).join('\n').slice(0, 1024) || '—',
     })
-    .setFooter({ text: '/pickem standings for the whole table' });
+    .setFooter({
+      text: contender ? '/pickem standings series:Contender Series for the whole table' : '/pickem standings for the whole table',
+    });
 }
 
 function howItEnded({ method, round, clock }) {
@@ -585,12 +650,15 @@ async function refreshCard(client, guildId, parsed) {
  * and a handover should not delete and remake it. If nobody could be given it,
  * nobody loses it either.
  *
+ * The Contender Series title changes hands only on Contender Series nights,
+ * and the UFC one only on UFC cards.
+ *
  * @returns the title's name, or null if it went to nobody.
  */
-async function passTitle(guild, winners) {
+async function passTitle(guild, winners, contender = false) {
   const guildId = guild.id;
-  const name = titleFor(guildId);
-  const previous = stateOf(guildId).title;
+  const name = titleFor(guildId, contender);
+  const previous = boardOf(stateOf(guildId), contender).title;
   const kept = (userId) => previous?.name === name && previous.holders.includes(userId);
 
   const given = [];
@@ -613,7 +681,7 @@ async function passTitle(guild, winners) {
     await runAction({ type: 'untitle', userId, title: previous.name }, { guild, guildId }).catch((err) =>
       console.warn(`[Pickem] ${guildId}: could not take "${previous.name}" from ${userId}: ${err.message}`));
   }
-  mutate(guildId, (record) => { record.title = { name, holders: given, since: Date.now() }; });
+  mutate(guildId, (record) => { boardOf(record, contender).title = { name, holders: given, since: Date.now() }; });
   return name;
 }
 
@@ -652,7 +720,7 @@ async function finish(client, guildId, card, { season, rows }) {
 
   const ranks = ranked(rows, (r) => r.points);
   const best = ranks.filter((r) => r.rank === 1 && r.points > 0).map((r) => r.userId);
-  const title = best.length ? await passTitle(guild, best) : null;
+  const title = best.length ? await passTitle(guild, best, isContender(card)) : null;
   const verdict = await verdictOn(guild, card, ranks, best).catch((err) => {
     console.warn(`[Pickem] ${guildId}: no verdict on "${card.name}": ${err?.message || err}`);
     return null;
@@ -685,7 +753,7 @@ async function pollCard(client, guildId, espnId, eventsOn, now = Date.now()) {
   const start = firstStart(before);
   const events = await eventsOn(easternDay(new Date(start)));
   const event = events.find((e) => String(e.id) === espnId);
-  const parsed = event ? parseBouts(event) : null;
+  const parsed = event ? readCard(event) : null;
 
   let news = null;
   let scored = null;
@@ -760,7 +828,7 @@ async function discover(client, now = new Date()) {
     try {
       cards = await calendarCards((c) => new Date(c.endDate || c.startDate) > now
         && fightWeekStart(new Date(c.startDate)) <= now
-        && (guilds.some(wantsContender) || !CONTENDER.test(c.label)), parseBouts);
+        && (guilds.some(wantsContender) || !CONTENDER.test(c.label)), readCard);
     } catch (err) {
       console.warn(`[Pickem] ESPN lookup failed: ${err?.response?.status || ''} ${err?.message || err}`);
       return;
@@ -795,10 +863,21 @@ async function openNext(client, guildId, now = new Date()) {
     return "❌ Pick'em is not set up here. It needs the `pickem` feature and a `ufc.channel` or `ufc.pickem.channel`.";
   }
   const contender = !!cfg.ufc.pickem?.contender;
+  // With Contender Series nights played, a fight week can hold two cards, so
+  // one already open is passed over for the next that is not. So is one ESPN
+  // has no named fights for yet, which is why every card in the window is read
+  // rather than only the first: there are rarely more than four.
+  const cards = Object.values(stateOf(guildId).cards);
+  const opened = new Set(cards.map((c) => c.name));
   const [parsed] = await calendarCards((c) => new Date(c.startDate) > now
     && new Date(c.startDate) - now < EARLY_DAYS * DAY_MS
-    && (contender || !CONTENDER.test(c.label)), parseBouts, 1);
-  if (!parsed) return `There is no card in the next ${EARLY_DAYS} days to open.`;
+    && (contender || !CONTENDER.test(c.label))
+    && !opened.has(c.label), readCard);
+  if (!parsed) {
+    const waiting = cards.filter((c) => !c.finished);
+    return `There is nothing new to open in the next ${EARLY_DAYS} days.`
+      + (waiting.length ? ` Already open: ${waiting.map((c) => `**${c.name}** ${messageLink(guildId, c)}`).join(', ')}` : '');
+  }
 
   const open = stateOf(guildId).cards[parsed.espnId];
   if (open) return `**${parsed.name}** is already open: ${messageLink(guildId, open)}`;
@@ -820,7 +899,8 @@ async function handleButton(interaction) {
   const ephemeral = MessageFlags.Ephemeral;
 
   if (kind === 'table') {
-    return interaction.reply({ embeds: [standingsEmbed(guildId)], flags: ephemeral });
+    // `pickem:table:contender` on a Contender Series card; plain on a UFC one.
+    return interaction.reply({ embeds: [standingsEmbed(guildId, undefined, espnId === 'contender')], flags: ephemeral });
   }
 
   const card = stateOf(guildId).cards[espnId];
@@ -866,6 +946,9 @@ module.exports = {
   currentSeason,
   // For tests and scripts.
   parseBouts,
+  readCard,
+  isContender,
+  titleFor,
   mergeBouts,
   recordPick,
   scoreCard,

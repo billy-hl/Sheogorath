@@ -15,10 +15,12 @@
  *   row per bout: one click picks a fighter, a second click takes it back.
  *   Nobody sees anyone else's picks until they lock.
  *
- *   A block locks when it starts, by ESPN's own time for it — the prelims at the
- *   prelims, the main card at the main card — so somebody who only turns up for
- *   the main card still plays. The first lock opens a thread on the card, and
- *   each lock says there how the room picked.
+ *   Each fight locks when it starts, as ESPN marks it under way, so a pick on
+ *   the main event can be changed right up until the main event begins. The
+ *   first lock opens a thread on the card, and each lock says there how the
+ *   room picked that fight. Once a card is under way a pick is checked against
+ *   a fresh look at ESPN, not the last poll, which could be two minutes into
+ *   the fight.
  *
  *   Results land in that thread as ESPN marks each bout final, with who called
  *   it. When the last is in, the card is scored, the season table moves, the
@@ -58,6 +60,9 @@ const SYNC_HOURS = 3;
 
 /** How often a card is checked for results once it is under way. Never before. */
 const POLL_MINUTES = 2;
+
+/** How old a look at ESPN may be when a pick on a card under way is checked against it. */
+const FRESH_SECONDS = 20;
 
 /**
  * How long after its first bout a card is scored regardless. Early prelims to a
@@ -106,6 +111,25 @@ const channelFor = (guildId) => {
   return ufc?.pickem?.channel || ufc?.channel || null;
 };
 const pickemGuilds = () => guildIds().filter((id) => hasFeature(id, 'pickem') && channelFor(id));
+/** Whether a card is close enough to its first fight, and not yet scored, that ESPN is watched for it. */
+const isLive = (card, now = Date.now()) =>
+  !card.finished && card.bouts.length > 0 && now >= firstStart(card) - 5 * MINUTE_MS;
+
+const readings = new Map();
+/**
+ * The cards ESPN lists for one day, read at most once every FRESH_SECONDS
+ * however many guilds, polls and picks ask. A failed read is not kept.
+ */
+function eventsOn(day) {
+  const now = Date.now();
+  for (const [key, reading] of readings) if (now - reading.at >= FRESH_SECONDS * 1000) readings.delete(key);
+  if (!readings.has(day)) {
+    const reading = { at: now, events: scoreboard(day).then((d) => d.events || []) };
+    readings.set(day, reading);
+    reading.events.catch(() => { if (readings.get(day) === reading) readings.delete(day); });
+  }
+  return readings.get(day).events;
+}
 
 // --- The stored record ------------------------------------------------------
 
@@ -161,9 +185,13 @@ function readCard(event) {
   return bouts.length ? { ...parsed, bouts } : null;
 }
 
-/** Whether a bout can no longer be picked. */
-function isLocked(bout, now = Date.now()) {
-  return !!bout.result || bout.state !== 'pre' || now >= bout.start;
+/**
+ * Whether a fight can no longer be picked: once ESPN has it under way. Every
+ * bout in a block carries ESPN's one start time for the block, so only the
+ * bout's own state can say when it starts.
+ */
+function isLocked(bout) {
+  return !!bout.result || bout.state !== 'pre';
 }
 
 /**
@@ -247,15 +275,22 @@ function mergeBouts(card, parsed) {
  * Everything the button carried is checked against the stored card. A
  * custom_id arrives from the client, and a crafted one must not be able to
  * pick a bout that has locked or a fighter who is not in it.
+ *
+ * `blind` is a pick on a card under way when ESPN could not be read to say
+ * which fights have started. A fight is then taken to start with its block:
+ * too early for most of the block, but never too late.
  */
-function recordPick(guildId, espnId, boutId, fighterId, userId, now = Date.now()) {
+function recordPick(guildId, espnId, boutId, fighterId, userId, { blind = false, now = Date.now() } = {}) {
   return mutate(guildId, (record) => {
     const card = record.cards[espnId];
     if (!card || card.finished) return { error: 'That card is closed.' };
     const bout = card.bouts.find((b) => b.id === boutId);
     if (!bout) return { error: 'That bout is no longer on the card.', card };
     if (!bout.fighters.some((f) => f.id === fighterId)) return { error: 'That fighter is no longer in that bout.', card };
-    if (isLocked(bout, now)) return { error: 'That one has locked.', card };
+    if (isLocked(bout)) return { error: 'That fight has started, so the pick on it is locked.', card };
+    if (blind && now >= bout.start) {
+      return { error: "ESPN can't be reached to check whether that fight has started. Try again in a minute.", card };
+    }
 
     const wasIn = !!card.picks[userId];
     const mine = card.picks[userId] || {};
@@ -313,7 +348,7 @@ function seasonRows(guildId, season, contender = false) {
 
 function boutLine(bout) {
   const [a, b] = bout.fighters;
-  if (!bout.result) return `${a.name} vs ${b.name}`;
+  if (!bout.result) return `${isLocked(bout) ? '🔒 ' : ''}${a.name} vs ${b.name}`;
   const winner = bout.fighters.find((f) => f.id === bout.result.winner);
   if (!winner) return `${a.name} vs ${b.name} · no result`;
   return `✅ **${winner.name}** def. ${bout.fighters.find((f) => f !== winner).name}`;
@@ -322,8 +357,8 @@ function boutLine(bout) {
 function cardEmbed(card, now = Date.now()) {
   const sections = blocksOf(card).map((block) => {
     const head = now >= block.start
-      ? `**${block.name}** · 🔒 locked`
-      : `**${block.name}** · locks <t:${unix(block.start)}:f> (<t:${unix(block.start)}:R>)`;
+      ? `**${block.name}**`
+      : `**${block.name}** · starts <t:${unix(block.start)}:f> (<t:${unix(block.start)}:R>)`;
     return [head, ...block.bouts.map(boutLine)].join('\n');
   });
   const players = Object.keys(card.picks);
@@ -344,11 +379,11 @@ function cardFooter(card) {
     return card.finished
       ? 'Scored. /pickem standings series:Contender Series for the table.'
       : 'A point for every winner you call, in a Contender Series table apart from the UFC season. '
-        + 'Picks stay hidden until they lock.';
+        + 'Each fight locks when it starts, and picks stay hidden until then.';
   }
   return card.finished
     ? 'Scored. /pickem standings for the season.'
-    : 'A point for every winner you call. Picks stay hidden until they lock.';
+    : 'A point for every winner you call. Each fight locks when it starts, and picks stay hidden until then.';
 }
 
 function cardComponents(card) {
@@ -392,12 +427,12 @@ function panelView(card, index, userId, now = Date.now()) {
   const mine = card.picks[userId] || {};
   const picked = card.bouts.filter((b) => mine[b.id]).length;
   const head = now >= panel.start
-    ? `**${card.name} · ${panel.name}** · 🔒 locked`
-    : `**${card.name} · ${panel.name}** · locks <t:${unix(panel.start)}:R>`;
-  const lines = panel.bouts.map((b, i) =>
-    `${i + 1}. ${b.fighters[0].name} vs ${b.fighters[1].name}${b.weight ? ` · ${b.weight}` : ''}`);
+    ? `**${card.name} · ${panel.name}**`
+    : `**${card.name} · ${panel.name}** · starts <t:${unix(panel.start)}:R>`;
+  const lines = panel.bouts.map((b, i) => `${i + 1}. ${b.fighters[0].name} vs ${b.fighters[1].name}`
+    + `${b.weight ? ` · ${b.weight}` : ''}${isLocked(b) && !b.result ? ' · 🔒' : ''}`);
   const content = `${head}\n${lines.join('\n')}\n-# ${picked} of ${card.bouts.length} picked. `
-    + 'Click a name to pick it, and click it again to take the pick back.';
+    + 'Click a name to pick it, and click it again to take the pick back. Each fight locks when it starts.';
 
   const components = panel.bouts.map((bout) => new ActionRowBuilder().addComponents(bout.fighters.map((f) => {
     const chosen = mine[bout.id] === f.id;
@@ -409,7 +444,7 @@ function panelView(card, index, userId, now = Date.now()) {
       .setCustomId(`${PREFIX}pick:${card.espnId}:${at}:${bout.id}:${f.id}`)
       .setLabel(f.name.slice(0, 80))
       .setStyle(style)
-      .setDisabled(isLocked(bout, now));
+      .setDisabled(isLocked(bout));
     if (won) button.setEmoji('🏆');
     return button;
   })));
@@ -481,19 +516,13 @@ function howItEnded({ method, round, clock }) {
   return method ? ` by ${method}` : '';
 }
 
-/** Said in the thread when a block locks: how the room split on each bout. */
-function lockPost(card, start) {
-  const block = blocksOf(card).find((b) => b.start === start);
-  if (!block) return null;
-  const count = (bout, fighter) => Object.values(card.picks).filter((p) => p[bout.id] === fighter.id).length;
-  if (!block.bouts.some((b) => b.fighters.some((f) => count(b, f)))) {
-    return `🔒 **${block.name}** locked. Nobody picked any of it.`;
-  }
-  const lines = block.bouts.map((b) => {
-    const [x, y] = b.fighters;
-    return `${x.name} **${count(b, x)}** – **${count(b, y)}** ${y.name}`;
-  });
-  return `🔒 **${block.name}** locked. How the room picked:\n${lines.join('\n')}`;
+/** Said in the thread when a fight starts: how the room split on it. Nothing if nobody picked it. */
+function lockPost(card, bout) {
+  const [x, y] = bout.fighters;
+  const count = (fighter) => Object.values(card.picks).filter((p) => p[bout.id] === fighter.id).length;
+  if (!count(x) && !count(y)) return null;
+  return `🔒 ${x.name} vs ${y.name} is under way. How the room picked: `
+    + `${x.name} **${count(x)}** – **${count(y)}** ${y.name}`;
 }
 
 function scratchPost(bout) {
@@ -741,15 +770,17 @@ async function finish(client, guildId, card, { season, rows }) {
 // --- The loops --------------------------------------------------------------
 
 /**
- * One look at a card that is under way: new locks, new results and late
- * scratches told in the thread, and the card scored once it is over.
+ * One look at a card that is under way: new results and late scratches folded
+ * in, fights that have started locked, and the card scored once it is over.
  *
- * `eventsOn` reads one ESPN day and is shared across a pass, so two guilds on
- * the same card cost one request.
+ * All of it is stored in one synchronous pass, so whichever look sees a change
+ * first is the only one that will tell it. `eventsOn` reads one ESPN day.
+ *
+ * @returns what is new, for `tell`, or null if the card is closed.
  */
-async function pollCard(client, guildId, espnId, eventsOn, now = Date.now()) {
+async function syncLive(guildId, espnId, eventsOn, now = Date.now()) {
   const before = stateOf(guildId).cards[espnId];
-  if (!before || before.finished || !before.bouts.length) return;
+  if (!before || before.finished || !before.bouts.length) return null;
   const start = firstStart(before);
   const events = await eventsOn(easternDay(new Date(start)));
   const event = events.find((e) => String(e.id) === espnId);
@@ -761,24 +792,27 @@ async function pollCard(client, guildId, espnId, eventsOn, now = Date.now()) {
     const stored = record.cards[espnId];
     if (!stored || stored.finished) return null;
     news = parsed ? mergeBouts(stored, parsed) : { changed: false, results: [], removed: [] };
-    news.locks = [...new Set(stored.bouts.map((b) => b.start))]
-      .filter((s) => s <= now && !stored.locked.includes(s))
-      .sort((a, b) => a - b);
-    stored.locked.push(...news.locks);
+    news.locks = stored.bouts.filter((b) => isLocked(b) && !stored.locked.includes(b.id));
+    stored.locked.push(...news.locks.map((b) => b.id));
     if (stored.bouts.every((b) => b.result) || now >= start + GIVE_UP_HOURS * HOUR_MS) {
       stored.finished = now;
       scored = scoreCard(record, stored);
     }
     return stored;
   });
-  if (!card) return;
+  return card && { card, news, scored, fresh: !!parsed, underWay: now >= start };
+}
 
+/** What a look at a card turned up, told in its thread and on the card. */
+async function tell(client, guildId, { card, news, scored, underWay }) {
   const posts = [
-    ...news.locks.map((s) => lockPost(card, s)),
+    ...news.results.map((b) => resultPost(card, b)),
     // Scratches before the first bout just leave the card; once it is under
     // way, somebody may be waiting on that fight and deserves to hear why.
-    ...(now >= start ? news.removed.map(scratchPost) : []),
-    ...news.results.map((b) => resultPost(card, b)),
+    ...(underWay ? news.removed.map(scratchPost) : []),
+    // A fight that started and ended between two looks has its result
+    // already, and that says who called it.
+    ...news.locks.filter((b) => !b.result).map((b) => lockPost(card, b)),
   ].filter(Boolean);
   if (posts.length) {
     const target = await threadFor(client, guildId, card);
@@ -791,6 +825,12 @@ async function pollCard(client, guildId, espnId, eventsOn, now = Date.now()) {
   if (scored) await finish(client, guildId, card, scored);
 }
 
+/** Look at a card that is under way, and tell what is new. */
+async function pollCard(client, guildId, espnId, read = eventsOn, now = Date.now()) {
+  const update = await syncLive(guildId, espnId, read, now);
+  if (update) await tell(client, guildId, update);
+}
+
 let watching = false;
 
 /** Every open card that is under way, checked for results. Outside a fight night, no requests at all. */
@@ -798,14 +838,9 @@ async function watchResults(client, now = Date.now()) {
   if (watching) return;
   watching = true;
   try {
-    const days = new Map();
-    const eventsOn = (day) => {
-      if (!days.has(day)) days.set(day, scoreboard(day).then((d) => d.events || []));
-      return days.get(day);
-    };
     for (const guildId of pickemGuilds()) {
       for (const card of Object.values(stateOf(guildId).cards)) {
-        if (card.finished || !card.bouts.length || now < firstStart(card) - 5 * MINUTE_MS) continue;
+        if (!isLive(card, now)) continue;
         await pollCard(client, guildId, card.espnId, eventsOn, now).catch((err) =>
           console.warn(`[Pickem] ${guildId}: results for "${card.name}" failed: ${err?.response?.status || ''} ${err?.message || err}`));
       }
@@ -912,13 +947,30 @@ async function handleButton(interaction) {
 
   if (kind === 'pick') {
     const [panel, boutId, fighterId] = rest;
-    const outcome = recordPick(guildId, espnId, boutId, fighterId, userId);
+    // Once the card is under way a fight locks as it starts, so the pick is
+    // checked against ESPN as it is now, not as of the last poll. Whatever the
+    // look turns up is told in the thread as usual, without holding the click.
+    let blind = false;
+    if (isLive(card)) {
+      await interaction.deferUpdate();
+      const update = await syncLive(guildId, espnId, eventsOn).catch((err) => {
+        console.warn(`[Pickem] ${guildId}: could not check "${card.name}" before a pick: ${err?.message || err}`);
+        return null;
+      });
+      blind = !update?.fresh;
+      if (update) {
+        tell(interaction.client, guildId, update).catch((err) =>
+          console.warn(`[Pickem] ${guildId}: could not tell "${card.name}": ${err?.message || err}`));
+      }
+    }
+    const outcome = recordPick(guildId, espnId, boutId, fighterId, userId, { blind });
     // Redrawn either way: a refused click is usually a bout that locked while
     // the panel was open, and the panel should show it.
     const latest = outcome.card || stateOf(guildId).cards[espnId];
-    await interaction.update(latest
+    const view = latest
       ? panelView(latest, Number(panel) || 0, userId)
-      : { content: 'That card has closed.', components: [] });
+      : { content: 'That card has closed.', components: [] };
+    await (interaction.deferred ? interaction.editReply(view) : interaction.update(view));
     if (outcome.error) await interaction.followUp({ content: outcome.error, flags: ephemeral });
     else if (outcome.rosterChanged) editCard(interaction.client, outcome.card).catch(() => {});
     return;
@@ -960,6 +1012,8 @@ module.exports = {
   cardMessage,
   lockPost,
   resultPost,
+  isLocked,
+  syncLive,
   pollCard,
   discover,
   moveCard,

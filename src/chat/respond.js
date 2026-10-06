@@ -58,6 +58,22 @@ const { parseActions, scrub } = require('../ai/actions');
 const CHAT_HISTORY = 4;
 
 /**
+ * How long a conversation with him survives silence.
+ *
+ * History used to keep until a restart. On 2026-10-05 someone asked him at 7pm
+ * to explain the Wabbajack, and the local voice answered with a near-copy of
+ * what it had said to that same person about a Russian plague story at 10am:
+ * those two morning exchanges were the whole of the history it was handed, so
+ * as far as the model could tell they were what was being talked about. The
+ * auto-notes then filed the plague as something the person was fixated on.
+ *
+ * Half an hour of quiet ends the thread. What happened in the room since is
+ * still in front of him through the transcript, where it carries its own times;
+ * history has none, which is exactly why a stale one reads as the present.
+ */
+const HISTORY_IDLE_MS = 30 * 60 * 1000;
+
+/**
  * Minimum gap between one person's AI replies.
  *
  * Six seconds is longer than it takes to type a follow-up but shorter than a
@@ -74,6 +90,8 @@ const SUMMARIZE_MIN_MESSAGES = 6;                 // before it is worth the call
 
 /** `${spaceId}:${userId}` -> [{ role, content }] */
 const conversationHistory = new Map();
+/** `${spaceId}:${userId}` -> epoch ms of the last exchange in that history */
+const historyAt = new Map();
 /** `${spaceId}:${userId}` -> timer that will write notes once talk stops */
 const summarizeTimers = new Map();
 /** `${spaceId}:${userId}` -> epoch ms of last request */
@@ -165,7 +183,8 @@ async function respond(turn, surface) {
     historyDepth = CHAT_HISTORY, maxTokens, localVoice = false,
   } = surface.persona();
 
-  const history = conversationHistory.get(key) || [];
+  const stale = Date.now() - (historyAt.get(key) || 0) > HISTORY_IDLE_MS;
+  const history = stale ? [] : (conversationHistory.get(key) || []);
 
   console.log(`Processing AI request from ${username} in ${roomId}`);
 
@@ -312,6 +331,7 @@ async function respond(turn, surface) {
   const historyCap = historyDepth * 2;
   if (history.length > historyCap) history.splice(0, history.length - historyCap);
   conversationHistory.set(key, history);
+  historyAt.set(key, Date.now());
 
   // Background memory extraction — fire-and-forget, no blocking. A second
   // billed request on every message, which is why a surface can turn it off:

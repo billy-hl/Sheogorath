@@ -191,4 +191,4 @@ async function compressVideo(inputPath, outputPath, message, budgetMB, tag) {
   }
 }
 
-module.exports = { mirrorLinks };
+module.exports = { mirrorLinks, uploadBudgetMB };

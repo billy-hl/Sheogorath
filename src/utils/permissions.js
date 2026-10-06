@@ -38,8 +38,10 @@ const COMMAND_FEATURES = {
   ledger: 'ledger',
 
   wardogs: 'wardogs',
-  // The message menu's command, which Discord names by its label.
+  // The message menu's commands, which Discord names by their labels.
   'Keep in the Ledger': 'ledger',
+  'Mad God commentary': 'clips',
+  Wabbajack: 'clips',
 };
 
 /** Music additionally requires admin, not just the feature. */

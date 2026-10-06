@@ -189,6 +189,42 @@ async function extractMemoryFromMessage(username, message) {
   }
 }
 
+/**
+ * One reply about some pictures, for when he has to look at something.
+ *
+ * Each image goes in with the caption it was given — for a clip, the second it
+ * was taken at — so the model can say *when* something happens, not just what.
+ *
+ * @param {string} prompt - What to do with them, after the images
+ * @param {Array<{caption: string, jpeg: Buffer}>} images
+ * @returns {Promise<string>}
+ */
+async function getAIResponseWithImages(prompt, images, { rawSystemPrompt, maxTokens = 600, temperature = 0.9 } = {}) {
+  const content = [];
+  for (const { caption, jpeg } of images) {
+    content.push({ type: 'text', text: caption });
+    content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${jpeg.toString('base64')}`, detail: 'high' } });
+  }
+  content.push({ type: 'text', text: prompt });
+
+  const response = await httpsPost(
+    GROK_API_URL,
+    {
+      model: 'grok-4.3',
+      messages: [
+        { role: 'system', content: rawSystemPrompt },
+        { role: 'user', content },
+      ],
+      max_tokens: maxTokens,
+      temperature,
+    },
+    { Authorization: `Bearer ${process.env.GROK_API_KEY}` },
+    120000
+  );
+  if (response.status !== 200) throw new Error(`Grok API Error: ${response.status} - ${JSON.stringify(response.data).slice(0, 300)}`);
+  return response.data.choices[0].message.content.trim();
+}
+
 function httpsGetBuffer(url, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, res => {
@@ -236,4 +272,4 @@ async function generateImage(prompt) {
   return await httpsGetBuffer(url);
 }
 
-module.exports = { buildSystemPrompt, getAIResponse, getAIResponseWithHistory, extractMemoryFromMessage, generateImage };
+module.exports = { buildSystemPrompt, getAIResponse, getAIResponseWithHistory, getAIResponseWithImages, extractMemoryFromMessage, generateImage };

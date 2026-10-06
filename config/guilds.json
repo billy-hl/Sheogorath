@@ -14,7 +14,8 @@
       "automod",
       "pickem",
       "events",
-      "ledger"
+      "ledger",
+      "clips"
     ],
     "channels": {
       "music": "534553333034123289",
@@ -165,6 +166,10 @@
         "minReviews": 2000,
         "maxPerDay": 4
       }
+    },
+    "clips": {
+      "channel": "1553966538632077402",
+      "game": "Wardogs"
     }
   },
   "1547233037765578822": {

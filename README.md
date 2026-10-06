@@ -14,6 +14,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **UFC Results**: Every fight on every UFC card and Contender Series night, posted in a channel of its own as it ends: how it ended, the judges' scorecards, both fighters' stats side by side, and the whole card in one message once the main event is done.
 - **UFC Reminders**: A DM to everyone in a chosen role half an hour before each UFC card starts.
 - **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
+- **Clips**: Post a gameplay clip in the clips channel and Sheogorath watches it and posts it back with himself doing commentary over it, in his own voice. Any clip anywhere can also be put through the **Wabbajack** from the Apps menu, and comes back as something else.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Moderation**: Discord native AutoMod rules, an Ollama-backed filter for sexual ASCII/Unicode text art that keyword rules can't catch, and Sheogorath himself acting as a moderator — everything he decides to do passes through a permission gate that either performs it, holds it for a Sheriff to approve, or refuses it.
 - **Instagram Mirroring**: Reels posted in chat are downloaded and re-uploaded natively, compressed to the guild's boost-tier attachment limit.
@@ -105,6 +106,20 @@ Everyone holding `ufc.dmRole` gets a DM `ufc.dmMinutes` (default 30) before each
 *Requires a `dmRelay.channel`.*
 
 Anyone who DMs Sheogorath has the message posted in `dmRelay.channel`, quoted under their server name, with a line from him mocking them for it; he tells them in the DM that the hall has heard it. Only members of a guild with `dmRelay` set are relayed, never the bot's owner (errors reach them by DM), and at most once a minute per person. Text only: an attachment is mentioned, not reposted. Nobody is pinged.
+
+### 🎬 Clips
+*Requires the `clips` feature and ffmpeg. Commentary also needs `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`.*
+
+- **Mad God commentary** (Apps menu on a message with a video) - He watches the clip and posts it back with himself talking over it
+- **Wabbajack** (Apps menu on a message with a video) - The clip comes back as something else, at random
+
+Every clip posted in `clips.channel` gets commentary on its own, unless `clips.commentary` is `false`: 👀 goes on the clip while he watches, and the narrated version arrives as a reply a minute or less later. The Apps menu does the same for a clip anywhere else, or does one again.
+
+He can't watch video, so he's shown four to eight stills, bunched toward the end, because a clip is saved after the moment happens. Each is labelled with the second it was taken at, and he's told how to read a shooter's screen (red means hit, a call-for-help screen means down, a kill feed means a hit landed). He writes timed lines, each is spoken in his ElevenLabs voice, and ffmpeg lays them onto the clip at their times. The game's sound is pushed down whenever he talks and comes back up when he stops. If he has more to say than the clip has length, the last frame holds while he finishes. `clips.game` and `clips.about` tell him what he's watching in that channel. Each clip costs one Grok call with the stills, metered like every other, and a few hundred ElevenLabs characters, capped at 6,000 a day (about twenty clips) because the speech-only key can't read the plan's quota.
+
+The Wabbajack is ffmpeg alone, with no model and no cost: one of ten effects on the last 40 seconds, never the same one twice running on one person's clips. *Skooma Dreams*, *The Greymarch*, *Mania*, *Dementia*, *Cooked by Mehrunes Dagon*, *Time, Wound Back*, *Cyrodilic Brandy*, *Arena, 1994*, *Molag Bal's Tantrum* and *Cheese for Everyone*. Nobody is pinged by either.
+
+Clips are worked on one at a time, at most five waiting, re-encoded to H.264 under the guild's boost-tier upload cap (on the server's NVIDIA encoder when it has one), and posted as a reply to the clip. A second click on a clip already being done is told so.
 
 ### 🗓️ Events
 *Requires the `events` feature and a `gameNews.eventsChannel`.*
@@ -344,7 +359,7 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `pickem`, `events`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `pickem`, `events`, `ledger`, `wardogs`, `clips`.
 
 `timeZone` (an IANA name, default `America/Chicago`) is where a guild's people live: what "Friday 8pm" means in `/event` and in chat, and the clock Sheogorath is told the time by.
 

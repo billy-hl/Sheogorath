@@ -29,6 +29,7 @@ const { handleInstagramLinks } = require('./services/instagram');
 const { handleTwitterLinks } = require('./services/twitter');
 const { handleTikTokLinks } = require('./services/tiktok');
 const { handleRedditLinks } = require('./services/reddit');
+const { handleClipMessage } = require('./services/clips');
 const { stopPlaying } = require('./music/player');
 const { isApprovalButton, handleApprovalButton } = require('./ai/approvals');
 const { setNotifier: setBudgetNotifier, status: budgetStatus } = require('./ai/budget');
@@ -358,6 +359,10 @@ client.on('messageCreate', async (message) => {
   if (hasFeature(guildId, 'reddit')) {
     await handleRedditLinks(message);
   }
+
+  // A clip in the clips channel: he narrates it. Not awaited — it takes a
+  // minute, and he should still answer the room while he watches.
+  handleClipMessage(message);
 
   if (!hasFeature(guildId, 'ai')) return;
 

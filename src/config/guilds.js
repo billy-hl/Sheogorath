@@ -43,6 +43,7 @@ const FEATURES = [
   'events',       // /event, events added by telling him, and reminders before each one
   'ledger',       // the group's book: /bet, /ledger, rulings and kept quotes
   'wardogs',      // /wardogs: WARDOGS stats by Steam sign-in (needs WARDOGS_PUBLIC_URL)
+  'clips',        // his commentary over clips, and the Wabbajack (needs ffmpeg; commentary needs ELEVENLABS_*)
 ];
 
 let cache = null;
@@ -297,6 +298,16 @@ function normalizeGuild(id, raw) {
       maxPerUser: Number(raw.voiceRooms.maxPerUser) > 0 ? Number(raw.voiceRooms.maxPerUser) : 2,
       maxTotal: Number(raw.voiceRooms.maxTotal) > 0 ? Number(raw.voiceRooms.maxTotal) : 10,
       namePattern: typeof raw.voiceRooms.namePattern === 'string' ? raw.voiceRooms.namePattern : null,
+    } : null,
+    // Gameplay clips (services/clips.js). Every clip posted in `channel` gets
+    // his commentary on its own unless `commentary` is false; the Apps menu
+    // works on clips anywhere. `game` and `about` tell him what he is watching
+    // in that channel, since a still of a shooter does not say which one.
+    clips: raw.clips && typeof raw.clips === 'object' ? {
+      channel: SNOWFLAKE.test(String(raw.clips.channel || '')) ? raw.clips.channel : null,
+      commentary: raw.clips.commentary !== false,
+      game: typeof raw.clips.game === 'string' ? raw.clips.game.trim() : null,
+      about: typeof raw.clips.about === 'string' ? raw.clips.about.trim() : null,
     } : null,
   };
 }

@@ -71,29 +71,41 @@ async function stills(source, duration, dir, run) {
   return out;
 }
 
+/**
+ * What he is told about the video and how to talk over it.
+ *
+ * In the clips channel it is known to be a particular game, with the poster as
+ * the player. Anywhere else it could be anything — a mirrored Instagram reel is
+ * as likely as a clip — so he is told to work out which, and not to cast whoever
+ * shared a stranger's video as the person in it.
+ */
 function brief({ poster, game, about, duration, words }) {
-  const what = game ? `a ${game} clip` : 'a gameplay clip';
+  const what = game ? `a ${game} clip` : 'a video';
+  const who = game
+    ? `It is ${game} gameplay, and ${poster} is the player.`
+    : `If it is gameplay, ${poster} is the player. If it is anything else, ${poster} only shared it: `
+      + 'talk about what is in it, and about them only for choosing to show it to everyone.';
   return {
     system: `${withoutLengthRules()}\n\n${LORE}\n\nCOMMENTARY\n\n`
       + `You are doing commentary over ${what} that ${poster} posted in the server: the way a sports `
       + 'commentator, a nature documentary narrator, or a drill sergeant who has seen too much would, '
       + 'whichever suits what you see. What you write is spoken aloud in your own voice over the footage, '
-      + "with the game's sound turned down underneath you.",
-    prompt: 'Those are stills from the clip, in order. '
+      + 'with its own sound turned down underneath you.',
+    prompt: 'Those are stills from it, in order. '
       + `It lasts ${duration.toFixed(1)} seconds.${about ? ` About the game: ${about}` : ''}\n\n`
-      + 'First work out what happened. Read the screen the way a player would: a red or bloody screen '
-      + 'is the player being hit, a screen telling them to call for help or bleed out means they went down, '
-      + 'a menu or inventory means they stopped to rummage, a kill feed or hit marker means they hit someone, '
-      + 'a scope means they were aiming at something, so say what. Never invent a kill, an enemy, a name '
-      + 'or a scoreline you cannot see; when it is unclear what happened, that is the joke.\n\n'
+      + `First work out what happened. ${who} In a game, read the screen the way a player would: a red or `
+      + 'bloody screen is the player being hit, a screen telling them to call for help or bleed out means they '
+      + 'went down, a menu or inventory means they stopped to rummage, a kill feed or hit marker means they hit '
+      + 'someone, a scope means they were aiming at something, so say what. Never invent a kill, an enemy, a '
+      + 'name or a scoreline you cannot see; when it is unclear what happened, that is the joke.\n\n'
       + 'Then write the commentary. This is you being entertaining, not captions: whole sentences, with '
-      + `opinions, mockery or praise for ${poster}, who is the player, and your own madness in it.\n`
+      + 'opinions, mockery or praise, and your own madness in it.\n'
       + `- Between ${Math.round(words * 0.6)} and ${words} words in all. Usually a setup early on, something `
       + 'as it builds, and your verdict on the outcome at the end; a short clip can be one or two lines. '
       + 'Each line has a start time in seconds and takes about 0.4 seconds per word to say. Lines '
       + `must not overlap, and the last may run up to ${overrun(duration)} seconds past the end, where the `
       + 'picture freezes on the final moment.\n'
-      + "- Leave some gaps. The game's own sound is half of it.\n"
+      + '- Leave some gaps. Its own sound is half of it.\n'
       + '- Everything is spoken: no emoji, no asterisks, no stage directions, no action tags, no markdown. '
       + 'Write numbers and abbreviations the way they are said.\n'
       + '- Also a title for the post: six words at most, no quotation marks.\n\n'

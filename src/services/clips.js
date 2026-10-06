@@ -163,6 +163,36 @@ async function download(attachment, file) {
 }
 
 /**
+ * The message the video is on, and the message of whoever it belongs to.
+ *
+ * A clip uploaded straight to Discord is both. A posted Instagram, X, TikTok or
+ * Reddit link is neither: the video is on his own mirrored copy, which the
+ * mirror posts as a reply to the link. So the menu used on a link finds that
+ * copy, and the menu used on anything he posted — a mirror, or a clip he has
+ * already narrated or wabbajacked — credits whoever's clip it was, not him.
+ *
+ * @returns {Promise<{clip: import('discord.js').Message, owner: import('discord.js').Message}|null>}
+ */
+async function locate(message) {
+  const me = message.client.user.id;
+
+  if (videoAttachment(message)) {
+    let owner = message;
+    for (let hops = 0; owner.author.id === me && owner.reference?.messageId && hops < 3; hops++) {
+      const above = await owner.fetchReference().catch(() => null);
+      if (!above) break;
+      owner = above;
+    }
+    return { clip: message, owner };
+  }
+
+  if (!/https?:\/\//.test(message.content || '')) return null;
+  const after = await message.channel.messages.fetch({ after: message.id, limit: 20 }).catch(() => null);
+  const mirror = after?.find((m) => m.author.id === me && m.reference?.messageId === message.id && videoAttachment(m));
+  return mirror ? { clip: mirror, owner: message } : null;
+}
+
+/**
  * Who posted it, as the room knows them, and as he can say out loud: the main
  * hall's nicknames carry a clan tag ("Allister [WBJK]"), which ElevenLabs would
  * read out letter by letter.
@@ -195,13 +225,12 @@ function enqueue(key, job) {
  * The service gets the clip on disk and returns `{ file, content }`: a finished
  * video and the line to post it with. It never sees Discord.
  *
+ * @param {{clip: import('discord.js').Message, owner: import('discord.js').Message}} found from locate()
  * @returns {Promise<import('discord.js').Message>} the posted reply
  */
-async function make(message, kind, { by = null } = {}) {
-  const attachment = videoAttachment(message);
-  if (!attachment) throw new Error('there is no video on that message');
-
-  const key = `${kind}:${message.id}`;
+async function make({ clip, owner }, kind, { by = null } = {}) {
+  const attachment = videoAttachment(clip);
+  const key = `${kind}:${clip.id}`;
   return enqueue(key, async () => {
     if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
     const dir = await fsp.mkdtemp(path.join(TEMP_DIR, `${kind}_`));
@@ -209,24 +238,25 @@ async function make(message, kind, { by = null } = {}) {
     try {
       const source = await download(attachment, path.join(dir, `source${path.extname(attachment.name || '.mp4') || '.mp4'}`));
       const info = await probe(source);
-      const clips = getGuildConfig(message.guildId)?.clips || {};
+      const clips = getGuildConfig(clip.guildId)?.clips || {};
+      const inClips = owner.channelId === clips.channel;
 
       const { file, content, name } = await KINDS[kind].service().make({
         source, info, dir,
-        poster: posterName(message),
-        posterId: message.author.id,
+        poster: posterName(owner),
+        posterId: owner.author.id,
         by,
-        game: message.channelId === clips.channel ? clips.game : null,
-        about: message.channelId === clips.channel ? clips.about : null,
-        budgetMB: uploadBudgetMB(message.guild),
+        game: inClips ? clips.game : null,
+        about: inClips ? clips.about : null,
+        budgetMB: uploadBudgetMB(clip.guild),
       });
 
-      const reply = await message.reply({
+      const reply = await clip.reply({
         content,
         files: [{ attachment: file, name }],
         allowedMentions: { parse: [], repliedUser: false },
       });
-      console.log(`[Clips] ${kind} for ${message.id} posted in ${((Date.now() - started) / 1000).toFixed(0)}s`);
+      console.log(`[Clips] ${kind} for ${clip.id} posted in ${((Date.now() - started) / 1000).toFixed(0)}s`);
       return reply;
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -237,39 +267,48 @@ async function make(message, kind, { by = null } = {}) {
 // --- Discord entry points --------------------------------------------------
 
 /**
- * A message in the clips channel: if it carries a video, he narrates it.
+ * A message in the clips channel: if it carries a video, or links to one he has
+ * just mirrored, he narrates it.
  *
  * Not awaited by the message handler — it is a minute of work, and he should
- * still answer the room while he watches. 👀 on the clip says he is.
+ * still answer the room while he watches. 👀 on the clip says he is. The
+ * mirrors run before this and are awaited, so a linked video's copy is already
+ * posted by the time this looks for it.
  */
 function handleClipMessage(message) {
   if (!hasFeature(message.guildId, 'clips')) return;
   const clips = getGuildConfig(message.guildId)?.clips;
   if (!clips?.channel || message.channelId !== clips.channel || !clips.commentary) return;
-  if (!videoAttachment(message)) return;
+  if (!videoAttachment(message) && !/https?:\/\//.test(message.content || '')) return;
 
   (async () => {
-    const eyes = await message.react('👀').catch(() => null);
+    const found = await locate(message).catch(() => null);
+    if (!found) return;
+    const eyes = await found.clip.react('👀').catch(() => null);
     try {
-      await make(message, 'commentary');
+      await make(found, 'commentary');
     } catch (err) {
-      console.warn(`[Clips] Commentary on ${message.id} skipped:`, err.message);
+      console.warn(`[Clips] Commentary on ${found.clip.id} skipped:`, err.message);
     } finally {
       await eyes?.users.remove(message.client.user.id).catch(() => {});
     }
   })();
 }
 
-/** The Apps menu: "Mad God commentary" and "Wabbajack" both land here. */
+/**
+ * The Apps menu: "Mad God commentary" and "Wabbajack" both land here.
+ *
+ * Answers before looking for the video, because finding a link's mirrored copy
+ * is a fetch, and Discord gives a menu command three seconds to say anything.
+ */
 async function fromMenu(interaction, kind) {
   const message = interaction.targetMessage;
-  if (!videoAttachment(message)) {
-    return interaction.reply({ content: 'There is no video on that message.', flags: MessageFlags.Ephemeral });
-  }
-
   await interaction.reply({ content: KINDS[kind].working, flags: MessageFlags.Ephemeral });
+
   try {
-    const posted = await make(message, kind, { by: interaction.user.id });
+    const found = await locate(message);
+    if (!found) throw new Error('there is no video on that message, or mirrored from its link');
+    const posted = await make(found, kind, { by: interaction.user.id });
     await interaction.editReply(`Done: ${posted.url}`).catch(() => {});
   } catch (err) {
     console.warn(`[Clips] ${kind} on ${message.id} failed:`, err.message);
@@ -278,4 +317,4 @@ async function fromMenu(interaction, kind) {
   }
 }
 
-module.exports = { handleClipMessage, fromMenu, make, run, probe, encode, videoAttachment };
+module.exports = { handleClipMessage, fromMenu, locate, make, run, probe, encode, videoAttachment };

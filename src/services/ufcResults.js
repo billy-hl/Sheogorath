@@ -28,6 +28,13 @@
  * record is shown as it stands after the fight, and a title fight says whether
  * the belt stayed or changed hands.
  *
+ * While a fight is on it has a live card of its own: the round and the clock,
+ * the fight's numbers as FightCenter counts them, and the tale of the tape,
+ * redrawn every thirty seconds, which is as often as FightCenter moves. It is
+ * posted silently and taken down once the result is out, so the result still
+ * notifies and the channel ends the night as it always has. For it FightCenter
+ * is read twice a minute, but only while a card is under way.
+ *
  * When the last bout is in, the whole card is posted again as one message,
  * main event first: the record of the night, for anyone who missed it.
  *
@@ -37,7 +44,7 @@
  * outage stays lost, which beats the same result posted twice.
  */
 const axios = require('axios');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, MessageFlags } = require('discord.js');
 const { getGuildConfig, guildIds } = require('../config/guilds');
 const { getGuildState, setGuildState } = require('../storage/state');
 const { calendarCards, parseBouts, scoreboard, easternDay, fightWeekStart } = require('./ufc');
@@ -55,6 +62,9 @@ const SYNC_HOURS = 3;
 
 /** How often a card under way is checked for results. */
 const POLL_MINUTES = 1;
+
+/** How often a fight's live card is redrawn. FightCenter itself moves about this often. */
+const LIVE_SECONDS = 30;
 
 /** How long before its first bout a card starts being checked. */
 const LEAD_MINUTES = 5;
@@ -116,6 +126,7 @@ function cornerOf(p) {
   const stat = (name) => p.stats?.find((s) => s.name === name)?.displayValue ?? null;
   return {
     id: String(p.id || a.id || ''),
+    name: a.displayName || null,
     lastName: a.lastName || a.displayName?.split(' ').pop() || '?',
     headshot: a.headshot?.href || null,
     record: p.displayRecord || null,
@@ -159,6 +170,10 @@ function parseFightcenter(data) {
       bouts.set(String(c.id), {
         state,
         final: state === 'post',
+        cancelled: /cancel|postpone/i.test(c.status?.type?.name || ''),
+        start: new Date(c.date || c.startDate).getTime(),
+        // "R2, 3:12" while it is on, in ESPN's own words.
+        status: c.status?.type?.shortDetail || null,
         winner: String((c.competitors || []).find((p) => p.winner === true)?.id || '') || null,
         method: c.status?.result?.displayName || null,
         detail: c.status?.result?.displayDescription || null,
@@ -167,7 +182,8 @@ function parseFightcenter(data) {
         scores: c.judgesScores || null,
         referee: officials.find((o) => o.role === 'Referee')?.name || null,
         judges: officials.filter((o) => o.role === 'Judge').map((o) => o.name),
-        corners: (c.competitors || []).map(cornerOf),
+        // In the scoreboard's order, so a fight is named the same way everywhere.
+        corners: [...(c.competitors || [])].sort((x, y) => (x.order || 0) - (y.order || 0)).map(cornerOf),
       });
     }
   }
@@ -425,6 +441,38 @@ function resultMessage(card, espnId, result, fc, before) {
   return { content: headline(result, before), embeds: [embed], allowedMentions: { parse: [] } };
 }
 
+/** "Round 2 · 3:12 left", or ESPN's own words between rounds. */
+function liveTitle(fc) {
+  if (fc.state === 'post') return 'Fight over · the result is on its way';
+  const m = /^R(\d+),\s*(\d+:\d\d)$/.exec(fc.status || '');
+  return m ? `Round ${m[1]} · ${m[2]} left` : fc.status || 'Under way';
+}
+
+/**
+ * A fight while it is on, redrawn every LIVE_SECONDS until its result takes
+ * over: the round and clock as the title, then what a result card carries so
+ * far, in the scoreboard's corner order since nobody has won yet.
+ */
+function liveMessage(card, espnId, fc, block, before, now = Date.now()) {
+  const fight = { ids: fc.corners.map((c) => c.id), winnerId: null, scores: null, method: null, billing: fc.note, title: fc.title };
+  const embed = new EmbedBuilder()
+    .setColor(isTitle(fight) ? TITLE_GOLD : UFC_RED)
+    .setAuthor({ name: [card.name, block].filter(Boolean).join(' · ').slice(0, 256), url: fightcenterLink(espnId) })
+    .setTitle(liveTitle(fc).slice(0, 256))
+    .setFooter({ text: `Live from ESPN every ${LIVE_SECONDS} seconds, a little behind the broadcast` })
+    .setTimestamp(now);
+  const billing = billingLine(fight);
+  if (billing) embed.setDescription(billing);
+  const { stats, tape } = tables(fight, fc, before);
+  embed.addFields(
+    ...tiles(fight, fc),
+    { name: 'Fight stats', value: stats || 'Waiting on ESPN for the first numbers.' },
+    ...(tape ? [{ name: 'Tale of the tape', value: tape }] : []),
+  );
+  const [a, b] = fc.corners.map((c) => c.name || c.lastName);
+  return { content: `${fc.state === 'post' ? '🏁' : '🔴'} **${a}** vs **${b}**`, embeds: [embed], allowedMentions: { parse: [] } };
+}
+
 /** The whole card once it is over: main card first, each block with its main event on top. */
 function summaryMessage(card, espnId) {
   const starts = [...new Set(card.results.map((r) => r.start))].sort((a, b) => b - a);
@@ -456,6 +504,22 @@ function summaryMessage(card, espnId) {
  */
 const firstSeen = new Map();
 
+const resultsChannel = async (client, guildId) => {
+  const channelId = getGuildConfig(guildId)?.ufc?.results?.channel;
+  return (channelId && await client.channels.fetch(channelId).catch(() => null)) || null;
+};
+
+/** Take a fight's live card down: its result is out, or there is nothing left to show. */
+async function dropLive(channel, guildId, espnId, boutId) {
+  const messageId = mutate(guildId, (record) => {
+    const live = record.cards[espnId]?.live;
+    const id = live?.[boutId];
+    if (live) delete live[boutId];
+    return id;
+  });
+  if (messageId) await channel.messages.delete(messageId).catch(() => {});
+}
+
 /**
  * One look at a card under way: each newly decided bout told, and the whole
  * card posted once the last is in.
@@ -466,10 +530,9 @@ const firstSeen = new Map();
 async function pollCard(client, guildId, espnId, sources, now = Date.now()) {
   const before = stateOf(guildId).cards[espnId];
   if (!before || before.finished) return;
-  const channelId = getGuildConfig(guildId)?.ufc?.results?.channel;
-  const channel = channelId && await client.channels.fetch(channelId).catch(() => null);
+  const channel = await resultsChannel(client, guildId);
   if (!channel) {
-    console.warn(`[UFC] ${guildId}: results channel ${channelId} is unreachable.`);
+    console.warn(`[UFC] ${guildId}: results channel ${getGuildConfig(guildId)?.ufc?.results?.channel} is unreachable.`);
     return;
   }
 
@@ -519,16 +582,99 @@ async function pollCard(client, guildId, espnId, sources, now = Date.now()) {
     const fc = agreeing(bout, extras?.get(result.id));
     await channel.send(resultMessage(card, espnId, result, fc, card.before?.[result.id])).catch((err) =>
       console.warn(`[UFC] ${guildId}: could not post a result from "${card.name}": ${err.message}`));
+    await dropLive(channel, guildId, espnId, result.id);
   }
   if (fresh.length) console.log(`[UFC] ${guildId}: told ${fresh.length} result(s) from "${card.name}".`);
 
   if (closing) {
     bouts.forEach((b) => firstSeen.delete(b.id));
+    for (const id of Object.keys(stateOf(guildId).cards[espnId]?.live || {})) await dropLive(channel, guildId, espnId, id);
     // A card that closed with nothing told, cancelled or never reported, has nothing to sum up.
     if (!card.results.length) return;
     await channel.send(summaryMessage(card, espnId)).catch((err) =>
       console.warn(`[UFC] ${guildId}: could not post the full results of "${card.name}": ${err.message}`));
     console.log(`[UFC] ${guildId}: posted the full results of "${card.name}".`);
+  }
+}
+
+/**
+ * One card's live cards brought up to date: one posted for a fight that has
+ * begun, each one up redrawn, and any whose fight is told, scratched or gone
+ * from ESPN taken down. A fight over but not yet told keeps its card, marked
+ * as over, until the result replaces it; one that starts and ends between two
+ * looks never gets one.
+ *
+ * `read` is FightCenter for a card, shared across a pass; null when it could
+ * not be read, and then what is up stays as it is.
+ */
+async function liveCard(client, guildId, espnId, read, now = Date.now()) {
+  const channel = await resultsChannel(client, guildId);
+  if (!channel) return;
+  const extras = stateOf(guildId).cards[espnId]?.finished ? new Map() : await read(espnId);
+  const card = stateOf(guildId).cards[espnId];
+  if (!extras || !card) return;
+
+  const live = card.live || {};
+  const told = new Set(card.results.map((r) => r.id));
+  const showing = (id) => {
+    const x = extras.get(id);
+    if (!x || card.finished || told.has(id) || x.cancelled) return false;
+    return x.state === 'in' || (x.state === 'post' && !!live[id]);
+  };
+  for (const id of Object.keys(live)) {
+    if (!showing(id)) await dropLive(channel, guildId, espnId, id);
+  }
+
+  const blocks = blockNames([...extras.values()]);
+  for (const [id, x] of extras) {
+    if (!showing(id)) continue;
+    const message = liveMessage(card, espnId, x, blocks.get(x.start), card.before?.[id], now);
+    if (live[id]) {
+      await channel.messages.edit(live[id], message).catch((err) => {
+        // Deleted by hand: forgotten, so the next look posts it afresh.
+        if (err.code === 10008) {
+          mutate(guildId, (record) => { delete record.cards[espnId]?.live?.[id]; });
+        } else console.warn(`[UFC] ${guildId}: could not redraw a live card from "${card.name}": ${err.message}`);
+      });
+      continue;
+    }
+    const sent = await channel.send({ ...message, flags: MessageFlags.SuppressNotifications }).catch((err) => {
+      console.warn(`[UFC] ${guildId}: could not post a live card from "${card.name}": ${err.message}`);
+      return null;
+    });
+    if (sent) {
+      mutate(guildId, (record) => {
+        const stored = record.cards[espnId];
+        if (stored) stored.live = { ...stored.live, [id]: sent.id };
+      });
+    }
+  }
+}
+
+let liveWatching = false;
+
+/** Every fight under way, its live card redrawn. Outside a fight night, no requests at all. */
+async function watchLive(client, now = Date.now()) {
+  if (liveWatching) return;
+  liveWatching = true;
+  try {
+    const details = new Map();
+    // A failed read is not logged here: twice a minute through an outage would
+    // drown the log, and the results loop says so when it needs FightCenter.
+    const read = (espnId) => {
+      if (!details.has(espnId)) details.set(espnId, fightcenter(espnId).catch(() => null));
+      return details.get(espnId);
+    };
+    for (const guildId of resultGuilds()) {
+      for (const [espnId, card] of Object.entries(stateOf(guildId).cards)) {
+        const underWay = !card.finished && now >= card.start - LEAD_MINUTES * MINUTE_MS;
+        if (!underWay && !Object.keys(card.live || {}).length) continue;
+        await liveCard(client, guildId, espnId, read, now).catch((err) =>
+          console.warn(`[UFC] ${guildId}: live card for "${card.name}" failed: ${err?.message || err}`));
+      }
+    }
+  } finally {
+    liveWatching = false;
   }
 }
 
@@ -625,8 +771,10 @@ function scheduleUfcResults(client) {
   if (!guilds.length) return;
   setInterval(() => { discover().catch(() => {}); }, SYNC_HOURS * HOUR_MS);
   setInterval(() => { watch(client).catch(() => {}); }, POLL_MINUTES * MINUTE_MS);
+  setInterval(() => { watchLive(client).catch(() => {}); }, LIVE_SECONDS * 1000);
   discover().then(() => watch(client)).catch(() => {});
-  console.log(`[UFC] Posting results to ${guilds.length} guild(s), checked every ${POLL_MINUTES}m while a card is under way.`);
+  console.log(`[UFC] Posting results to ${guilds.length} guild(s), checked every ${POLL_MINUTES}m while a card is under way, `
+    + `with a live card per fight redrawn every ${LIVE_SECONDS}s.`);
 }
 
 module.exports = {
@@ -634,7 +782,10 @@ module.exports = {
   // For tests and scripts.
   discover,
   watch,
+  watchLive,
   pollCard,
+  liveCard,
+  liveMessage,
   fightcenter,
   parseFightcenter,
   snapshot,

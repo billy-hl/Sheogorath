@@ -66,12 +66,28 @@ async function fetchFeed(channelId) {
 }
 
 /**
+ * The page's data, in whichever of the two shapes YouTube served this time.
+ *
+ * It used to be one: an inline `var ytInitialData = {...};`. Since about
+ * 2026-10-05 some responses instead carry the same JSON in a
+ * `<script id="yt-initial-data" type="application/json">` element that the page
+ * parses itself — about one fetch in five from leviathan, for the same URL a
+ * second apart. Reading only the old shape made the fallback fail on those, so
+ * a feed outage could lose polls even though the page was there.
+ */
+function initialData(html) {
+  return /var ytInitialData = (\{.*?\});<\/script>/s.exec(html)?.[1]
+    || /<script[^>]*\bid="yt-initial-data"[^>]*>(\{.*?\})<\/script>/s.exec(html)?.[1]
+    || null;
+}
+
+/**
  * The uploads playlist page, oldest-first like parseFeed. Only what can be
  * watched now: a finished upload carries its duration as a badge and a live one
  * a LIVE badge, while something scheduled has neither and waits until it does.
  */
 function parseUploadsPage(html) {
-  const json = /var ytInitialData = (\{.*?\});<\/script>/s.exec(html)?.[1];
+  const json = initialData(html);
   if (!json) throw new Error('no ytInitialData on the uploads page');
   const out = [];
   (function walk(o) {

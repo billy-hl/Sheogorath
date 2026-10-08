@@ -13,13 +13,14 @@
  *
  * The dates that matter — a wipe, a season launch — are services/events.js's
  * now: listed in config or put on the calendar in Discord, and kept in step by
- * the same poll as the news.
+ * the same poll as the news. So are Twitch and Kick drops, services/drops.js.
  */
 const axios = require('axios');
 const { EmbedBuilder } = require('discord.js');
-const { getGuildConfig, guildIds } = require('../config/guilds');
+const { getGuildConfig, guildIds, hasFeature } = require('../config/guilds');
 const { getGuildState, setGuildState } = require('../storage/state');
 const { syncEvents } = require('./events');
+const { pollDrops } = require('./drops');
 
 const NEWS_URL = 'https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/';
 const CLAN_IMAGES = 'https://clan.akamai.steamstatic.com/images';
@@ -231,6 +232,8 @@ async function pollOnce(client) {
     } catch (err) {
       console.warn(`[GameNews] ${guildId}: poll failed: ${err?.message || err}`);
     }
+    // Outside the try above: Steam being down is no reason to miss a drop.
+    if (hasFeature(guildId, 'drops')) await pollDrops(client, guildId, cfg);
   }
 }
 

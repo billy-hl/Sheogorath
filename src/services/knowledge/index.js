@@ -210,6 +210,16 @@ async function knowledgeFor({ guildId, guild, question, isHelp = false, guildCon
     }
   }
 
+  if (hasFeature(guildId, 'drops')) {
+    try {
+      const { dropsFacts } = require('../drops');
+      const lines = dropsFacts(guildId);
+      if (lines.length) sections.push(`TWITCH AND KICK DROPS (as of the last check, every half hour)\n${lines.join('\n')}`);
+    } catch (err) {
+      console.warn('[Knowledge] Drops failed:', err?.message || err);
+    }
+  }
+
   if (hasFeature(guildId, 'ledger')) {
     try {
       // Required here for the same reason as the calendar: only guilds that

@@ -44,6 +44,7 @@ const FEATURES = [
   'ledger',       // the group's book: /bet, /ledger, rulings and kept quotes
   'wardogs',      // /wardogs: WARDOGS stats by Steam sign-in (needs WARDOGS_PUBLIC_URL)
   'clips',        // his commentary over clips, and the Wabbajack (needs ffmpeg; commentary needs ELEVENLABS_*)
+  'drops',        // /drops, and Twitch and Kick drops posted for the games we play (needs a gameNews block)
 ];
 
 let cache = null;
@@ -249,6 +250,19 @@ function normalizeGuild(id, raw) {
           maxPerDay: num(d.maxPerDay, 4),
         };
       })() : null,
+      // Twitch and Kick drops (services/drops.js), where the `drops` feature is
+      // on. The `steamApps` are followed already; `games` names any more, for a
+      // game not on Steam. Posted in `channel`, the news channel when unset.
+      drops: (() => {
+        const d = raw.gameNews.drops && typeof raw.gameNews.drops === 'object' ? raw.gameNews.drops : {};
+        return {
+          channel: SNOWFLAKE.test(String(d.channel || '')) ? d.channel : null,
+          pingRole: SNOWFLAKE.test(String(d.pingRole || '')) ? d.pingRole : null,
+          games: Array.isArray(d.games)
+            ? d.games.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.trim().slice(0, 80))
+            : [],
+        };
+      })(),
     } : null,
     // Weekly UFC and Contender Series events (services/ufc.js). `voiceChannel`
     // is where the event is held; `channel` gets a link when one is created, and

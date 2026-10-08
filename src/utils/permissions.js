@@ -34,6 +34,8 @@ const COMMAND_FEATURES = {
 
   event: 'events',
 
+  drops: 'drops',
+
   bet: 'ledger',
   ledger: 'ledger',
 

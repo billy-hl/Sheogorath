@@ -15,7 +15,8 @@
       "pickem",
       "events",
       "ledger",
-      "clips"
+      "clips",
+      "drops"
     ],
     "channels": {
       "music": "534553333034123289",
@@ -106,6 +107,10 @@
         {
           "appId": 2272360,
           "name": "Dawn of War IV"
+        },
+        {
+          "appId": 252490,
+          "name": "Rust"
         }
       ],
       "events": [
@@ -165,6 +170,13 @@
         "minRating": 85,
         "minReviews": 2000,
         "maxPerDay": 4
+      },
+      "drops": {
+        "channel": null,
+        "pingRole": null,
+        "games": [
+          "World of Warcraft: Forever"
+        ]
       }
     },
     "clips": {

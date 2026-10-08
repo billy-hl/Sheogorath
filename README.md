@@ -14,6 +14,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **UFC Results**: Every fight on every UFC card and Contender Series night, posted in a channel of its own as it ends: how it ended, the judges' scorecards, both fighters' stats side by side, and the whole card in one message once the main event is done.
 - **UFC Reminders**: A DM to everyone in a chosen role half an hour before each UFC card starts.
 - **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
+- **Drops**: Twitch and Kick drops for the games the server plays, posted as each campaign appears with its rewards, watch times and end date. Anyone can follow another game with `/drops add`.
 - **Clips**: Post a gameplay clip in the clips channel and Sheogorath watches it and posts it back with himself doing commentary over it, in his own voice. Any clip anywhere can also be put through the **Wabbajack** from the Apps menu, and comes back as something else.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Moderation**: Discord native AutoMod rules, an Ollama-backed filter for sexual ASCII/Unicode text art that keyword rules can't catch, and Sheogorath himself acting as a moderator — everything he decides to do passes through a permission gate that either performs it, holds it for a Sheriff to approve, or refuses it.
@@ -140,6 +141,21 @@ Sheogorath can do all of it too, with `[ACTION:event:name|when|hours|where]` or 
 Anyone may add an event. Moving or removing one is for whoever added it and an Owner; the launches listed in `gameNews.events` belong to no one, so only an Owner changes them. Events added in Discord, and changes to listed ones, live in guild state as an override laid over config, so the config file never needs editing for a date again. An edit brings back an event somebody deleted by hand in Discord; a removed config launch stays removed.
 
 Fifteen minutes before **any** scheduled event in the server — these, the UFC cards, and ones made by hand in Discord — the people who clicked Interested are pinged by name in the events channel, with a link, and a thread is opened for the evening. Nobody interested means no post, and a UFC card gets no thread because pick'em runs its own. Each event is reminded once.
+
+### 🎁 Drops
+*Requires the `drops` feature and a `gameNews` block.*
+
+- `/drops list` - The games we follow, and which have drops on now
+- `/drops add <game>` - Follow a game for drops, named as Twitch or Kick has it (it suggests the games with campaigns on)
+- `/drops remove <game>` - Stop following one you added
+
+The games followed are the `gameNews.steamApps`, any named in `gameNews.drops.games` (for a game not on Steam, like *World of Warcraft: Forever*), and any added with `/drops add`. Anyone may add a game; whoever added it, or an Owner, may take it off, and only an Owner can take off one from config. What is added or removed in Discord lives in guild state, laid over config like the calendar's changes, so the list never needs a deploy.
+
+Every half hour, with the game news, both sites are read. Each new campaign for a followed game is posted once in `gameNews.drops.channel` (the news channel when unset), with what's new for one game on one site in a single post: when it ends, which channels it's limited to, each reward and the watch time or subs it takes, quickest first, and links to the campaign and to where the game's account is linked. `gameNews.drops.pingRole` pings a role with it; unset, nobody is pinged. A campaign already running is posted the first time it is seen, including straight after `/drops add`, because a running campaign is exactly what's worth knowing. Sheogorath is told what's on as of the last check, so "any drops for Rust?" gets a true answer.
+
+A game matches when every word of its name appears, in order, in the site's name for the game: *Rust* matches *Rust Console Edition* but not *Rusty Lake*, and *Dawn of War IV* matches *Warhammer 40,000: Dawn of War IV*. Follow *RuneScape* and *Old School RuneScape*'s drops come with it.
+
+Neither site offers drops through its official API. Twitch's come from [twitch-drops-api.sunkwi.com](https://twitch-drops-api.sunkwi.com/drops), a community mirror of the campaign list, and Kick's from the endpoint kick.com's own drops page reads. Neither needs a key, and both are undocumented, so either may change or vanish: a site that can't be read is logged and skipped, the other still posts, and `/drops list` says which one is missing.
 
 ### 🛡️ Moderation
 - `/sheo status` - What Sheogorath is allowed to do unsupervised, what he has done in the last hour, and how many approval cards are waiting *(Owners only)*
@@ -363,7 +379,7 @@ One entry per Discord server, holding that guild's `features` list, channel IDs,
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 
-Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `pickem`, `events`, `ledger`, `wardogs`, `clips`.
+Available features: `ai`, `music`, `moderation`, `automod`, `textImageMod`, `instagram`, `twitter`, `tiktok`, `reddit`, `pickem`, `events`, `ledger`, `wardogs`, `clips`, `drops`.
 
 `timeZone` (an IANA name, default `America/Chicago`) is where a guild's people live: what "Friday 8pm" means in `/event` and in chat, and the clock Sheogorath is told the time by.
 

@@ -142,6 +142,15 @@
           "description": "Blizzard's reimagined take on original World of Warcraft, built around the journey and discovery through Azeroth, with years of planned growth.\n\nStart time confirmed by Blizzard: 3:00 p.m. PST."
         },
         {
+          "key": "runescape-reignited",
+          "name": "RuneScape Reignited launch",
+          "appId": 1343400,
+          "start": "2026-12-02T12:00:00Z",
+          "hours": 4,
+          "location": "RuneScape",
+          "description": "A fresh start in RuneScape: a new permanent character type with its own economy, Grand Exchange and HiScores, playing alongside veterans on any world. Every Reignited character gets free membership from 2 to 12 December.\n\nThe date is confirmed. The time is a guess at a midday UK launch and will be corrected when Jagex announces it."
+        },
+        {
           "key": "dow4-launch",
           "name": "Warhammer 40,000: Dawn of War IV launch",
           "appId": 2272360,

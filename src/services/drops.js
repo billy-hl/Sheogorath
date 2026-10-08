@@ -251,8 +251,18 @@ function removeGame(guildId, query, member) {
   });
 }
 
-/** Which followed game a campaign is for, or null. */
-const gameOf = (games, campaign) => games.find((g) => isFor(g.name, campaign.game)) || null;
+/**
+ * Which followed game a campaign is for, or null. When several match, the one
+ * naming the most words wins: with "Path of Exile" and "Path of Exile 2" both
+ * followed, a Path of Exile 2 campaign is the second's alone.
+ */
+function gameOf(games, campaign) {
+  let best = null;
+  for (const g of games) {
+    if (isFor(g.name, campaign.game) && (!best || words(g.name).length > words(best.name).length)) best = g;
+  }
+  return best;
+}
 
 // --- Posting ----------------------------------------------------------------------
 
@@ -364,14 +374,16 @@ function pollDrops(client, guildId, cfg) {
 
 // --- Telling people -----------------------------------------------------------------
 
-/** What is on now for each followed game, by site. */
+/** What is on now for each followed game, by site, each campaign under the game it is for. */
 function onNow(games, campaigns) {
-  return games.map((game) => {
-    const mine = campaigns.filter((c) => gameOf([game], c));
-    const bySite = {};
-    for (const c of mine) (bySite[c.site] ||= []).push(c);
-    return { game, bySite, count: mine.length };
-  });
+  const rows = new Map(games.map((game) => [game.key, { game, bySite: {}, count: 0 }]));
+  for (const c of campaigns) {
+    const row = rows.get(gameOf(games, c)?.key);
+    if (!row) continue;
+    (row.bySite[c.site] ||= []).push(c);
+    row.count++;
+  }
+  return [...rows.values()];
 }
 
 /** The public list for /drops list. */
@@ -403,7 +415,8 @@ async function listEmbed(guildId) {
 /** What is on now for one game, as a line for the /drops add reply. */
 async function summaryFor(guildId, game) {
   const { campaigns } = await allCampaigns();
-  const [{ bySite, count }] = onNow([game], campaigns);
+  const { bySite, count } = onNow(gamesFor(guildId), campaigns).find((r) => r.game.key === game.key)
+    || { bySite: {}, count: 0 };
   if (!count) return 'Nothing is on for it right now.';
   return `On now: ${Object.entries(bySite).map(([site, list]) => `${list.length} on ${SITES[site].label}`).join(', ')}.`;
 }

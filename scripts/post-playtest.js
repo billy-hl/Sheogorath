@@ -2,42 +2,46 @@
 'use strict';
 /**
  * Posts the playtest agreement (services/playtest.js) in the guild's
- * `playtest.post` channel and pins it.
+ * `playtest.post` channel and pins it; with --downloads, the download buttons
+ * in `playtest.downloads.channel` instead.
  *
- * Once is enough: the button carries no message ID and nothing is kept in
- * memory, so the posted message keeps working across restarts. Run it again
- * only to replace a deleted post, or after changing its wording (then delete
- * the old one by hand).
+ * Once is enough: the buttons carry no message ID and nothing is kept in
+ * memory, so a posted message keeps working across restarts. Run it again only
+ * to replace a deleted post, or after changing its wording (then delete the
+ * old one by hand).
  *
  * REST only, no gateway login: posting needs nothing the live bot is doing.
  *
- *   node scripts/post-playtest.js <guildId>            # what would be posted, and where
- *   node scripts/post-playtest.js <guildId> --apply
+ *   node scripts/post-playtest.js <guildId> [--downloads]            # what would be posted, and where
+ *   node scripts/post-playtest.js <guildId> [--downloads] --apply
  */
 require('dotenv').config();
 const { REST, Routes } = require('discord.js');
 const { getGuildConfig } = require('../src/config/guilds');
-const { buildMessage } = require('../src/services/playtest');
+const { buildMessage, buildDownloadsMessage } = require('../src/services/playtest');
 
 const GUILD = process.argv.find((a) => /^\d{17,20}$/.test(a));
 const APPLY = process.argv.includes('--apply');
+const DOWNLOADS = process.argv.includes('--downloads');
 
 (async () => {
-  if (!GUILD) return console.log('Which guild? node scripts/post-playtest.js <guildId> [--apply]');
+  if (!GUILD) return console.log('Which guild? node scripts/post-playtest.js <guildId> [--downloads] [--apply]');
   const cfg = getGuildConfig(GUILD)?.playtest;
   if (!cfg) return console.log(`No playtest block for ${GUILD} in config/guilds.json.`);
-  if (!cfg.post) return console.log('No playtest.post channel to post in.');
+  const where = DOWNLOADS ? cfg.downloads?.channel : cfg.post;
+  if (!where) return console.log(DOWNLOADS ? 'No playtest.downloads.channel to post in.' : 'No playtest.post channel to post in.');
 
-  const msg = buildMessage(GUILD);
+  const msg = DOWNLOADS ? buildDownloadsMessage(GUILD) : buildMessage(GUILD);
+  if (!msg) return console.log('Nothing to post: check the playtest block.');
   const body = { embeds: msg.embeds.map((e) => e.toJSON()), components: msg.components.map((c) => c.toJSON()) };
-  console.log(`Posting in ${cfg.post}:\n${JSON.stringify(body.embeds[0], null, 2)}`);
+  console.log(`Posting in ${where}:\n${JSON.stringify(body, null, 2)}`);
   if (!APPLY) return console.log('\n(Dry run. Add --apply to post it.)');
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  const posted = await rest.post(Routes.channelMessages(cfg.post), { body });
+  const posted = await rest.post(Routes.channelMessages(where), { body });
   console.log(`Posted: ${posted.id}`);
   try {
-    await rest.put(Routes.channelPin(cfg.post, posted.id), { reason: 'The playtest agreement' });
+    await rest.put(Routes.channelPin(where, posted.id), { reason: 'The playtest post' });
     console.log('Pinned.');
   } catch (err) {
     console.log(`Not pinned (${err.message}): pin it by hand.`);

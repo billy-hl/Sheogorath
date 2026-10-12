@@ -1,28 +1,39 @@
 'use strict';
 /**
- * The playtest agreement: one button that lets someone into the testers'
- * channel once they agree to keep the game to themselves.
+ * The playtest: an agreement button that lets someone into the testers'
+ * channel once they agree to keep the game to themselves, and download buttons
+ * in that channel for the newest build.
  *
- * Pressing it gives the guild's `playtest.role` (which opens
- * `playtest.channel`) and writes who agreed, and when, in `playtest.log`: a
- * private channel, where the game posts its own NDA signatures too, so the two
- * records of a tester sit side by side. It only ever grants. Taking a tester
- * out is done by hand, by taking the role off.
+ * Agreeing gives the guild's `playtest.role` (which opens `playtest.channel`)
+ * and writes who agreed, and when, in `playtest.log`: a private channel, where
+ * the game posts its own NDA signatures too, so the two records of a tester sit
+ * side by side. It only ever grants. Taking a tester out is done by hand, by
+ * taking the role off.
  *
- * The button carries no role ID. What it grants is read from config, so a
- * crafted custom_id has nothing to name.
+ * A download button answers, to that tester alone, with a link to the build
+ * from the GitHub release in `playtest.downloads` (a private repo, read with
+ * GITHUB_DOWNLOADS_TOKEN). The link is GitHub's own signed one and lapses in a
+ * few minutes, so a forwarded link is soon worth nothing, and the button always
+ * hands out whatever was built last. Only someone holding the role gets one:
+ * the button is in their channel, but the role is checked anyway.
+ *
+ * No button carries a role ID or a file name. A download button carries an
+ * index into config, and the agreement button nothing at all, so a crafted
+ * custom_id has nothing to name.
  */
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const { getGuildConfig } = require('../config/guilds');
 
-const ID = 'playtest:agree';
+const AGREE = 'playtest:agree';
+const DL = 'playtest:dl:';
 const TEAL = 0x3fbfb0;   // the game's own teal
 
-const isPlaytestButton = (interaction) => interaction.customId === ID;
+const isPlaytestButton = (interaction) =>
+  interaction.customId === AGREE || (typeof interaction.customId === 'string' && interaction.customId.startsWith(DL));
 const configFor = (guildId) => getGuildConfig(guildId)?.playtest || null;
 const channelOf = (cfg) => (cfg.channel ? `<#${cfg.channel}>` : 'the testers\' channel');
 
-/** The posted message: the terms, and the one button. Posted by scripts/post-playtest.js. */
+/** The agreement post: the terms, and the one button. Posted by scripts/post-playtest.js. */
 function buildMessage(guildId) {
   const cfg = configFor(guildId);
   if (!cfg) return null;
@@ -36,7 +47,30 @@ function buildMessage(guildId) {
       'sign the NDA in the game when you first open it. The channel opens to you straight away.'
     );
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(ID).setLabel('I agree, let me in').setEmoji('✅').setStyle(ButtonStyle.Success)
+    new ButtonBuilder().setCustomId(AGREE).setLabel('I agree, let me in').setEmoji('✅').setStyle(ButtonStyle.Success)
+  );
+  return { embeds: [embed], components: [row] };
+}
+
+/** The download post, in the testers' channel: a button per build. Posted by scripts/post-playtest.js --downloads. */
+function buildDownloadsMessage(guildId) {
+  const cfg = configFor(guildId);
+  if (!cfg?.downloads?.files.length) return null;
+  const embed = new EmbedBuilder()
+    .setColor(TEAL)
+    .setTitle(`⬇️ Get ${cfg.game}`)
+    .setDescription(
+      'Press the button for your computer for the newest build. The link you get is yours alone and stops ' +
+      'working after a few minutes, so do not pass it on: anyone who needs the game gets it here.\n\n' +
+      'Everyone needs the same build to play together, so download it again when a new one is announced. ' +
+      'The first time it opens, the game asks you to sign its NDA, with Steam running.'
+    );
+  const row = new ActionRowBuilder().addComponents(
+    cfg.downloads.files.map((f, i) => {
+      const b = new ButtonBuilder().setCustomId(`${DL}${i}`).setLabel(f.label).setStyle(ButtonStyle.Primary);
+      if (f.emoji) b.setEmoji(f.emoji);
+      return b;
+    })
   );
   return { embeds: [embed], components: [row] };
 }
@@ -47,7 +81,22 @@ async function handleButton(interaction) {
     await interaction.reply({ content: 'That button is not wired to anything any more.', ephemeral: true });
     return;
   }
+  if (interaction.customId === AGREE) await handleAgree(interaction, cfg);
+  else await handleDownload(interaction, cfg);
+}
 
+/** Writes a line in the private log channel. Never throws: the record must not cost anyone what they pressed for. */
+async function record(interaction, cfg, line) {
+  if (!cfg.log) return;
+  try {
+    const log = await interaction.guild.channels.fetch(cfg.log);
+    await log.send({ content: line, allowedMentions: { parse: [] } });
+  } catch (err) {
+    console.warn(`[Playtest] ${interaction.guild.name}: could not write to the log: ${err?.message || err}`);
+  }
+}
+
+async function handleAgree(interaction, cfg) {
   const role = interaction.guild.roles.cache.get(cfg.role)
     || await interaction.guild.roles.fetch(cfg.role).catch(() => null);
   if (!role) {
@@ -81,19 +130,60 @@ async function handleButton(interaction) {
       'The game will ask you to sign its NDA the first time you open it.',
     ephemeral: true,
   });
+  await record(interaction, cfg, `✅ <@${member.id}> (**${member.user.username}**, ${member.id}) agreed to the playtest terms in Discord, ` +
+    `<t:${Math.floor(Date.now() / 1000)}:f>.`);
+}
 
-  // The record. After the role, so a failure here never costs anyone their way in.
-  if (!cfg.log) return;
-  try {
-    const log = await interaction.guild.channels.fetch(cfg.log);
-    await log.send({
-      content: `✅ <@${member.id}> (**${member.user.username}**, ${member.id}) agreed to the playtest terms in Discord, ` +
-        `<t:${Math.floor(Date.now() / 1000)}:f>.`,
-      allowedMentions: { parse: [] },
+async function handleDownload(interaction, cfg) {
+  const dl = cfg.downloads;
+  const file = dl?.files[Number(interaction.customId.slice(DL.length))];
+  if (!file) {
+    await interaction.reply({ content: 'That button is not wired to anything any more.', ephemeral: true });
+    return;
+  }
+  if (!interaction.member.roles.cache.has(cfg.role)) {
+    await interaction.reply({
+      content: `The builds are for testers.${cfg.post ? ` Agree to the playtest terms in <#${cfg.post}> first.` : ''}`,
+      ephemeral: true,
     });
+    return;
+  }
+  const token = process.env.GITHUB_DOWNLOADS_TOKEN;
+  if (!token) {
+    console.warn('[Playtest] A download was asked for, but GITHUB_DOWNLOADS_TOKEN is not set.');
+    await interaction.reply({ content: 'Downloads are not set up yet. Tell an admin.', ephemeral: true });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  try {
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Sheogorath',
+    };
+    const rel = await fetch(`https://api.github.com/repos/${dl.repo}/releases/tags/${encodeURIComponent(dl.tag)}`, { headers });
+    if (!rel.ok) throw new Error(`release ${dl.tag}: HTTP ${rel.status}`);
+    const asset = (await rel.json()).assets.find((a) => a.name === file.asset);
+    if (!asset) throw new Error(`no ${file.asset} in ${dl.tag}`);
+    // The asset itself answers with a redirect to a short-lived signed URL: that is the link handed out, unread.
+    const res = await fetch(asset.url, { headers: { ...headers, Accept: 'application/octet-stream' }, redirect: 'manual' });
+    const link = res.headers.get('location');
+    if (!link) throw new Error(`${file.asset}: HTTP ${res.status} and no redirect`);
+    const built = Math.floor(new Date(asset.created_at).getTime() / 1000);
+
+    await interaction.editReply(
+      `**[Download ${cfg.game} for ${file.label}](${link})** (${Math.round(asset.size / 1048576)} MB, built <t:${built}:R>)\n` +
+      (file.how ? `${file.how}\n` : '') +
+      '\nThis link is just for you and stops working in a few minutes. Press the button again for a fresh one.'
+    );
+    await record(interaction, cfg, `⬇️ <@${interaction.member.id}> (**${interaction.member.user.username}**) downloaded the ` +
+      `${file.label} build (built <t:${built}:f>).`);
   } catch (err) {
-    console.warn(`[Playtest] ${interaction.guild.name}: could not record ${member.user.username}'s agreement: ${err?.message || err}`);
+    console.warn(`[Playtest] ${interaction.guild.name}: download of ${file.asset} failed: ${err?.message || err}`);
+    await interaction.editReply('I could not fetch the build just now. Try again in a minute, or tell an admin.');
   }
 }
 
-module.exports = { isPlaytestButton, handleButton, buildMessage };
+module.exports = { isPlaytestButton, handleButton, buildMessage, buildDownloadsMessage };

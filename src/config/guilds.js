@@ -163,16 +163,34 @@ function normalizeGuild(id, raw) {
             sticky: r.sticky === true,
           }))
       : [],
-    // The playtest agreement (services/playtest.js): the role its button gives,
+    // The playtest (services/playtest.js): the role its agreement button gives,
     // the testers' channel that role opens, the private channel each agreement
-    // is recorded in, and where scripts/post-playtest.js posts the button.
-    // Absent means no playtest here; only the role is required.
+    // and download is recorded in, and where scripts/post-playtest.js posts the
+    // button. `downloads` is the GitHub release (`repo`, `tag`) the testers'
+    // download buttons hand out, the channel they are posted in, and one entry
+    // per button: its `label`, `emoji`, the release `asset` and `how` to start
+    // it. Absent means no playtest here; only the role is required.
     playtest: raw.playtest && SNOWFLAKE.test(String(raw.playtest.role || '')) ? {
       role: String(raw.playtest.role),
       channel: raw.playtest.channel || null,
       log: raw.playtest.log || null,
       post: raw.playtest.post || null,
       game: typeof raw.playtest.game === 'string' && raw.playtest.game.trim() ? raw.playtest.game.trim() : 'The game',
+      downloads: raw.playtest.downloads && /^[\w.-]+\/[\w.-]+$/.test(String(raw.playtest.downloads.repo || '')) ? {
+        repo: String(raw.playtest.downloads.repo),
+        tag: typeof raw.playtest.downloads.tag === 'string' && raw.playtest.downloads.tag ? raw.playtest.downloads.tag : 'latest',
+        channel: raw.playtest.downloads.channel || null,
+        // Five buttons to a row is Discord's limit, and one row is plenty.
+        files: (Array.isArray(raw.playtest.downloads.files) ? raw.playtest.downloads.files : [])
+          .filter((f) => f && typeof f.label === 'string' && typeof f.asset === 'string')
+          .slice(0, 5)
+          .map((f) => ({
+            label: f.label,
+            emoji: typeof f.emoji === 'string' ? f.emoji : null,
+            asset: f.asset,
+            how: typeof f.how === 'string' ? f.how : null,
+          })),
+      } : null,
     } : null,
     // Twitch live announcements. Absent means the watcher skips this guild —
     // the credentials are global (one app, in .env) but who gets announced,

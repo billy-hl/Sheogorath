@@ -16,7 +16,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
 - **Drops**: Twitch and Kick drops for the games the server plays, posted as each campaign appears with its rewards, watch times and end date. Anyone can follow another game with `/drops add`.
 - **Clips**: Post a gameplay clip in the clips channel and Sheogorath watches it and posts it back with himself doing commentary over it, in his own voice. Any clip anywhere can also be put through the **Wabbajack** from the Apps menu, and comes back as something else.
-- **Playtest agreement**: A pinned post with an **I agree** button. Pressing it gives the Tester role, which opens the testers' channel, and records who agreed, and when, in a private channel.
+- **Playtest**: A pinned post with an **I agree** button. Pressing it gives the Tester role, which opens the testers' channel, and records who agreed, and when, in a private channel. In the testers' channel, download buttons hand each tester a short-lived link to the newest build.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Moderation**: Discord native AutoMod rules, an Ollama-backed filter for sexual ASCII/Unicode text art that keyword rules can't catch, and Sheogorath himself acting as a moderator — everything he decides to do passes through a permission gate that either performs it, holds it for a Sheriff to approve, or refuses it.
 - **Instagram Mirroring**: Reels posted in chat are downloaded and re-uploaded natively, compressed to the guild's boost-tier attachment limit.
@@ -164,6 +164,8 @@ Neither site offers drops through its official API. Twitch's come from [twitch-d
 For a game that isn't out yet: a post with the terms (keep it to the test group) and an **I agree, let me in** button. Pressing it gives `playtest.role`, which should be the only way into `playtest.channel`, and writes who agreed, with their Discord ID and the time, in `playtest.log`, a private channel. Grime & Punishment's own NDA signatures, sent by the game through a webhook, land in the same channel, so both records of a tester sit together. The button only gives the role: taking a tester out is done by taking it off.
 
 `node scripts/post-playtest.js <guildId> --apply` posts the button in `playtest.post` and pins it. Once is enough; the button keeps working across restarts. `playtest.game` names the game in the post.
+
+**Downloads** (`playtest.downloads`): `--downloads` posts a button per build in `playtest.downloads.channel`, the testers' channel. Pressing one checks the presser holds the role, asks GitHub for the asset of that name on the `repo`'s release `tag` (a private repo, read with `GITHUB_DOWNLOADS_TOKEN`, a fine-grained token with Contents: Read-only on that repo alone), and answers, to them alone, with GitHub's own signed link to it, which lapses in a few minutes, and the file's `how` (how to start it). The button always hands out the newest build, so nothing is re-posted when one is made, and a link passed on soon stops working. Each download is recorded in `playtest.log`. Sheogorath only needs to be in the testers' channel to post the buttons; they keep working after he is taken out of it, which keeps him out of the testers' talk.
 
 ### 🛡️ Moderation
 - `/sheo status` - What Sheogorath is allowed to do unsupervised, what he has done in the last hour, and how many approval cards are waiting *(Owners only)*
@@ -385,7 +387,7 @@ See `.env.example` for the annotated list. In short: `DISCORD_TOKEN`, `CLIENT_ID
 
 One entry per Discord server, holding that guild's `features` list, channel IDs, role IDs (`admin`, `staff`, and so on), the AI moderator's `ai.mode` / `ai.powers` / `ai.titles` / `ai.standing`, and each feature's own settings. Copy the placeholder entry to onboard a second guild.
 
-`playtest` (`role`, `channel`, `log`, `post`, `game`) sets up the playtest agreement button; see *Playtest agreement*.
+`playtest` (`role`, `channel`, `log`, `post`, `game`, `downloads`) sets up the playtest agreement and download buttons; see *Playtest agreement*.
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 

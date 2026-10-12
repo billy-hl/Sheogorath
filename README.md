@@ -16,6 +16,7 @@ Each Discord server the bot serves gets its own entry in `config/guilds.json`, w
 - **Events**: Anyone can put an event on the server calendar with `/event` or by telling Sheogorath, and whoever added it (or an Owner) can move it or take it off, with no config edit and no deploy. Fifteen minutes before any scheduled event, the people who clicked Interested are pinged and a thread is opened for it.
 - **Drops**: Twitch and Kick drops for the games the server plays, posted as each campaign appears with its rewards, watch times and end date. Anyone can follow another game with `/drops add`.
 - **Clips**: Post a gameplay clip in the clips channel and Sheogorath watches it and posts it back with himself doing commentary over it, in his own voice. Any clip anywhere can also be put through the **Wabbajack** from the Apps menu, and comes back as something else.
+- **Playtest agreement**: A pinned post with an **I agree** button. Pressing it gives the Tester role, which opens the testers' channel, and records who agreed, and when, in a private channel.
 - **Companion Control API**: An Express + WebSocket server (`src/api/`) serving a small web page that drives playback from a phone. Guest and admin credential tiers; bound to the tailnet, not the LAN.
 - **Moderation**: Discord native AutoMod rules, an Ollama-backed filter for sexual ASCII/Unicode text art that keyword rules can't catch, and Sheogorath himself acting as a moderator — everything he decides to do passes through a permission gate that either performs it, holds it for a Sheriff to approve, or refuses it.
 - **Instagram Mirroring**: Reels posted in chat are downloaded and re-uploaded natively, compressed to the guild's boost-tier attachment limit.
@@ -156,6 +157,13 @@ Every half hour, with the game news, both sites are read. Each new campaign for 
 A game matches when every word of its name appears, in order, in the site's name for the game: *Rust* matches *Rust Console Edition* but not *Rusty Lake*, and *Dawn of War IV* matches *Warhammer 40,000: Dawn of War IV*. Follow *RuneScape* and *Old School RuneScape*'s drops come with it. Where two followed games both match, the one naming more words has it: with *Path of Exile* and *Path of Exile 2* both followed, a Path of Exile 2 campaign is posted and listed under that alone.
 
 Neither site offers drops through its official API. Twitch's come from [twitch-drops-api.sunkwi.com](https://twitch-drops-api.sunkwi.com/drops), a community mirror of the campaign list, and Kick's from the endpoint kick.com's own drops page reads. Neither needs a key, and both are undocumented, so either may change or vanish: a site that can't be read is logged and skipped, the other still posts, and `/drops list` says which one is missing.
+
+### 🔒 Playtest agreement
+*Requires a `playtest` block.*
+
+For a game that isn't out yet: a post with the terms (keep it to the test group) and an **I agree, let me in** button. Pressing it gives `playtest.role`, which should be the only way into `playtest.channel`, and writes who agreed, with their Discord ID and the time, in `playtest.log`, a private channel. Grime & Punishment's own NDA signatures, sent by the game through a webhook, land in the same channel, so both records of a tester sit together. The button only gives the role: taking a tester out is done by taking it off.
+
+`node scripts/post-playtest.js <guildId> --apply` posts the button in `playtest.post` and pins it. Once is enough; the button keeps working across restarts. `playtest.game` names the game in the post.
 
 ### 🛡️ Moderation
 - `/sheo status` - What Sheogorath is allowed to do unsupervised, what he has done in the last hour, and how many approval cards are waiting *(Owners only)*
@@ -376,6 +384,8 @@ See `.env.example` for the annotated list. In short: `DISCORD_TOKEN`, `CLIENT_ID
 ### Per-guild settings — `config/guilds.json`
 
 One entry per Discord server, holding that guild's `features` list, channel IDs, role IDs (`admin`, `staff`, and so on), the AI moderator's `ai.mode` / `ai.powers` / `ai.titles` / `ai.standing`, and each feature's own settings. Copy the placeholder entry to onboard a second guild.
+
+`playtest` (`role`, `channel`, `log`, `post`, `game`) sets up the playtest agreement button; see *Playtest agreement*.
 
 `channels.modApprovals` is where Sheogorath posts what he wants permission to do and what he did on his own; it falls back to `channels.commandLog` when unset, so a guild with one private staff channel doesn't need a second.
 

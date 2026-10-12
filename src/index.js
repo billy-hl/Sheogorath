@@ -40,6 +40,7 @@ const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole');
 const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./services/selfroles');
+const { isPlaytestButton, handleButton: handlePlaytestButton } = require('./services/playtest');
 const { scheduleStreamWatch } = require('./services/twitch');
 const { scheduleVideoWatch } = require('./services/youtube');
 const { scheduleUfcEvents } = require('./services/ufc');
@@ -553,6 +554,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // music gate, which would refuse them.
       if (isSelfRoleButton(interaction)) {
         await handleSelfRoleButton(interaction);
+        return;
+      }
+
+      // The playtest agreement: open to everyone, like the self-assign buttons.
+      if (isPlaytestButton(interaction)) {
+        await handlePlaytestButton(interaction);
         return;
       }
 

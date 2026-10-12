@@ -163,6 +163,17 @@ function normalizeGuild(id, raw) {
             sticky: r.sticky === true,
           }))
       : [],
+    // The playtest agreement (services/playtest.js): the role its button gives,
+    // the testers' channel that role opens, the private channel each agreement
+    // is recorded in, and where scripts/post-playtest.js posts the button.
+    // Absent means no playtest here; only the role is required.
+    playtest: raw.playtest && SNOWFLAKE.test(String(raw.playtest.role || '')) ? {
+      role: String(raw.playtest.role),
+      channel: raw.playtest.channel || null,
+      log: raw.playtest.log || null,
+      post: raw.playtest.post || null,
+      game: typeof raw.playtest.game === 'string' && raw.playtest.game.trim() ? raw.playtest.game.trim() : 'The game',
+    } : null,
     // Twitch live announcements. Absent means the watcher skips this guild —
     // the credentials are global (one app, in .env) but who gets announced,
     // and where, is per-guild.

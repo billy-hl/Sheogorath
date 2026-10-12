@@ -12,8 +12,8 @@
  *
  * A download button answers, to that tester alone, with a link to the build
  * from the GitHub release in `playtest.downloads` (a private repo, read with
- * GITHUB_DOWNLOADS_TOKEN). The link is GitHub's own signed one and lapses in a
- * few minutes, so a forwarded link is soon worth nothing, and the button always
+ * GITHUB_DOWNLOADS_TOKEN). The link is GitHub's own signed one and lapses within
+ * the hour, so a forwarded link is soon worth nothing, and the button always
  * hands out whatever was built last. Only someone holding the role gets one:
  * the button is in their channel, but the role is checked anyway.
  *
@@ -176,7 +176,7 @@ async function handleDownload(interaction, cfg) {
     await interaction.editReply(
       `**[Download ${cfg.game} for ${file.label}](${link})** (${Math.round(asset.size / 1048576)} MB, built <t:${built}:R>)\n` +
       (file.how ? `${file.how}\n` : '') +
-      '\nThis link is just for you and stops working in a few minutes. Press the button again for a fresh one.'
+      '\nThis link is just for you and stops working within the hour. Press the button again for a fresh one.'
     );
     await record(interaction, cfg, `⬇️ <@${interaction.member.id}> (**${interaction.member.user.username}**) downloaded the ` +
       `${file.label} build (built <t:${built}:f>).`);

@@ -61,7 +61,7 @@ function buildDownloadsMessage(guildId) {
     .setTitle(`⬇️ Get ${cfg.game}`)
     .setDescription(
       'Press the button for your computer for the newest build. The link you get is yours alone and stops ' +
-      'working after a few minutes, so do not pass it on: anyone who needs the game gets it here.\n\n' +
+      'working within the hour, so do not pass it on: anyone who needs the game gets it here.\n\n' +
       'Everyone needs the same build to play together, so download it again when a new one is announced. ' +
       'The first time it opens, the game asks you to sign its NDA, with Steam running.'
     );

@@ -193,38 +193,6 @@
     "clips": {
       "channel": "1553966538632077402",
       "game": "Wardogs"
-    },
-    "playtest": {
-      "role": "1559222825527541773",
-      "channel": "1559218532946940014",
-      "log": "1559224200453947442",
-      "post": "380486887309180929",
-      "game": "Grime & Punishment",
-      "downloads": {
-        "repo": "bjmcallister/dirty-laundry",
-        "tag": "latest-build",
-        "channel": "1559218532946940014",
-        "files": [
-          {
-            "label": "Windows",
-            "emoji": "🪟",
-            "asset": "GrimeAndPunishment-Windows.zip",
-            "how": "Unzip it and run GrimeAndPunishment.exe, keeping the files next to it. If Windows warns about an unknown publisher, click More info, then Run anyway."
-          },
-          {
-            "label": "Mac",
-            "emoji": "🍎",
-            "asset": "GrimeAndPunishment-macOS.zip",
-            "how": "Unzip it and drag Grime & Punishment into Applications. The first time, macOS blocks it: open System Settings, Privacy & Security, scroll down and click Open Anyway."
-          },
-          {
-            "label": "Linux",
-            "emoji": "🐧",
-            "asset": "GrimeAndPunishment-Linux.zip",
-            "how": "Unzip it and run GrimeAndPunishment.x86_64. It needs Vulkan graphics drivers."
-          }
-        ]
-      }
     }
   },
   "1547233037765578822": {

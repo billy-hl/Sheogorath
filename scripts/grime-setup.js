@@ -1,0 +1,406 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * Stands up the Grime and Punishment guild, the game's own server: roles,
+ * categories, channels, a few server settings, and the config/guilds.json entry
+ * that wires the bot to all of it.
+ *
+ * The server is public. Anyone may join for news and chat; everything about the
+ * build sits in PLAYTEST, which only the Tester role sees, and that role is
+ * given by the playtest agreement button (services/playtest.js) in
+ * #join-the-playtest. TEAM is for the Developers alone.
+ *
+ * Sheogorath holds Administrator here, so permissions cannot hide a channel from
+ * him. PLAYTEST and TEAM go in `ai.offLimits` instead, which is what keeps talk
+ * under the NDA from ever reaching the model.
+ *
+ * Same contract as community-setup.js: a dry run unless --apply, idempotent
+ * (roles and channels are adopted by name, and their permissions reconciled on
+ * every run), and config written as raw JSON. Restart the service afterwards.
+ *
+ *   node scripts/grime-setup.js            # dry run
+ *   node scripts/grime-setup.js --apply
+ */
+require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const {
+  Client,
+  GatewayIntentBits,
+  Events,
+  ChannelType,
+  PermissionFlagsBits,
+  GuildDefaultMessageNotifications,
+  GuildExplicitContentFilter,
+  GuildVerificationLevel,
+} = require('discord.js');
+
+const CONFIG_FILE = path.join(__dirname, '..', 'config', 'guilds.json');
+const APPLY = process.argv.includes('--apply');
+const GUILD_ID = '1560039768845328394';
+const REASON = 'Grime and Punishment setup';
+
+// The game's own icon colours (game/icon.svg in the game repo).
+const GOLD = 0xffd36e;
+const PINK = 0xff5fa2;
+const TEAL = 0x3fbfb0;
+const MUTED = 0x6e7480;
+
+const MODERATE = [
+  PermissionFlagsBits.ManageMessages,
+  PermissionFlagsBits.ModerateMembers,
+  PermissionFlagsBits.KickMembers,
+  PermissionFlagsBits.ManageThreads,
+  PermissionFlagsBits.MuteMembers,
+  PermissionFlagsBits.MoveMembers,
+];
+
+/**
+ * Highest first, and created in that order: Discord puts each new role at the
+ * bottom, so the first one made ends up on top. `key` is where its ID goes in
+ * config: `admin` is the bot-admin tier, `staff` the one below, `tester` the
+ * playtest role.
+ */
+const ROLES = [
+  { key: 'admin', name: 'Developer', color: GOLD, hoist: true, mentionable: true,
+    perms: [...MODERATE, PermissionFlagsBits.ManageEvents] },
+  { key: 'staff', name: 'Moderator', color: PINK, hoist: true, mentionable: true, perms: MODERATE },
+  { key: 'tester', name: 'Tester', color: TEAL, hoist: true, mentionable: false, perms: [] },
+  { key: 'member', name: 'Member', color: MUTED, hoist: false, mentionable: false, perms: [] },
+];
+
+/**
+ * `access` — who can see it: everyone, the testers (and staff), or the team.
+ * `locked` — everyone who can see it reads it; only staff post.
+ * `id` — the name this script knows the channel by, for wiring config.
+ */
+const TREE = [
+  { category: 'WELCOME', access: 'public', channels: [
+      { id: 'rules', name: 'rules', locked: true,
+        topic: 'How this place works. Sheogorath quotes this channel when asked, so keep it true.' },
+      { id: 'announcements', name: 'announcements', locked: true,
+        topic: 'News about the game, from the developers.' },
+      { id: 'about', name: 'about-the-game', locked: true,
+        topic: 'What Grime & Punishment is. Sheogorath answers questions about the game from this channel.' },
+      { id: 'join', name: 'join-the-playtest', locked: true,
+        topic: 'Press the button to join the playtest.' },
+    ] },
+  { category: 'THE TAVERN', access: 'public', channels: [
+      { id: 'general', name: 'general', topic: 'Talk. Events are announced here too.' },
+      { id: 'help', name: 'help', topic: 'Ask here. Sheogorath answers in this channel without being called by name.' },
+    ] },
+  { category: 'PLAYTEST', access: 'testers', channels: [
+      { id: 'downloads', name: 'downloads', locked: true,
+        topic: 'Get the newest build here. Everything in PLAYTEST is under the NDA.' },
+      { id: 'playtestChat', name: 'playtest-chat', topic: 'Testers talk. Under the NDA, like everything in PLAYTEST.' },
+      { id: 'bugs', name: 'bug-reports', type: ChannelType.GuildForum,
+        topic: 'One post per bug: what happened, what you expected, and your build. Attach the crash log if there is one.',
+        tags: [['Bug', '🐛'], ['Crash', '💥'], ['Multiplayer', '🌐'], ['Visual', '🎨'], ['Fixed', '✅']] },
+      { id: 'feedback', name: 'feedback', topic: 'What you liked, what you did not, and what you wish it had.' },
+      { id: 'playtestVoice', name: 'Playtest', type: ChannelType.GuildVoice },
+    ] },
+  { category: 'VOICE', access: 'public', channels: [
+      { id: 'voice', name: 'General', type: ChannelType.GuildVoice },
+    ] },
+  { category: 'TEAM', access: 'team', channels: [
+      { id: 'teamChat', name: 'team-chat', topic: 'The developers.' },
+      { id: 'commandLog', name: 'command-log', topic: 'Privileged commands, and what Sheogorath asks permission to do.' },
+      { id: 'signatures', name: 'nda-signatures',
+        topic: 'Every playtest agreement and download, and the NDA each copy of the game signs.' },
+    ] },
+];
+
+// The categories Discord makes for a new server. Removed once emptied.
+const DEFAULT_CATEGORIES = ['Text Channels', 'Voice Channels'];
+
+// What every member may do server-wide, less what a public server should not
+// hand a stranger: pinging everyone, uploading emoji, and Discord's own event
+// button (events go through /event, which anyone may still use).
+const EVERYONE_DENY = [
+  PermissionFlagsBits.MentionEveryone,
+  PermissionFlagsBits.CreateGuildExpressions,
+  PermissionFlagsBits.CreateEvents,
+];
+
+const FEATURES = ['ai', 'moderation', 'events'];
+
+const STANDING =
+  'This is the Discord of Grime & Punishment, a co-op game in the making: the worst adventuring ' +
+  'party in the realm, sentenced to run the royal washhouse, scrubbing heroes’ laundry and robbing ' +
+  'its pockets. You are the house madman here, a Daedric Prince who finds the whole sorry affair ' +
+  'delightful: you greet newcomers, needle the regulars and keep the room civil. The Developers hold ' +
+  'the authority. What you know of the game is what #about-the-game says and nothing more, so never ' +
+  'invent features, dates or prices, and say nothing about builds or the playtest beyond sending ' +
+  'people to #join-the-playtest.';
+
+// Everything except kick, as in the community server: a room of strangers
+// does not need him reaching for the door on his own.
+const POWERS = ['note', 'memory', 'clearnotes', 'flag', 'delete', 'timeout', 'title',
+  'untitle', 'dm', 'say', 'react', 'pin', 'thread', 'poll', 'nick', 'channel'];
+
+// The same release the main hall's buttons handed out, until this server took
+// the playtest over.
+const DOWNLOADS = {
+  repo: 'bjmcallister/dirty-laundry',
+  tag: 'latest-build',
+  files: [
+    { label: 'Windows', emoji: '🪟', asset: 'GrimeAndPunishment-Windows.zip',
+      how: 'Unzip it and run GrimeAndPunishment.exe, keeping the files next to it. If Windows warns about an unknown publisher, click More info, then Run anyway.' },
+    { label: 'Mac', emoji: '🍎', asset: 'GrimeAndPunishment-macOS.zip',
+      how: 'Unzip it and drag Grime & Punishment into Applications. The first time, macOS blocks it: open System Settings, Privacy & Security, scroll down and click Open Anyway.' },
+    { label: 'Linux', emoji: '🐧', asset: 'GrimeAndPunishment-Linux.zip',
+      how: 'Unzip it and run GrimeAndPunishment.x86_64. It needs Vulkan graphics drivers.' },
+  ],
+};
+
+const REQUIRED = [
+  ['ManageRoles', PermissionFlagsBits.ManageRoles],
+  ['ManageChannels', PermissionFlagsBits.ManageChannels],
+  ['ManageGuild', PermissionFlagsBits.ManageGuild],
+];
+
+const lower = (s) => String(s).toLowerCase();
+const findRole = (guild, name) => guild.roles.cache.find((r) => lower(r.name) === lower(name)) || null;
+const findChannel = (guild, name, type) =>
+  guild.channels.cache.find((c) => lower(c.name) === lower(name) && c.type === type) || null;
+
+/**
+ * Overwrites for a channel or category: who sees it, and whether only staff
+ * post. Children always get theirs set explicitly rather than inherited, so a
+ * locked channel in a hidden category stays hidden.
+ */
+function overwritesFor(guild, roleIds, access, locked) {
+  const rows = new Map();
+  const add = (id, allow = [], deny = []) => {
+    const row = rows.get(id) || { id, allow: [], deny: [] };
+    row.allow.push(...allow);
+    row.deny.push(...deny);
+    rows.set(id, row);
+  };
+  const V = PermissionFlagsBits.ViewChannel;
+  if (access === 'testers') {
+    add(guild.roles.everyone.id, [], [V]);
+    for (const k of ['tester', 'staff', 'admin']) add(roleIds[k], [V]);
+  } else if (access === 'team') {
+    add(guild.roles.everyone.id, [], [V]);
+    add(roleIds.admin, [V]);
+  }
+  if (locked) {
+    add(guild.roles.everyone.id, [], [
+      PermissionFlagsBits.SendMessages,
+      PermissionFlagsBits.CreatePublicThreads,
+      PermissionFlagsBits.CreatePrivateThreads,
+    ]);
+    for (const k of ['staff', 'admin']) add(roleIds[k], [PermissionFlagsBits.SendMessages]);
+  }
+  return [...rows.values()];
+}
+
+function plan(guild) {
+  const steps = [];
+  const blocked = REQUIRED.filter(([, f]) => !guild.members.me?.permissions.has(f)).map(([n]) => n);
+
+  for (const spec of ROLES) {
+    const existing = findRole(guild, spec.name);
+    steps.push(`[${existing ? 'adopt' : 'create'}] role ${spec.name}${existing ? ` (${existing.id})` : ''}`);
+  }
+  for (const cat of TREE) {
+    const existingCat = findChannel(guild, cat.category, ChannelType.GuildCategory);
+    steps.push(`[${existingCat ? 'adopt' : 'create'}] category ${cat.category} (${cat.access})`);
+    for (const ch of cat.channels) {
+      const type = ch.type ?? ChannelType.GuildText;
+      const existing = findChannel(guild, ch.name, type);
+      const move = existing && (!existingCat || existing.parentId !== existingCat.id);
+      steps.push(`    [${existing ? (move ? 'adopt+move' : 'adopt') : 'create'}] ${type === ChannelType.GuildVoice ? '🔊 ' : '#'}${ch.name}` +
+        `${ch.locked ? ', staff post only' : ''}${type === ChannelType.GuildForum ? ', forum' : ''}`);
+    }
+  }
+  for (const name of DEFAULT_CATEGORIES) {
+    if (findChannel(guild, name, ChannelType.GuildCategory)) steps.push(`[remove once empty] Discord's default category "${name}"`);
+  }
+  steps.push('[set] @everyone may not mention everyone, upload emoji or make Discord events');
+  steps.push('[set] notifications default to mentions only; explicit media scanned for everyone; verified email to talk');
+  steps.push(`[give] Developer to the server owner (${guild.ownerId})`);
+  return { steps, blocked };
+}
+
+async function apply(guild) {
+  const roleIds = {};
+  const ladder = [];
+  for (const spec of ROLES) {
+    let role = findRole(guild, spec.name);
+    if (!role) {
+      role = await guild.roles.create({
+        name: spec.name, color: spec.color, hoist: spec.hoist, mentionable: spec.mentionable,
+        permissions: spec.perms, reason: REASON,
+      });
+    } else if (role.editable && (role.color !== spec.color || role.hoist !== spec.hoist || role.mentionable !== spec.mentionable)) {
+      await role.edit({ color: spec.color, hoist: spec.hoist, mentionable: spec.mentionable, reason: REASON });
+    }
+    roleIds[spec.key] = role.id;
+    ladder.push(role);
+  }
+
+  // Positions are explicit so a re-run repairs a ladder someone dragged about.
+  // One call per role: the bulk endpoint touches the bot's own managed role and
+  // is refused (see community-setup.js).
+  await guild.roles.fetch();
+  const ceiling = guild.members.me.roles.highest.position;
+  for (let i = 0; i < ladder.length; i++) {
+    const want = ladder.length - i;
+    if (want >= ceiling) {
+      console.warn(`  ! cannot place "${ladder[i].name}" at ${want}: my own role sits at ${ceiling}. Drag it to the top and re-run.`);
+      break;
+    }
+    const role = guild.roles.cache.get(ladder[i].id);
+    if (role.position !== want) await role.setPosition(want, { reason: REASON });
+  }
+
+  const ids = {};
+  for (const cat of TREE) {
+    const catOverwrites = overwritesFor(guild, roleIds, cat.access, false);
+    let parent = findChannel(guild, cat.category, ChannelType.GuildCategory);
+    if (!parent) {
+      parent = await guild.channels.create({
+        name: cat.category, type: ChannelType.GuildCategory, permissionOverwrites: catOverwrites, reason: REASON,
+      });
+    } else {
+      await parent.permissionOverwrites.set(catOverwrites, REASON);
+    }
+    ids[`cat:${cat.category}`] = parent.id;
+
+    for (const ch of cat.channels) {
+      let type = ch.type ?? ChannelType.GuildText;
+      const overwrites = overwritesFor(guild, roleIds, cat.access, ch.locked);
+      let channel = findChannel(guild, ch.name, type)
+        // A forum Discord refused last time was made as a text channel.
+        || (type === ChannelType.GuildForum ? findChannel(guild, ch.name, ChannelType.GuildText) : null);
+      if (channel) {
+        if (channel.parentId !== parent.id) await channel.setParent(parent.id, { lockPermissions: false, reason: REASON });
+        await channel.permissionOverwrites.set(overwrites, REASON);
+        if (ch.topic && 'topic' in channel && !channel.topic) await channel.setTopic(ch.topic, REASON);
+      } else {
+        const base = { name: ch.name, parent: parent.id, topic: ch.topic, permissionOverwrites: overwrites, reason: REASON };
+        if (type === ChannelType.GuildForum) {
+          try {
+            channel = await guild.channels.create({
+              ...base, type,
+              availableTags: ch.tags.map(([name, emoji]) => ({ name, emoji: { id: null, name: emoji } })),
+            });
+          } catch (err) {
+            console.warn(`  ! #${ch.name} could not be a forum (${err.message}); made it a text channel.`);
+            type = ChannelType.GuildText;
+          }
+        }
+        if (!channel) channel = await guild.channels.create({ ...base, type });
+      }
+      ids[ch.id] = channel.id;
+    }
+  }
+
+  await guild.channels.fetch();
+  for (const name of DEFAULT_CATEGORIES) {
+    const cat = findChannel(guild, name, ChannelType.GuildCategory);
+    if (cat && !guild.channels.cache.some((c) => c.parentId === cat.id)) await cat.delete(REASON);
+  }
+
+  const everyone = guild.roles.everyone;
+  if (EVERYONE_DENY.some((p) => everyone.permissions.has(p))) {
+    await everyone.setPermissions(everyone.permissions.remove(EVERYONE_DENY), REASON);
+  }
+  await guild.edit({
+    defaultMessageNotifications: GuildDefaultMessageNotifications.OnlyMentions,
+    explicitContentFilter: GuildExplicitContentFilter.AllMembers,
+    verificationLevel: GuildVerificationLevel.Low,
+    reason: REASON,
+  });
+
+  const owner = await guild.members.fetch(guild.ownerId).catch(() => null);
+  if (owner && !owner.roles.cache.has(roleIds.admin)) await owner.roles.add(roleIds.admin, REASON);
+
+  const raw = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) : {};
+  const prev = raw[guild.id] || {};
+  raw[guild.id] = {
+    ...prev,
+    name: 'grime-and-punishment',
+    timeZone: prev.timeZone || 'America/Chicago',
+    features: FEATURES,
+    channels: {
+      ...(prev.channels || {}),
+      rules: ids.rules,
+      serverInfo: ids.about,
+      help: ids.help,
+      commandLog: ids.commandLog,
+      defaultVoice: ids.voice,
+    },
+    roles: {
+      ...(prev.roles || {}),
+      admin: roleIds.admin,
+      staff: roleIds.staff,
+      member: roleIds.member,
+      onJoin: roleIds.member,
+    },
+    ai: {
+      ...(prev.ai || {}),
+      // Kept once set: the mode is a decision taken later, with /sheo mode.
+      mode: prev.ai?.mode || 'shadow',
+      standing: STANDING,
+      powers: POWERS,
+      titles: { admin: 'Developer', staff: 'Moderator' },
+      offLimits: [ids['cat:PLAYTEST'], ids['cat:TEAM']],
+    },
+    // Only for the calendar for now. Once the game has its own Steam App ID it
+    // goes in steamApps, and its Steam announcements land in #announcements.
+    gameNews: {
+      steamApps: [],
+      ...(prev.gameNews || {}),
+      channel: ids.announcements,
+      eventsChannel: ids.general,
+    },
+    playtest: {
+      ...(prev.playtest || {}),
+      role: roleIds.tester,
+      channel: ids.downloads,
+      log: ids.signatures,
+      post: ids.join,
+      game: 'Grime & Punishment',
+      downloads: { ...DOWNLOADS, ...(prev.playtest?.downloads || {}), channel: ids.downloads },
+    },
+  };
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + '\n', 'utf8');
+  return { roleIds, ids };
+}
+
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+client.once(Events.ClientReady, async () => {
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
+    if (!guild) return console.log(`Not in ${GUILD_ID}. Invite the bot first.`);
+    await guild.channels.fetch();
+    await guild.roles.fetch();
+    await guild.members.fetchMe();
+
+    const p = plan(guild);
+    console.log(`PLAN for ${guild.name} (${guild.id})`);
+    console.log(`  blocked: ${p.blocked.length ? p.blocked.join(' | ') : 'nothing'}`);
+    for (const s of p.steps) console.log(`  ${s}`);
+
+    if (!APPLY) return console.log('\n(dry run: pass --apply to execute)');
+    if (p.blocked.length) return console.log('\nRefusing to apply while blocked.');
+
+    const r = await apply(guild);
+    console.log('\nAPPLIED');
+    console.log(`  roles:    ${JSON.stringify(r.roleIds)}`);
+    console.log(`  channels: ${JSON.stringify(r.ids)}`);
+    console.log(`  wrote ${CONFIG_FILE}`);
+    console.log('\nRestart the service for the bot to pick this up.');
+  } catch (err) {
+    console.error(err);
+    process.exitCode = 1;
+  } finally {
+    await client.destroy();
+  }
+});
+
+client.login(process.env.DISCORD_TOKEN);

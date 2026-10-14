@@ -289,7 +289,7 @@ async function runAction(action, ctx) {
 
       // Discord refuses this for anyone at or above him anyway; saying so is
       // better than handing back a 50013 nobody can read.
-      if (member.roles.highest.position >= me.roles.highest.position) {
+      if (member.roles.highest.comparePositionTo(me.roles.highest) >= 0) {
         throw new Error(`<@${action.userId}> stands too high for me to rename`);
       }
       const name = String(action.name).replace(/\s+/g, ' ').trim().slice(0, CAPABILITIES.nick.maxLength);

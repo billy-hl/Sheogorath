@@ -34,7 +34,7 @@ async function grant(member, why) {
   // failure reads as a bare 50013 — worth saying out loud, because the fix is
   // dragging one role in the guild settings, not anything in this file.
   const me = member.guild.members.me;
-  if (!me || role.position >= me.roles.highest.position) {
+  if (!me || role.comparePositionTo(me.roles.highest) >= 0) {
     console.warn(`[AutoRole] ${member.guild.name}: cannot grant "${role.name}" — it sits at or above my own highest role.`);
     return;
   }

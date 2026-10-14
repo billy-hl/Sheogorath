@@ -53,7 +53,7 @@ const { scheduleEvents } = require('./services/events');
 const { scheduleLedger, isLedgerButton, handleButton: handleLedgerButton } = require('./services/ledger');
 const { onVoiceStateUpdate: onVoiceRoomUpdate, sweepOrphans } = require('./services/voicerooms');
 const { startControlApi } = require('./api/server');
-const { getGuildConfig, guildIds, hasFeature, channelId } = require('./config/guilds');
+const { getGuildConfig, guildIds, hasFeature, channelId, aiOffLimits } = require('./config/guilds');
 const {
   musicDenialReason,
   commandDenialReason,
@@ -66,6 +66,9 @@ const { watchDeletions } = require('./services/deletions');
 const { handleDirectMessage } = require('./services/dmRelay');
 const { askChatGPT } = require('./chat/discord');
 const { trimHistories } = require('./chat/respond');
+
+// Commands that send the model something from the channel they are used in.
+const AI_COMMANDS = new Set(['ai', 'ask', 'imagine', 'fact-check']);
 
 let lastInteractionTime = Date.now();
 // Per-user timers for the help channel — see queueHelpReply().
@@ -366,6 +369,10 @@ client.on('messageCreate', async (message) => {
   handleClipMessage(message);
 
   if (!hasFeature(guildId, 'ai')) return;
+
+  // A room whose talk must not reach the model (`ai.offLimits`): he does not
+  // read it, so naming him there wakes nothing.
+  if (aiOffLimits(guildId, message.channel)) return;
 
   // Answering him counts as addressing him.
   //
@@ -692,6 +699,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // Refused attempts are the ones most worth having a record of.
       logCommand(interaction, { status: 'denied', detail: denied, privileged });
       return interaction.reply({ content: denied, flags: 64 });
+    }
+
+    // The same rooms are off limits to the commands that hand the model what
+    // was said there, or what is asked there.
+    if (AI_COMMANDS.has(interaction.commandName) && aiOffLimits(interaction.guildId, interaction.channel)) {
+      logCommand(interaction, { status: 'denied', detail: 'ai off limits here', privileged });
+      return interaction.reply({ content: 'I do not listen in this channel. Ask me somewhere else.', flags: 64 });
     }
 
     // Check cooldown

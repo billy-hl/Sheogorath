@@ -141,6 +141,13 @@ function normalizeGuild(id, raw) {
       // Whether the local voice (ai/voice.js) may speak here. On unless a guild
       // says `false` — and nowhere at all unless LOCAL_VOICE_MODEL is set.
       localVoice: raw.ai?.localVoice !== false,
+      // Channels he never reads: channel, forum or category IDs, so a category
+      // covers every channel and thread in it. For rooms whose talk must not
+      // reach the model, like a playtest under NDA. He holds Administrator, so
+      // hiding a channel from him with permissions does nothing.
+      offLimits: Array.isArray(raw.ai?.offLimits)
+        ? raw.ai.offLimits.map(String).filter((id) => SNOWFLAKE.test(id))
+        : [],
     },
     // Roles members may give themselves from a button, and the only roles a
     // self-assign button is ever allowed to grant. Anything not on this list is
@@ -496,6 +503,18 @@ function channelId(guildId, key) {
 }
 
 /**
+ * Whether `channel` is one of the guild's `ai.offLimits`: listed itself, or
+ * inside a listed channel (a thread, a forum post) or category.
+ * @param {string} guildId
+ * @param {import('discord.js').Channel|null} channel
+ */
+function aiOffLimits(guildId, channel) {
+  const list = getGuildConfig(guildId)?.ai.offLimits;
+  if (!list?.length || !channel) return false;
+  return [channel.id, channel.parentId, channel.parent?.parentId].some((id) => id && list.includes(id));
+}
+
+/**
  * The guild the control API and other single-guild surfaces act on.
  * Explicit override first, then the legacy env var, then the only configured
  * guild if there happens to be exactly one.
@@ -565,6 +584,7 @@ module.exports = {
   aiTitles,
   withArticle,
   channelId,
+  aiOffLimits,
   primaryGuildId,
   reload,
   updateGuildConfig,

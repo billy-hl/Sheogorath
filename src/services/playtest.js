@@ -105,7 +105,7 @@ async function handleAgree(interaction, cfg) {
   }
 
   const me = interaction.guild.members.me;
-  if (!me || role.position >= me.roles.highest.position) {
+  if (!me || role.comparePositionTo(me.roles.highest) >= 0) {
     console.warn(`[Playtest] ${interaction.guild.name}: "${role.name}" sits at or above my highest role.`);
     await interaction.reply({ content: 'I am not allowed to hand that role out. Tell an admin.', ephemeral: true });
     return;

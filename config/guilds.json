@@ -353,5 +353,94 @@
       "maxTotal": 10,
       "namePattern": "{user}'s room"
     }
+  },
+  "1560039768845328394": {
+    "name": "grime-and-punishment",
+    "timeZone": "America/Chicago",
+    "features": [
+      "ai",
+      "moderation",
+      "events"
+    ],
+    "channels": {
+      "rules": "1560045622093152336",
+      "serverInfo": "1560045624273932309",
+      "help": "1560045627960987790",
+      "commandLog": "1560045638568378388",
+      "defaultVoice": "1560039769659146363"
+    },
+    "roles": {
+      "admin": "1560045617206788120",
+      "staff": "1560045618284601516",
+      "member": "1560045619874111528",
+      "onJoin": "1560045619874111528"
+    },
+    "ai": {
+      "mode": "shadow",
+      "standing": "This is the Discord of Grime & Punishment, a co-op game in the making: the worst adventuring party in the realm, sentenced to run the royal washhouse, scrubbing heroes’ laundry and robbing its pockets. You are the house madman here, a Daedric Prince who finds the whole sorry affair delightful: you greet newcomers, needle the regulars and keep the room civil. The Developers hold the authority. What you know of the game is what #about-the-game says and nothing more, so never invent features, dates or prices, and say nothing about builds or the playtest beyond sending people to #join-the-playtest.",
+      "powers": [
+        "note",
+        "memory",
+        "clearnotes",
+        "flag",
+        "delete",
+        "timeout",
+        "title",
+        "untitle",
+        "dm",
+        "say",
+        "react",
+        "pin",
+        "thread",
+        "poll",
+        "nick",
+        "channel"
+      ],
+      "titles": {
+        "admin": "Developer",
+        "staff": "Moderator"
+      },
+      "offLimits": [
+        "1560045629252571240",
+        "1560045636383023158"
+      ]
+    },
+    "gameNews": {
+      "steamApps": [],
+      "channel": "1560045622956920904",
+      "eventsChannel": "1560039769659146362"
+    },
+    "playtest": {
+      "role": "1560045619026858054",
+      "channel": "1560045630376775830",
+      "log": "1560045639520489553",
+      "post": "1560045625364717659",
+      "game": "Grime & Punishment",
+      "downloads": {
+        "repo": "bjmcallister/dirty-laundry",
+        "tag": "latest-build",
+        "files": [
+          {
+            "label": "Windows",
+            "emoji": "🪟",
+            "asset": "GrimeAndPunishment-Windows.zip",
+            "how": "Unzip it and run GrimeAndPunishment.exe, keeping the files next to it. If Windows warns about an unknown publisher, click More info, then Run anyway."
+          },
+          {
+            "label": "Mac",
+            "emoji": "🍎",
+            "asset": "GrimeAndPunishment-macOS.zip",
+            "how": "Unzip it and drag Grime & Punishment into Applications. The first time, macOS blocks it: open System Settings, Privacy & Security, scroll down and click Open Anyway."
+          },
+          {
+            "label": "Linux",
+            "emoji": "🐧",
+            "asset": "GrimeAndPunishment-Linux.zip",
+            "how": "Unzip it and run GrimeAndPunishment.x86_64. It needs Vulkan graphics drivers."
+          }
+        ],
+        "channel": "1560045630376775830"
+      }
+    }
   }
 }

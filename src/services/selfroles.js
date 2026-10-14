@@ -83,7 +83,7 @@ async function handleButton(interaction) {
   }
 
   const me = interaction.guild.members.me;
-  if (!me || role.position >= me.roles.highest.position) {
+  if (!me || role.comparePositionTo(me.roles.highest) >= 0) {
     console.warn(`[SelfRoles] ${interaction.guild.name}: "${role.name}" sits at or above my highest role.`);
     await interaction.reply({ content: 'I am not allowed to hand that one out. Tell a Warden.', ephemeral: true });
     return;

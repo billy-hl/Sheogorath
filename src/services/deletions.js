@@ -21,6 +21,8 @@
  * still the honest answer to "was anything deleted?", and better than silence.
  */
 
+const { aiOffLimits } = require('../config/guilds');
+
 /** Per-guild tail length. */
 const KEEP = 30;
 
@@ -37,6 +39,8 @@ const byGuild = new Map();
 function remember(message) {
   const guildId = message.guildId || message.guild?.id;
   if (!guildId) return;
+  // What he may not read, he may not remember having seen deleted either.
+  if (aiOffLimits(guildId, message.channel)) return;
 
   const list = byGuild.get(guildId) || [];
   list.push({

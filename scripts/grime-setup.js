@@ -45,6 +45,7 @@ const GOLD = 0xffd36e;
 const PINK = 0xff5fa2;
 const TEAL = 0x3fbfb0;
 const LILAC = 0xb39dff;
+const BRONZE = 0xe8a33d;
 const MUTED = 0x6e7480;
 
 const MODERATE = [
@@ -69,6 +70,10 @@ const ROLES = [
   { key: 'audio', name: 'Audio Engineer', color: LILAC, hoist: true, mentionable: true, perms: [] },
   { key: 'staff', name: 'Moderator', color: PINK, hoist: true, mentionable: true, perms: MODERATE },
   { key: 'tester', name: 'Tester', color: TEAL, hoist: true, mentionable: false, perms: [] },
+  // Sheogorath's own title here, and what colours his name: his managed role
+  // has no colour. Below the testers, so the member list shows him after the
+  // people. No powers; he has those from his managed role.
+  { key: 'crier', name: 'Town Crier', color: BRONZE, hoist: true, mentionable: false, perms: [] },
   { key: 'member', name: 'Member', color: MUTED, hoist: false, mentionable: false, perms: [] },
 ];
 
@@ -236,6 +241,7 @@ function plan(guild) {
   steps.push('[set] @everyone may not mention everyone, upload emoji or make Discord events');
   steps.push('[set] notifications default to mentions only; explicit media scanned for everyone; verified email to talk');
   steps.push(`[give] Developer to the server owner (${guild.ownerId})`);
+  steps.push(`[give] Town Crier to me (${guild.members.me.user.username})`);
   for (const [id, key] of Object.entries(TEAM_MEMBERS)) steps.push(`[give] ${ROLES.find((r) => r.key === key).name} to ${id}`);
   return { steps, blocked };
 }
@@ -334,6 +340,7 @@ async function apply(guild) {
 
   const owner = await guild.members.fetch(guild.ownerId).catch(() => null);
   if (owner && !owner.roles.cache.has(roleIds.admin)) await owner.roles.add(roleIds.admin, REASON);
+  if (!guild.members.me.roles.cache.has(roleIds.crier)) await guild.members.me.roles.add(roleIds.crier, REASON);
   for (const [id, key] of Object.entries(TEAM_MEMBERS)) {
     const member = await guild.members.fetch(id).catch(() => null);
     if (!member) { console.warn(`  ! ${id} is not in the server; no ${key} role for them.`); continue; }

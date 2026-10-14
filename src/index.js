@@ -22,7 +22,7 @@ try {
 }
 process.on('exit', () => { try { fs.unlinkSync(LOCK_FILE); } catch {} });
 process.on('SIGTERM', () => process.exit(0));
-const { Client, GatewayIntentBits, Events, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Events, Partials, MessageReferenceType } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
 const { setUserActivity } = require('./storage/state');
 const { handleInstagramLinks } = require('./services/instagram');
@@ -309,6 +309,11 @@ client.once(Events.ClientReady, async () => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+  // Discord's own notices (a pin, a join, a boost) are authored by whoever
+  // caused them, and a pin notice references the pinned message, so pinning one
+  // of his read as a reply to him: a billed call, then an answer Discord
+  // refuses, because nothing may reply to a system message.
+  if (message.system) return;
   lastInteractionTime = Date.now();
 
   // A DM is read out to the hall (services/dmRelay.js), and that is all.
@@ -936,6 +941,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
 async function isReplyToMe(message) {
   const id = message.reference?.messageId;
   if (!id) return false;
+  // A forward carries a reference too, but nobody is talking to him in one.
+  if (message.reference.type === MessageReferenceType.Forward) return false;
   try {
     const target =
       message.channel.messages.cache.get(id) ||

@@ -44,6 +44,7 @@ const REASON = 'Grime and Punishment setup';
 const GOLD = 0xffd36e;
 const PINK = 0xff5fa2;
 const TEAL = 0x3fbfb0;
+const LILAC = 0xb39dff;
 const MUTED = 0x6e7480;
 
 const MODERATE = [
@@ -59,11 +60,13 @@ const MODERATE = [
  * Highest first, and created in that order: Discord puts each new role at the
  * bottom, so the first one made ends up on top. `key` is where its ID goes in
  * config: `admin` is the bot-admin tier, `staff` the one below, `tester` the
- * playtest role.
+ * playtest role. `audio` is a title on the team, not a tier: it carries no
+ * powers, and only opens #team-chat.
  */
 const ROLES = [
   { key: 'admin', name: 'Developer', color: GOLD, hoist: true, mentionable: true,
     perms: [...MODERATE, PermissionFlagsBits.ManageEvents] },
+  { key: 'audio', name: 'Audio Engineer', color: LILAC, hoist: true, mentionable: true, perms: [] },
   { key: 'staff', name: 'Moderator', color: PINK, hoist: true, mentionable: true, perms: MODERATE },
   { key: 'tester', name: 'Tester', color: TEAL, hoist: true, mentionable: false, perms: [] },
   { key: 'member', name: 'Member', color: MUTED, hoist: false, mentionable: false, perms: [] },
@@ -103,7 +106,7 @@ const TREE = [
       { id: 'voice', name: 'General', type: ChannelType.GuildVoice },
     ] },
   { category: 'TEAM', access: 'team', channels: [
-      { id: 'teamChat', name: 'team-chat', topic: 'The developers.' },
+      { id: 'teamChat', name: 'team-chat', alsoSee: ['audio'], topic: 'The team.' },
       { id: 'commandLog', name: 'command-log', topic: 'Privileged commands, and what Sheogorath asks permission to do.' },
       { id: 'signatures', name: 'nda-signatures',
         topic: 'Every playtest agreement and download, and the NDA each copy of the game signs.' },
@@ -121,6 +124,12 @@ const EVERYONE_DENY = [
   PermissionFlagsBits.CreateGuildExpressions,
   PermissionFlagsBits.CreateEvents,
 ];
+
+// Who holds the team roles, beyond the owner (who is always a Developer).
+const TEAM_MEMBERS = {
+  '355959472834871298': 'admin', // Fisher, co-developer
+  '1332485520684617769': 'audio', // cookie
+};
 
 const FEATURES = ['ai', 'moderation', 'events'];
 
@@ -169,7 +178,7 @@ const findChannel = (guild, name, type) =>
  * post. Children always get theirs set explicitly rather than inherited, so a
  * locked channel in a hidden category stays hidden.
  */
-function overwritesFor(guild, roleIds, access, locked) {
+function overwritesFor(guild, roleIds, access, locked, alsoSee = []) {
   const rows = new Map();
   const add = (id, allow = [], deny = []) => {
     const row = rows.get(id) || { id, allow: [], deny: [] };
@@ -185,6 +194,7 @@ function overwritesFor(guild, roleIds, access, locked) {
     add(guild.roles.everyone.id, [], [V]);
     add(roleIds.admin, [V]);
   }
+  for (const k of alsoSee) add(roleIds[k], [V]);
   if (locked) {
     add(guild.roles.everyone.id, [], [
       PermissionFlagsBits.SendMessages,
@@ -221,6 +231,7 @@ function plan(guild) {
   steps.push('[set] @everyone may not mention everyone, upload emoji or make Discord events');
   steps.push('[set] notifications default to mentions only; explicit media scanned for everyone; verified email to talk');
   steps.push(`[give] Developer to the server owner (${guild.ownerId})`);
+  for (const [id, key] of Object.entries(TEAM_MEMBERS)) steps.push(`[give] ${ROLES.find((r) => r.key === key).name} to ${id}`);
   return { steps, blocked };
 }
 
@@ -249,7 +260,8 @@ async function apply(guild) {
   for (let i = 0; i < ladder.length; i++) {
     const want = ladder.length - i;
     if (want >= ceiling) {
-      console.warn(`  ! cannot place "${ladder[i].name}" at ${want}: my own role sits at ${ceiling}. Drag it to the top and re-run.`);
+      console.warn(`  ! cannot order the roles: my own role sits at position ${ceiling}, level with or under them. ` +
+        `Drag "${guild.members.me.roles.highest.name}" to the top in Server Settings, Roles, and re-run.`);
       break;
     }
     const role = guild.roles.cache.get(ladder[i].id);
@@ -271,7 +283,7 @@ async function apply(guild) {
 
     for (const ch of cat.channels) {
       let type = ch.type ?? ChannelType.GuildText;
-      const overwrites = overwritesFor(guild, roleIds, cat.access, ch.locked);
+      const overwrites = overwritesFor(guild, roleIds, cat.access, ch.locked, ch.alsoSee);
       let channel = findChannel(guild, ch.name, type)
         // A forum Discord refused last time was made as a text channel.
         || (type === ChannelType.GuildForum ? findChannel(guild, ch.name, ChannelType.GuildText) : null);
@@ -317,6 +329,11 @@ async function apply(guild) {
 
   const owner = await guild.members.fetch(guild.ownerId).catch(() => null);
   if (owner && !owner.roles.cache.has(roleIds.admin)) await owner.roles.add(roleIds.admin, REASON);
+  for (const [id, key] of Object.entries(TEAM_MEMBERS)) {
+    const member = await guild.members.fetch(id).catch(() => null);
+    if (!member) { console.warn(`  ! ${id} is not in the server; no ${key} role for them.`); continue; }
+    if (!member.roles.cache.has(roleIds[key])) await member.roles.add(roleIds[key], REASON);
+  }
 
   const raw = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) : {};
   const prev = raw[guild.id] || {};

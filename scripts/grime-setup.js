@@ -133,6 +133,11 @@ const TEAM_MEMBERS = {
 
 const FEATURES = ['ai', 'moderation', 'events'];
 
+// The game's own YouTube channel. New uploads are announced in #announcements.
+const YOUTUBE_FEEDS = [
+  { channelId: 'UCoK3ZBClJbb65L4YR21z12g', name: 'Grime & Punishment', handle: '@Grime_N_Punishment' },
+];
+
 const STANDING =
   'This is the Discord of Grime & Punishment, a co-op game in the making: the worst adventuring ' +
   'party in the realm, sentenced to run the royal washhouse, scrubbing heroes’ laundry and robbing ' +
@@ -373,6 +378,14 @@ async function apply(guild) {
       ...(prev.gameNews || {}),
       channel: ids.announcements,
       eventsChannel: ids.general,
+    },
+    youtube: {
+      ...(prev.youtube || {}),
+      channel: ids.announcements,
+      // No ping: an upload is not the interrupt going live is.
+      pingRole: prev.youtube?.pingRole || null,
+      pollMinutes: prev.youtube?.pollMinutes || 15,
+      feeds: YOUTUBE_FEEDS,
     },
     playtest: {
       ...(prev.playtest || {}),

@@ -409,6 +409,18 @@
         ],
         "channel": "1560045630376775830"
       }
+    },
+    "youtube": {
+      "channel": "1560045622956920904",
+      "pingRole": null,
+      "pollMinutes": 15,
+      "feeds": [
+        {
+          "channelId": "UCoK3ZBClJbb65L4YR21z12g",
+          "name": "Grime & Punishment",
+          "handle": "@Grime_N_Punishment"
+        }
+      ]
     }
   }
 }

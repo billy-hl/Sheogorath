@@ -183,6 +183,13 @@ function normalizeGuild(id, raw) {
       log: raw.playtest.log || null,
       post: raw.playtest.post || null,
       game: typeof raw.playtest.game === 'string' && raw.playtest.game.trim() ? raw.playtest.game.trim() : 'The game',
+      // How many testers the agreement button lets in; absent means no cap. A
+      // place is held by anyone with the role and none of the `uncounted` roles
+      // (the team, who test alongside), so taking the role off frees it.
+      limit: Number.isInteger(raw.playtest.limit) && raw.playtest.limit > 0 ? raw.playtest.limit : null,
+      uncounted: Array.isArray(raw.playtest.uncounted)
+        ? raw.playtest.uncounted.map(String).filter((id) => SNOWFLAKE.test(id))
+        : [],
       downloads: raw.playtest.downloads && /^[\w.-]+\/[\w.-]+$/.test(String(raw.playtest.downloads.repo || '')) ? {
         repo: String(raw.playtest.downloads.repo),
         tag: typeof raw.playtest.downloads.tag === 'string' && raw.playtest.downloads.tag ? raw.playtest.downloads.tag : 'latest',

@@ -44,7 +44,8 @@ function buildMessage(guildId) {
       `${cfg.game} is not out yet, so everything in ${channelOf(cfg)} is confidential.\n\n` +
       'Press **I agree** to confirm you will not share, stream, post or talk about the game, its builds, ' +
       'screenshots, or anything from that channel with anyone outside the test group, and that you will ' +
-      'sign the NDA in the game when you first open it. The channel opens to you straight away.'
+      'sign the NDA in the game when you first open it. The channel opens to you straight away.' +
+      (cfg.limit ? `\n\nThere are **${cfg.limit} places**, first come, first served.` : '')
     );
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(AGREE).setLabel('I agree, let me in').setEmoji('✅').setStyle(ButtonStyle.Success)
@@ -117,21 +118,64 @@ async function handleAgree(interaction, cfg) {
     return;
   }
 
-  try {
-    await member.roles.add(role, 'agreed to the playtest terms');
-  } catch (err) {
-    console.warn(`[Playtest] ${interaction.guild.name}: could not give "${role.name}": ${err?.message || err}`);
-    await interaction.reply({ content: 'That did not work. Tell an admin.', ephemeral: true });
+  // Counting the testers means fetching the member list, which can outlast the
+  // three seconds Discord gives a reply.
+  await interaction.deferReply({ ephemeral: true });
+  const outcome = await oneAtATime(interaction.guild.id, () => admit(interaction, cfg, role, member));
+  if (outcome.error) {
+    console.warn(`[Playtest] ${interaction.guild.name}: could not give "${role.name}": ${outcome.error}`);
+    await interaction.editReply('That did not work. Tell an admin.');
     return;
   }
 
-  await interaction.reply({
-    content: `You are in: ${channelOf(cfg)}. Nothing about the game leaves the test group. ` +
-      'The game will ask you to sign its NDA the first time you open it.',
-    ephemeral: true,
-  });
+  const stamp = `<t:${Math.floor(Date.now() / 1000)}:f>`;
+  if (outcome.full) {
+    await interaction.editReply(
+      `All ${cfg.limit} places in the playtest are taken. If one opens up, pressing the button again will let you in.`
+    );
+    await record(interaction, cfg, `🚫 <@${member.id}> (**${member.user.username}**, ${member.id}) pressed I agree, ` +
+      `but all ${cfg.limit} places are taken, ${stamp}.`);
+    return;
+  }
+
+  await interaction.editReply(
+    `You are in: ${channelOf(cfg)}. Nothing about the game leaves the test group. ` +
+    'The game will ask you to sign its NDA the first time you open it.'
+  );
   await record(interaction, cfg, `✅ <@${member.id}> (**${member.user.username}**, ${member.id}) agreed to the playtest terms in Discord, ` +
-    `<t:${Math.floor(Date.now() / 1000)}:f>.`);
+    `${stamp}${outcome.place ? ` (place ${outcome.place} of ${cfg.limit})` : ''}.`);
+}
+
+/**
+ * Gives the role if there is a place for it. A place is held by anyone with
+ * the role who has none of `uncounted` (the team, testing alongside), so taking
+ * the role off a tester frees theirs.
+ * @returns {Promise<{full?: boolean, place?: number, error?: string}>}
+ */
+async function admit(interaction, cfg, role, member) {
+  try {
+    let place = null;
+    if (cfg.limit) {
+      await interaction.guild.members.fetch();
+      const held = role.members.filter((m) => !cfg.uncounted.some((id) => m.roles.cache.has(id))).size;
+      const counts = !cfg.uncounted.some((id) => member.roles.cache.has(id));
+      if (counts && held >= cfg.limit) return { full: true };
+      if (counts) place = held + 1;
+    }
+    await member.roles.add(role, 'agreed to the playtest terms');
+    return { place };
+  } catch (err) {
+    return { error: err?.message || String(err) };
+  }
+}
+
+// One agreement at a time in each guild, so two presses for the last place
+// cannot both be counted before either is given the role.
+const queues = new Map();
+function oneAtATime(guildId, fn) {
+  const run = (queues.get(guildId) || Promise.resolve()).then(fn);
+  queues.set(guildId, run.catch(() => {}));
+  return run;
 }
 
 async function handleDownload(interaction, cfg) {
@@ -186,4 +230,27 @@ async function handleDownload(interaction, cfg) {
   }
 }
 
-module.exports = { isPlaytestButton, handleButton, buildMessage, buildDownloadsMessage };
+/**
+ * Keeps one build notice in the downloads channel: when a webhook posts there
+ * (the game's build workflow saying a new build is up), the earlier posts from
+ * that same webhook are deleted, so the channel says only what is current.
+ * Interaction replies come through the bot's own application webhook and are
+ * left alone.
+ */
+function watchBuildNotices(client) {
+  client.on('messageCreate', async (message) => {
+    if (!message.webhookId || !message.guildId || message.webhookId === message.client.application?.id) return;
+    const channel = configFor(message.guildId)?.downloads?.channel;
+    if (!channel || message.channelId !== channel) return;
+    try {
+      const earlier = await message.channel.messages.fetch({ before: message.id, limit: 50 });
+      for (const old of earlier.values()) {
+        if (old.webhookId === message.webhookId) await old.delete();
+      }
+    } catch (err) {
+      console.warn(`[Playtest] ${message.guild?.name}: could not clear the old build notices: ${err?.message || err}`);
+    }
+  });
+}
+
+module.exports = { isPlaytestButton, handleButton, buildMessage, buildDownloadsMessage, watchBuildNotices };

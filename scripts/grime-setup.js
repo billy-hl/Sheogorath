@@ -401,6 +401,10 @@ async function apply(guild) {
       log: ids.signatures,
       post: ids.join,
       game: 'Grime & Punishment',
+      // Kept once set, like the AI mode: the cap is a decision taken later.
+      limit: prev.playtest?.limit || 20,
+      // The team tests too, without using up a tester's place.
+      uncounted: [roleIds.admin, roleIds.audio, roleIds.staff],
       downloads: { ...DOWNLOADS, ...(prev.playtest?.downloads || {}), channel: ids.downloads },
     },
   };

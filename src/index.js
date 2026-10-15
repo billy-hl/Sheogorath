@@ -40,7 +40,7 @@ const { isSexualizedTextImage } = require('./services/textImageMod');
 const { trackCommand } = require('./commands/stats');
 const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole');
 const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./services/selfroles');
-const { isPlaytestButton, handleButton: handlePlaytestButton } = require('./services/playtest');
+const { isPlaytestButton, handleButton: handlePlaytestButton, watchBuildNotices } = require('./services/playtest');
 const { scheduleStreamWatch } = require('./services/twitch');
 const { scheduleVideoWatch } = require('./services/youtube');
 const { scheduleUfcEvents } = require('./services/ufc');
@@ -150,6 +150,7 @@ client.once(Events.ClientReady, async () => {
   // lazily on the first question about it: by the time somebody asks what was
   // removed, the only record is the one we were already keeping.
   watchDeletions(client);
+  watchBuildNotices(client);
 
   // Spend warnings go to the owner by DM, and nowhere else. The budget is one
   // ceiling over one API key, and only the owner can raise it; a server's own

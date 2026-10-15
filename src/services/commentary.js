@@ -124,8 +124,11 @@ function speakable(text) {
     .trim();
 }
 
-/** The model's JSON, checked and trimmed to what we will actually say. */
-function parseScript(raw, duration) {
+/**
+ * The model's JSON, checked and trimmed to what we will actually say: no more
+ * than `cap` characters (what's left of the day's voice, at most a clip's).
+ */
+function parseScript(raw, duration, cap = MAX_CHARACTERS) {
   const match = String(raw).match(/\{[\s\S]*\}/);
   if (!match) throw new Error('he had nothing to say about it');
   const data = JSON.parse(match[0]);
@@ -136,7 +139,7 @@ function parseScript(raw, duration) {
     const text = speakable(line?.text || '');
     const at = Number(line?.at);
     if (!text || !Number.isFinite(at)) continue;
-    if (chars + text.length > MAX_CHARACTERS) break;
+    if (chars + text.length > cap) break;
     chars += text.length;
     lines.push({ at: Math.min(Math.max(0, at), duration), text });
   }
@@ -218,7 +221,7 @@ async function make({ source, info, dir, poster, game, about, budgetMB }) {
     caption: `Still at ${at.toFixed(1)}s:`, jpeg,
   })), { rawSystemPrompt: system, maxTokens: 900 });
 
-  const script = parseScript(raw, info.duration);
+  const script = parseScript(raw, info.duration, Math.min(MAX_CHARACTERS, remaining()));
   console.log(`[Commentary] "${script.title}": ${script.lines.length} line(s), ${script.chars} characters`);
 
   const placed = await voice(script.lines, dir, audioProbe(run));

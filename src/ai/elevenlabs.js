@@ -5,8 +5,10 @@
  * Only the clip commentary talks out loud (services/commentary.js), one short
  * request per line he says over the footage. The key in .env is scoped to
  * speech alone, so it cannot read the account's quota back: the cap below is
- * the only thing between a busy clips channel and an empty plan, and it is
- * deliberately well under what a starter plan allows in a month.
+ * the only thing between a busy clips channel and an empty plan.
+ *
+ * The plan is 40,000 characters a month, and the same voice narrates the Grime
+ * & Punishment devlogs (the game repo's devlog/tts.py, about 2,000 a video).
  */
 
 const API = 'https://api.elevenlabs.io/v1/text-to-speech';
@@ -17,11 +19,13 @@ const MODEL = 'eleven_multilingual_v2';
 /**
  * Characters he may speak in a day, across every guild.
  *
- * A clip's commentary is a few hundred characters, so this is roughly twenty
- * clips. Kept in memory: a restart resets it, which at worst doubles one day's
- * spend, and not worth a data file for.
+ * 30,000 a month at most, which leaves the devlogs about 10,000. A clip's
+ * commentary is up to 700 characters (services/commentary.js), so this is one
+ * or two clips a day at full length; later ones get what is left. Kept in
+ * memory: a restart resets it, which at worst doubles one day's spend, and not
+ * worth a data file for.
  */
-const DAILY_CHARACTERS = 6000;
+const DAILY_CHARACTERS = 1000;
 
 let spentOn = null;
 let spent = 0;

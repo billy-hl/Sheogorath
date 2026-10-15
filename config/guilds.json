@@ -427,6 +427,9 @@
           "handle": "@Grime_N_Punishment"
         }
       ]
-    }
+    },
+    "autoPublish": [
+      "1560045622956920904"
+    ]
   }
 }

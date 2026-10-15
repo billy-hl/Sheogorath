@@ -61,6 +61,9 @@ function normalizeGuild(id, raw) {
     // it, and the clock he is told the time by.
     timeZone: validTimeZone(raw.timeZone) || 'America/Chicago',
     features,
+    // Announcement channels whose posts by him are published to the servers
+    // that follow them (services/autopublish.js).
+    autoPublish: Array.isArray(raw.autoPublish) ? raw.autoPublish.map(String).filter((id) => SNOWFLAKE.test(id)) : [],
     channels: {
       // Where now-playing cards are posted.
       music: channels.music || null,

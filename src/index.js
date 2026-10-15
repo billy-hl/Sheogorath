@@ -41,6 +41,7 @@ const { trackCommand } = require('./commands/stats');
 const { onGuildMemberAdd, onGuildMemberUpdate } = require('./services/autorole');
 const { isSelfRoleButton, handleButton: handleSelfRoleButton } = require('./services/selfroles');
 const { isPlaytestButton, handleButton: handlePlaytestButton, watchBuildNotices } = require('./services/playtest');
+const { watchOwnPosts } = require('./services/autopublish');
 const { scheduleStreamWatch } = require('./services/twitch');
 const { scheduleVideoWatch } = require('./services/youtube');
 const { scheduleUfcEvents } = require('./services/ufc');
@@ -151,6 +152,7 @@ client.once(Events.ClientReady, async () => {
   // removed, the only record is the one we were already keeping.
   watchDeletions(client);
   watchBuildNotices(client);
+  watchOwnPosts(client);
 
   // Spend warnings go to the owner by DM, and nowhere else. The budget is one
   // ceiling over one API key, and only the owner can raise it; a server's own

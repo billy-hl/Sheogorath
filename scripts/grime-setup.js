@@ -86,7 +86,9 @@ const TREE = [
   { category: 'WELCOME', access: 'public', channels: [
       { id: 'rules', name: 'rules', locked: true,
         topic: 'How this place works. Sheogorath quotes this channel when asked, so keep it true.' },
-      { id: 'announcements', name: 'announcements', locked: true,
+      // An Announcement channel, which other servers can follow, once Community is on:
+      // until then Discord has no such type here, and it stays a text channel.
+      { id: 'announcements', name: 'announcements', locked: true, announcement: true,
         topic: 'News about the game, from the developers.' },
       { id: 'about', name: 'about-the-game', locked: true,
         topic: 'What Grime & Punishment is. Sheogorath answers questions about the game from this channel.' },
@@ -113,6 +115,9 @@ const TREE = [
   { category: 'TEAM', access: 'team', channels: [
       { id: 'teamChat', name: 'team-chat', alsoSee: ['audio'], topic: 'The team.' },
       { id: 'commandLog', name: 'command-log', topic: 'Privileged commands, and what Sheogorath asks permission to do.' },
+      // Discord's own notices for moderators, which a Community server must have a
+      // channel for. Kept apart from command-log, which the team acts on.
+      { id: 'modUpdates', name: 'mod-updates', topic: 'Discord posts its notices for moderators here. Not the bot.' },
       { id: 'signatures', name: 'nda-signatures',
         topic: 'Every playtest agreement and download, and the NDA each copy of the game signs.' },
     ] },
@@ -181,7 +186,13 @@ const REQUIRED = [
 const lower = (s) => String(s).toLowerCase();
 const findRole = (guild, name) => guild.roles.cache.find((r) => lower(r.name) === lower(name)) || null;
 const findChannel = (guild, name, type) =>
-  guild.channels.cache.find((c) => lower(c.name) === lower(name) && c.type === type) || null;
+  guild.channels.cache.find((c) => lower(c.name) === lower(name) && [].concat(type).includes(c.type)) || null;
+// The types a channel of ours may already be: an announcement channel starts
+// as text, and a forum Discord refused was made as text.
+const typesOf = (ch) => ch.announcement ? [ChannelType.GuildAnnouncement, ChannelType.GuildText]
+  : ch.type === ChannelType.GuildForum ? [ChannelType.GuildForum, ChannelType.GuildText]
+    : [ch.type ?? ChannelType.GuildText];
+const hasNews = (guild) => guild.features.includes('NEWS');
 
 /**
  * Overwrites for a channel or category: who sees it, and whether only staff
@@ -229,10 +240,13 @@ function plan(guild) {
     steps.push(`[${existingCat ? 'adopt' : 'create'}] category ${cat.category} (${cat.access})`);
     for (const ch of cat.channels) {
       const type = ch.type ?? ChannelType.GuildText;
-      const existing = findChannel(guild, ch.name, type);
+      const existing = findChannel(guild, ch.name, typesOf(ch));
       const move = existing && (!existingCat || existing.parentId !== existingCat.id);
+      const news = !ch.announcement ? ''
+        : existing?.type === ChannelType.GuildAnnouncement ? ', announcement'
+          : hasNews(guild) ? ', make it an announcement channel' : ', announcement once Community is on';
       steps.push(`    [${existing ? (move ? 'adopt+move' : 'adopt') : 'create'}] ${type === ChannelType.GuildVoice ? '🔊 ' : '#'}${ch.name}` +
-        `${ch.locked ? ', staff post only' : ''}${type === ChannelType.GuildForum ? ', forum' : ''}`);
+        `${ch.locked ? ', staff post only' : ''}${type === ChannelType.GuildForum ? ', forum' : ''}${news}`);
     }
   }
   for (const name of DEFAULT_CATEGORIES) {
@@ -240,6 +254,7 @@ function plan(guild) {
   }
   steps.push('[set] @everyone may not mention everyone, upload emoji or make Discord events');
   steps.push('[set] notifications default to mentions only; explicit media scanned for everyone; verified email to talk');
+  if (guild.features.includes('COMMUNITY')) steps.push("[set] Community: rules in #rules, Discord's notices in #mod-updates");
   steps.push(`[give] Developer to the server owner (${guild.ownerId})`);
   steps.push(`[give] Town Crier to me (${guild.members.me.user.username})`);
   for (const [id, key] of Object.entries(TEAM_MEMBERS)) steps.push(`[give] ${ROLES.find((r) => r.key === key).name} to ${id}`);
@@ -295,10 +310,12 @@ async function apply(guild) {
     for (const ch of cat.channels) {
       let type = ch.type ?? ChannelType.GuildText;
       const overwrites = overwritesFor(guild, roleIds, cat.access, ch.locked, ch.alsoSee);
-      let channel = findChannel(guild, ch.name, type)
-        // A forum Discord refused last time was made as a text channel.
-        || (type === ChannelType.GuildForum ? findChannel(guild, ch.name, ChannelType.GuildText) : null);
+      if (ch.announcement && hasNews(guild)) type = ChannelType.GuildAnnouncement;
+      let channel = findChannel(guild, ch.name, typesOf(ch));
       if (channel) {
+        if (ch.announcement && hasNews(guild) && channel.type === ChannelType.GuildText) {
+          channel = await channel.setType(ChannelType.GuildAnnouncement, REASON);
+        }
         if (channel.parentId !== parent.id) await channel.setParent(parent.id, { lockPermissions: false, reason: REASON });
         await channel.permissionOverwrites.set(overwrites, REASON);
         if (ch.topic && 'topic' in channel && !channel.topic) await channel.setTopic(ch.topic, REASON);
@@ -335,6 +352,8 @@ async function apply(guild) {
     defaultMessageNotifications: GuildDefaultMessageNotifications.OnlyMentions,
     explicitContentFilter: GuildExplicitContentFilter.AllMembers,
     verificationLevel: GuildVerificationLevel.Low,
+    // Only a Community server has these.
+    ...(guild.features.includes('COMMUNITY') ? { rulesChannel: ids.rules, publicUpdatesChannel: ids.modUpdates } : {}),
     reason: REASON,
   });
 
@@ -354,6 +373,8 @@ async function apply(guild) {
     name: 'grime-and-punishment',
     timeZone: prev.timeZone || 'America/Chicago',
     features: FEATURES,
+    // What he posts here is published to the servers that follow the channel.
+    autoPublish: [ids.announcements],
     channels: {
       ...(prev.channels || {}),
       rules: ids.rules,

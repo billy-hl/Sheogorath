@@ -55,6 +55,7 @@ Commands are loaded from `src/commands/*.js`. Two things decide whether a comman
 - `/ask <question>` - Ask a real question and get a straight answer (no Sheogorath persona)
 - `/imagine <prompt>` - Command the Mad God to conjure an image from the chaos of your imagination
 - `/fact-check [messages]` - Fact-check the last few messages in this channel (default: 5, max: 20)
+- `/settledebate` - Sheogorath reads the last 20 messages, checks the claims on the web and rules on who is right (needs the `ai` feature)
 
 ### 🎵 Music
 *Requires the `music` feature, and bot admin — music controls are admin-only, including the now-playing buttons.*

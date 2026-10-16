@@ -225,6 +225,47 @@ async function getAIResponseWithImages(prompt, images, { rawSystemPrompt, maxTok
   return response.data.choices[0].message.content.trim();
 }
 
+/**
+ * One reply that may look things up on the web first, for when a wrong number
+ * would be worse than a slow one.
+ *
+ * Chat completions have no search; xAI's Responses API does, as a server-side
+ * tool. Each search is billed on top of the tokens, and the usage block reports
+ * both in `cost_in_usd_ticks`, so httpsPost meters it like any other call. The
+ * cap covers his reasoning as well as the reply, which is why it is generous.
+ *
+ * The model cites its sources inline as `[[1]](url)`. Those are dropped: a
+ * Discord message full of links unfurls into a wall of previews.
+ *
+ * @param {string} prompt
+ * @returns {Promise<string>}
+ */
+async function getAIResponseWithSearch(prompt, { rawSystemPrompt, maxTokens = 6000 } = {}) {
+  const response = await httpsPost(
+    'https://api.x.ai/v1/responses',
+    {
+      model: 'grok-4.3',
+      input: [
+        { role: 'system', content: rawSystemPrompt },
+        { role: 'user', content: prompt },
+      ],
+      tools: [{ type: 'web_search' }],
+      max_output_tokens: maxTokens,
+      store: false,
+    },
+    { Authorization: `Bearer ${process.env.GROK_API_KEY}` },
+    180000
+  );
+  if (response.status !== 200) throw new Error(`Grok API Error: ${response.status} - ${JSON.stringify(response.data).slice(0, 300)}`);
+  const text = (response.data.output || [])
+    .filter((item) => item.type === 'message')
+    .flatMap((item) => item.content || [])
+    .filter((part) => part.type === 'output_text')
+    .map((part) => part.text)
+    .join('\n');
+  return text.replace(/\s*\[\[\d+\]\]\([^)\s]*\)/g, '').trim();
+}
+
 function httpsGetBuffer(url, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, res => {
@@ -272,4 +313,4 @@ async function generateImage(prompt) {
   return await httpsGetBuffer(url);
 }
 
-module.exports = { buildSystemPrompt, getAIResponse, getAIResponseWithHistory, getAIResponseWithImages, extractMemoryFromMessage, generateImage };
+module.exports = { buildSystemPrompt, getAIResponse, getAIResponseWithHistory, getAIResponseWithImages, getAIResponseWithSearch, extractMemoryFromMessage, generateImage };

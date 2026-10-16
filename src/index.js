@@ -69,7 +69,7 @@ const { askChatGPT } = require('./chat/discord');
 const { trimHistories } = require('./chat/respond');
 
 // Commands that send the model something from the channel they are used in.
-const AI_COMMANDS = new Set(['ai', 'ask', 'imagine', 'fact-check']);
+const AI_COMMANDS = new Set(['ai', 'ask', 'imagine', 'fact-check', 'settledebate']);
 
 let lastInteractionTime = Date.now();
 // Per-user timers for the help channel — see queueHelpReply().

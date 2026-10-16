@@ -29,6 +29,7 @@ const COMMAND_FEATURES = {
   automod: 'automod',
 
   sheo: 'ai',
+  settledebate: 'ai',
 
   pickem: 'pickem',
 

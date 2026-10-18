@@ -16,6 +16,11 @@
  *
  * A presser is announced once per video id, kept in guild state so a restart
  * mid-conference does not announce it again.
+ *
+ * With WATCHCTL_URL set, each live presser is also handed to watchctl, the
+ * watch-party desktop on Leviathan, on every poll. Whether to switch its Go Live
+ * stream over is watchctl's call (auto-switch on, stream live, not done before),
+ * so this side stays fire-and-forget.
  */
 const axios = require('axios');
 const { EmbedBuilder } = require('discord.js');
@@ -111,6 +116,19 @@ async function announce(client, guildId, video) {
   console.log(`[UFC] ${guildId}: announced presser ${video.id} (${video.title}).`);
 }
 
+async function tellWatchctl(video) {
+  const base = process.env.WATCHCTL_URL;
+  if (!base) return;
+  try {
+    const res = await axios.post(`${base.replace(/\/$/, '')}/presser`,
+      { id: video.id, url: WATCH_URL + video.id, title: video.title },
+      { headers: { 'X-Watchctl': '1' }, timeout: 10000 });
+    if (res.data?.acted) console.log(`[UFC] watchctl is switching the stream to presser ${video.id}.`);
+  } catch (err) {
+    console.warn(`[UFC] watchctl presser hand-off failed: ${err?.message || err}`);
+  }
+}
+
 async function pollOnce(client) {
   if (!fightNight()) return;
   let live = [];
@@ -122,6 +140,7 @@ async function pollOnce(client) {
     console.warn(`[UFC] presser check failed: ${err?.response?.status || ''} ${err?.message || err}`);
     return;
   }
+  if (live[0]) await tellWatchctl(live[0]);
   for (const guildId of guildIds()) {
     for (const video of live) {
       try {

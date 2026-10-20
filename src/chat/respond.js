@@ -108,7 +108,7 @@ const aiCooldowns = new Map();
  *
  * The prompt no longer asks for that. This catches the model drifting back.
  */
-const CRUDE_NOTE = /\b(?:dick|cock|pecker|penis|cuck\w*|bitch\w*|tits?|titt(?:y|ies)|boobs?|cum(?:s|dump|slut)?|horny|perv(?:s|y|ert\w*)?|whores?|sluts?|pussy|fags?|faggot\w*|retard(?:s|ed)?|dom session)\b/i;
+const CRUDE_NOTE = /\b(?:\w*dick\w*|\w*fuck\w*|cock(?!tails?\b|roach|pit|atoo)\w*|\w*cockblock\w*|pecker|penis|cuck\w*|bitch\w*|tits?|titt(?:y|ies)|boobs?|cum(?:s|dump|slut)?|jizz\w*|nut(?:ted|ting)|horny|perv(?:s|y|ert\w*)?|whores?|sluts?|pussy|\w*fags?|faggot\w*|retard(?:s|ed)?|virgins?|simps?|handjobs?|bukkake|orgy|orgies|fingerblast\w*|dom session)\b/i;
 
 /**
  * Jot down what he made of somebody, once the conversation has gone quiet.

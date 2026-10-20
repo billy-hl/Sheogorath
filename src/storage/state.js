@@ -143,9 +143,9 @@ function getUserActivity(guildId, userId) {
  * How long an automatically-generated note stays readable, and how many of
  * them are kept.
  *
- * The auto-summariser is told to be crude, and in a room that enjoys that it
- * produces exactly what it is asked for. The problem was never the tone — it
- * was that a joke from Tuesday was still being read back into his context on
+ * The auto-summariser used to be told to be crude, and in a room that enjoyed
+ * that it produced exactly what it was asked for. The other problem was that a
+ * joke from Tuesday was still being read back into his context on
  * Saturday, so he would raise it cold, days after the room had moved on, and
  * every raising fed the summariser another copy of the same joke. Six notes
  * about one mishearing is not a memory of a person, it is a loop.
@@ -158,9 +158,22 @@ const AUTO_NOTE_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
 const MAX_AUTO_NOTES = 4;
 const MAX_MANUAL_NOTES = 20;
 
-/** Whether an auto note is still within its window. Legacy notes have no kind. */
+/**
+ * A note the summariser wrote rather than one a human asked him to keep.
+ *
+ * Notes saved before kinds existed have none, and nearly all of them came from
+ * the summariser in its crude days. They used to count as manual, which made
+ * them the only auto notes that never expired: on 2026-10-20 one from
+ * 2026-09-08 was still being read out. A human's note always carries
+ * kind 'manual', so a missing kind is treated as the summariser's.
+ */
+function isAuto(note) {
+  return note.kind !== 'manual';
+}
+
+/** Whether a note is still live. Manual notes always are; auto ones expire. */
 function isLive(note, now) {
-  if (note.kind !== 'auto') return true;
+  if (!isAuto(note)) return true;
   const at = Date.parse(note.addedAt || '');
   if (!Number.isFinite(at)) return false;
   return now - at < AUTO_NOTE_TTL_MS;
@@ -185,8 +198,8 @@ function prune(notes, now = Date.now()) {
     unique.push(note);
   }
 
-  const auto = unique.filter((n) => n.kind === 'auto').slice(-MAX_AUTO_NOTES);
-  const manual = unique.filter((n) => n.kind !== 'auto').slice(-MAX_MANUAL_NOTES);
+  const auto = unique.filter(isAuto).slice(-MAX_AUTO_NOTES);
+  const manual = unique.filter((n) => !isAuto(n)).slice(-MAX_MANUAL_NOTES);
 
   // Back into one list in the order they were recorded, so the reader still
   // sees a person's history rather than two segregated piles.

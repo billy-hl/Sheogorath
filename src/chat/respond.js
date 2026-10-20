@@ -98,11 +98,23 @@ const summarizeTimers = new Map();
 const aiCooldowns = new Map();
 
 /**
+ * Words that have no place in a note about a person.
+ *
+ * The summariser used to be told to be "crude, savage, NSFW, no filter", and it
+ * was. On 2026-10-20 the owner asked what was in his notes and was told, in
+ * front of the room, about his "tiny mortal pecker" — the local voice softening
+ * a six-week-old note that said worse. Every note is read into every reply to
+ * that person, so a roast written once was thrown back at them for weeks.
+ *
+ * The prompt no longer asks for that. This catches the model drifting back.
+ */
+const CRUDE_NOTE = /\b(?:dick|cock|pecker|penis|cuck\w*|bitch\w*|tits?|titt(?:y|ies)|boobs?|cum(?:s|dump|slut)?|horny|perv(?:s|y|ert\w*)?|whores?|sluts?|pussy|fags?|faggot\w*|retard(?:s|ed)?|dom session)\b/i;
+
+/**
  * Jot down what he made of somebody, once the conversation has gone quiet.
  *
- * Unchanged from where it used to live, except that it is keyed by space rather
- * than by guild — the storage layer treats that key as opaque, so a stream can
- * accumulate notes the same way a server does.
+ * Keyed by space rather than by guild — the storage layer treats that key as
+ * opaque, so a stream can accumulate notes the same way a server does.
  */
 async function summarizeUserConversation(spaceId, userId, username, history) {
   if (!history || history.length < SUMMARIZE_MIN_MESSAGES) return;
@@ -120,10 +132,12 @@ async function summarizeUserConversation(spaceId, userId, username, history) {
 
     console.log(`[AutoNote] Running summarization for ${username} (${history.length} messages in history)`);
     const raw = await getAIResponse(
-      `Based on this chat, write 1-2 short, brutally honest, NSFW and funny notes about "${username}". `
-      + `Be crude, savage, and specific. No filter. `
-      + `Return ONLY a JSON array of short strings. Example: ["Asks dumb questions after midnight", "Obsessed with UFC like a caveman"]\n\n${transcript}`,
-      { rawSystemPrompt: 'You are a crude, uncensored note-taker. Respond only with a valid JSON array of strings. No extra text.', maxTokens: 100 },
+      `Based on this chat, write 0-2 short notes about "${username}" that would help you talk to them `
+      + `next time: what they are into, what they asked about, how they like to be spoken to. `
+      + `Plain observations, a little wry at most. No insults, nothing sexual, nothing about their body, `
+      + `and nothing taken from a joke or bit the room was running. If nothing is worth noting, return []. `
+      + `Return ONLY a JSON array of short strings. Example: ["Follows the UFC closely", "Asks about game graphics settings"]\n\n${transcript}`,
+      { rawSystemPrompt: 'You keep brief, neutral notes about people in a chat. Respond only with a valid JSON array of strings. No extra text.', maxTokens: 100 },
     );
     console.log(`[AutoNote] Raw response for ${username}:`, raw);
 
@@ -132,18 +146,22 @@ async function summarizeUserConversation(spaceId, userId, username, history) {
     const notes = JSON.parse(jsonMatch[0]);
     if (!Array.isArray(notes)) return;
 
+    let saved = 0;
     for (const note of notes) {
       // A jotting, and only a jotting. This used to land in long-term memory as
       // well, which meant the short-lived crude line was also filed as a durable
       // fact about the person — the note would age out while its twin stayed in
       // the prompt forever, so nothing ever actually expired.
-      if (typeof note === 'string' && note.trim()) {
-        addUserNote(spaceId, userId, note.trim(), { kind: 'auto' });
+      if (typeof note !== 'string' || !note.trim()) continue;
+      if (CRUDE_NOTE.test(note)) {
+        console.warn(`[AutoNote] Dropped a crude note for ${username}: ${note.slice(0, 120)}`);
+        continue;
       }
+      if (addUserNote(spaceId, userId, note.trim(), { kind: 'auto' })) saved++;
     }
 
     setUserActivity(spaceId, userId, { lastNoteSummary: new Date().toISOString() });
-    console.log(`[AutoNote] Saved ${notes.length} note(s) for ${username}`);
+    console.log(`[AutoNote] Saved ${saved} note(s) for ${username}`);
   } catch (e) {
     console.warn('[AutoNote] Summarization failed:', e?.message || e);
   }

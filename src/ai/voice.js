@@ -84,6 +84,21 @@ const MODERATION_CLAIM = /\b(I('ve| have)?|has been|have been|is now|are now)\b[
 const STOCK_REFUSAL = /\b(I (cannot|can't|can not|am unable to|won't be able to|'m unable to) (provide|help|assist|share|give)|as an AI\b|I'm (just )?an AI\b|as a language model|I'm not able to (provide|help))/i;
 
 /**
+ * Take the reply out of a <message content="..."> or <message>...</message>
+ * wrapper, if the local voice put it in one. The closing quote and tag are
+ * optional, because it does not always write them.
+ */
+function unwrapMessageTag(text) {
+  const open = /^<message\b[^>]*?\bcontent\s*=\s*(["'])/i.exec(text);
+  if (open) {
+    const close = new RegExp(`${open[1]}\\s*(?:\\/?>)?\\s*(?:<\\/message>)?$`, 'i');
+    return text.slice(open[0].length).replace(close, '').trim();
+  }
+  if (!/^<message\b[^>]*>/i.test(text)) return text;
+  return text.replace(/^<message\b[^>]*>/i, '').replace(/<\/message>$/i, '').trim();
+}
+
+/**
  * Clean up what the local voice gets wrong about formatting, without touching
  * what it says.
  *
@@ -98,9 +113,11 @@ const STOCK_REFUSAL = /\b(I (cannot|can't|can not|am unable to|won't be able to|
  *     the parser needs, so they did nothing and were posted as text.
  *   - Closing questions. It ended nearly every reply with "How may I serve
  *     you? Anything else?" — see trimClosingQuestions.
+ *   - <message content="..."> — the whole reply wrapped in a made-up tag, as
+ *     posted to the main hall on 2026-10-20. See unwrapMessageTag.
  */
 function tidy(text) {
-  let t = text.trim();
+  let t = unwrapMessageTag(text.trim());
   t = t.replace(/^(\[\d{1,2}:\d{2}\]\s*)?(Sheogorath|you|Uncle Sheo|the Mad God)\s*:\s*/i, '');
   t = t.replace(/^[ \t]*\*[^*\n]{1,80}\*[ \t]*/gm, '');
   t = t.replace(/\*([^*\n]{1,80})\*/g, (whole, inner) => (/\s/.test(inner.trim()) ? '' : inner));

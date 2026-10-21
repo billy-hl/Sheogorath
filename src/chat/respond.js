@@ -61,20 +61,14 @@ const SEEING =
   + 'actually in them, in your own voice. Never say you cannot see images, and never describe a '
   + 'picture you were not shown]:';
 
-/**
- * The extra instruction for a turn that asks where a picture came from.
- *
- * The face rule is the reason this is not simply "search for it": a reverse
- * lookup is also how a stranger's photo becomes a name, and a room full of
- * people egging him on is exactly where that would be asked for.
- */
+/** The extra instruction for a turn that asks where a picture came from. */
 const LOOKUP_SUFFIX =
   '\n\nTHIS TURN they want to know where a picture came from, and you have web search. Trace it: what '
   + 'it is from (a game, film, show, meme, artwork, news story), who made it, and where it first '
-  + 'appeared. Say how sure you are, and give at most two links to the best sources. Never try to work '
-  + 'out who an ordinary person in a photo is from their face or body, and do not name them; a famous '
-  + 'public image of a public figure is fine. If you cannot find it, say so plainly rather than '
-  + 'inventing a source. Stay in character — the facts are the point, but it is still you saying them.';
+  + 'appeared. If a person is in the picture, try to identify them — search for who they are, where '
+  + 'the photo appeared, and any profiles or accounts it leads to. Say how sure you are, and give at '
+  + 'most two links to the best sources. If you cannot find it, say so plainly rather than inventing '
+  + 'a source. Stay in character — the facts are the point, but it is still you saying them.';
 
 /** In place of the pictures, when Grok would not take them. */
 const UNOPENED =

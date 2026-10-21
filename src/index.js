@@ -508,22 +508,25 @@ async function isAnsweringSomebodyElse(message) {
  * answered on the last part instead of the first.
  */
 function queueHelpReply(message) {
-  // A screenshot with no words is the one thing he genuinely cannot answer —
-  // he has no eyes on attachments — and guessing at one is worse than leaving
-  // it for a human who can look.
-  if (!message.content.trim()) return;
+  // He can see screenshots now, so one with no words is a question too — the
+  // error dialog is usually the whole of it. A message with neither words nor
+  // anything attached is still nothing to answer.
+  if (!message.content.trim() && !message.attachments?.size) return;
 
   const key = `${message.channelId}:${message.author.id}`;
   const pending = helpTimers.get(key);
   if (pending) clearTimeout(pending.timer);
 
   const lines = [...(pending?.lines || []), message.content].filter(Boolean);
+  // Every message of the burst, so a screenshot sent before the words that
+  // explain it is still looked at.
+  const burst = [...(pending?.burst || []), message];
   const timer = setTimeout(() => {
     helpTimers.delete(key);
-    askChatGPT(message, { contentOverride: lines.join('\n'), maxTokens: HELP_MAX_TOKENS });
+    askChatGPT(message, { contentOverride: lines.join('\n'), maxTokens: HELP_MAX_TOKENS, imageSources: burst });
   }, HELP_DEBOUNCE_MS);
 
-  helpTimers.set(key, { timer, lines });
+  helpTimers.set(key, { timer, lines, burst });
 }
 
 /**

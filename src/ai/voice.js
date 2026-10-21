@@ -246,12 +246,14 @@ function describe(codes) {
  * @param {string}   [opts.username]
  * @param {boolean}  opts.allowLocal  the surface's say — false in #help and
  *                                    for catch-me-up questions
+ * @param {boolean}  [opts.hasImages] the turn carries pictures, which the
+ *                                    local model cannot see
  * @param {string}   [opts.where]     guild/room, for the log only
  * @param {() => Promise<string>} opts.askGrok  the existing Grok call
  * @returns {Promise<{ text: string, engine: 'local'|'grok', reason: string }>}
  */
 async function speak(opts) {
-  const { system, messages, maxTokens, turnText, replyBlock = '', chatBlock = '', username, allowLocal, where, askGrok } = opts;
+  const { system, messages, maxTokens, turnText, replyBlock = '', chatBlock = '', username, allowLocal, hasImages = false, where, askGrok } = opts;
   const started = Date.now();
 
   const viaGrok = async (reason, extra = {}) => {
@@ -267,6 +269,7 @@ async function speak(opts) {
 
   if (!voiceModel() || !guardModel()) return viaGrok('local voice off');
   if (!allowLocal) return viaGrok('room uses Grok');
+  if (hasImages) return viaGrok('has pictures to look at');
   if (INJECTION.test(turnText) || INJECTION.test(replyBlock)) return viaGrok('looks like an injection attempt');
   if (DISTRESS.test(turnText) || DISTRESS.test(ownRecentLines(chatBlock, username))) {
     return viaGrok('someone may be in distress');

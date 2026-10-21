@@ -62,7 +62,7 @@ async function resolveMentions(client, sourceContent) {
 }
 
 /** Everything the room can tell him, gathered per turn and never stored. */
-async function gatherContext(userMessage, { cleanedContent, ping, isHelpChannel, inParlour }) {
+async function gatherContext(userMessage, { cleanedContent, ping, isHelpChannel, inParlour, imageSources }) {
   const guildId = userMessage.guildId;
   const blocks = { ping };
   let deepRecall = false;
@@ -127,7 +127,23 @@ async function gatherContext(userMessage, { cleanedContent, ping, isHelpChannel,
     console.warn('[Deletions] Skipped:', err?.message || err);
   }
 
-  return { blocks, deepRecall };
+  // The pictures this turn is about. After the transcript on purpose: its fetch
+  // fills the channel cache, which is where "what they posted just before" is
+  // looked for, so that costs nothing extra.
+  let images = [];
+  let lookup = false;
+  try {
+    const { picturesFor, wantsLookup } = require('../services/vision');
+    const seen = await picturesFor(userMessage, { sources: imageSources, text: cleanedContent });
+    images = seen.images;
+    blocks.attachments = seen.note;
+    lookup = wantsLookup(cleanedContent);
+    if (lookup && images.length) console.log(`[Vision] Reverse lookup for ${userMessage.author.username}`);
+  } catch (err) {
+    console.warn('[Vision] Skipped:', err?.message || err);
+  }
+
+  return { blocks, deepRecall, images, lookup };
 }
 
 /**
@@ -209,8 +225,11 @@ async function sendReply(userMessage, reply) {
  *   messages' worth of question to hand and one message to reply to.
  * @param {number} [opts.maxTokens] override the reply ceiling. Left undefined
  *   everywhere but #help, so ordinary chat keeps the shared default.
+ * @param {import('discord.js').Message[]} [opts.imageSources] every message
+ *   whose pictures belong to the question — the whole burst, for #help.
+ *   Defaults to the message being answered.
  */
-async function askChatGPT(userMessage, { contentOverride = null, maxTokens = undefined } = {}) {
+async function askChatGPT(userMessage, { contentOverride = null, maxTokens = undefined, imageSources = [userMessage] } = {}) {
   const guildId = userMessage.guildId;
   const client = userMessage.client;
 
@@ -259,7 +278,7 @@ async function askChatGPT(userMessage, { contentOverride = null, maxTokens = und
         // most, and the local voice invented facts in testing.
         localVoice: !isHelpChannel && getGuildConfig(guildId)?.ai?.localVoice !== false,
       }),
-      context: () => gatherContext(userMessage, { cleanedContent, ping, isHelpChannel, inParlour }),
+      context: () => gatherContext(userMessage, { cleanedContent, ping, isHelpChannel, inParlour, imageSources }),
       executeActions: (actions, { followUps }) => executeActions(actions, {
         guild: userMessage.guild,
         message: userMessage,

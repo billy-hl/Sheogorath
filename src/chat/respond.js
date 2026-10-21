@@ -22,7 +22,10 @@
  *   persona()                  -> { systemBase, systemSuffix?, guildId?,
  *                                   historyDepth?, maxTokens? }
  *   context({ turn })          -> { blocks?: {chat, knowledge, deletions,
- *                                   reply, ping}, deepRecall?: boolean }
+ *                                   reply, attachments, ping},
+ *                                   deepRecall?: boolean,
+ *                                   images?: [{caption, mime, data}],
+ *                                   lookup?: boolean }
  *   executeActions(acts, ctx)  -> Array<result>   (omitted: he is read-only)
  *   resultNotes(results)       -> Array<string>   (what to append about them)
  *   remember                   -> boolean         (mine this turn for facts?)
@@ -44,6 +47,39 @@ const {
   getUserNotes, addUserNote, getUserActivity, setUserActivity,
 } = require('../storage/state');
 const { parseActions, scrub } = require('../ai/actions');
+const { isBudgetError } = require('../ai/budget');
+
+/**
+ * Said once, above the pictures, so he knows they are his to look at.
+ *
+ * Both halves are corrections of things he actually said: that he had seen
+ * pictures he had not, and that "as a text-based AI" he could not see one he
+ * had been sent.
+ */
+const SEEING =
+  '[You can SEE the picture(s) below — this person is showing them to you. Answer about what is '
+  + 'actually in them, in your own voice. Never say you cannot see images, and never describe a '
+  + 'picture you were not shown]:';
+
+/**
+ * The extra instruction for a turn that asks where a picture came from.
+ *
+ * The face rule is the reason this is not simply "search for it": a reverse
+ * lookup is also how a stranger's photo becomes a name, and a room full of
+ * people egging him on is exactly where that would be asked for.
+ */
+const LOOKUP_SUFFIX =
+  '\n\nTHIS TURN they want to know where a picture came from, and you have web search. Trace it: what '
+  + 'it is from (a game, film, show, meme, artwork, news story), who made it, and where it first '
+  + 'appeared. Say how sure you are, and give at most two links to the best sources. Never try to work '
+  + 'out who an ordinary person in a photo is from their face or body, and do not name them; a famous '
+  + 'public image of a public figure is fine. If you cannot find it, say so plainly rather than '
+  + 'inventing a source. Stay in character — the facts are the point, but it is still you saying them.';
+
+/** In place of the pictures, when Grok would not take them. */
+const UNOPENED =
+  '[They attached picture(s) that would not open for you. Say you could not look, rather than '
+  + 'guessing at what was in them]:\n';
 
 /**
  * How many past entries of a conversation he is handed by default.
@@ -225,11 +261,16 @@ async function respond(turn, surface) {
   // answers from the persona alone rather than not answering.
   let blocks = {};
   let deepRecall = false;
+  let images = [];
+  let lookup = false;
   if (surface.context) {
     try {
       const gathered = await surface.context({ turn }) || {};
       blocks = gathered.blocks || {};
       deepRecall = !!gathered.deepRecall;
+      images = gathered.images || [];
+      // A lookup with nothing to look up is an ordinary question.
+      lookup = !!gathered.lookup && images.length > 0;
     } catch (err) {
       console.warn('[Context] Skipped:', err?.message || err);
     }
@@ -248,21 +289,38 @@ async function respond(turn, surface) {
   // Reversed when somebody asks him to look back, because then the log IS the
   // question and belongs where the question is.
   const ordered = deepRecall
-    ? [notesContext, memoriesContext, blocks.knowledge, blocks.deletions, blocks.reply, blocks.ping, blocks.chat]
-    : [blocks.chat, notesContext, memoriesContext, blocks.knowledge, blocks.deletions, blocks.reply, blocks.ping];
+    ? [notesContext, memoriesContext, blocks.knowledge, blocks.deletions, blocks.reply, blocks.attachments, blocks.ping, blocks.chat]
+    : [blocks.chat, notesContext, memoriesContext, blocks.knowledge, blocks.deletions, blocks.reply, blocks.attachments, blocks.ping];
 
   const prefix = ordered.filter(Boolean).join('\n');
+  const lead = prefix + (prefix ? '\n' : '');
+
+  // The pictures sit between the context and the question, each under the
+  // caption saying where it came from, so the last thing in front of him is
+  // still what was asked.
+  const turnContent = () => (images.length
+    ? [
+      { type: 'text', text: lead + SEEING },
+      ...images.flatMap(({ caption, mime, data }) => [
+        { type: 'text', text: caption },
+        { type: 'image_url', image_url: { url: `data:${mime};base64,${data.toString('base64')}`, detail: 'high' } },
+      ]),
+      // A screenshot posted on its own in #help has no words to end on.
+      ...(text.trim() ? [{ type: 'text', text }] : []),
+    ]
+    : lead + text);
   const messages = [
     ...history.slice(-historyDepth),
-    { role: 'user', content: prefix + (prefix ? '\n' : '') + text },
+    { role: 'user', content: turnContent() },
   ];
 
   const askGrok = (extraSuffix = '') => getAIResponseWithHistory(messages, maxTokens, {
     systemBase,
-    systemSuffix: systemSuffix + extraSuffix,
+    systemSuffix: systemSuffix + (lookup ? LOOKUP_SUFFIX : '') + extraSuffix,
     // Which server he is standing in, if he is standing in one. Decides which
     // powers he is told he has and what that place calls the people above him.
     guildId,
+    search: lookup,
   });
 
   // The local voice speaks when the surface allows it and the turn passes
@@ -278,11 +336,26 @@ async function respond(turn, surface) {
     chatBlock: blocks.chat || '',
     username,
     allowLocal: localVoice && !deepRecall,
+    hasImages: images.length > 0,
     where: `${spaceId}/${roomId}`,
     askGrok: () => askGrok(extraSuffix),
   }).then((r) => r.text);
 
-  let assistantReply = await askOnce();
+  let assistantReply;
+  try {
+    assistantReply = await askOnce();
+  } catch (err) {
+    // A picture Grok will not take — a format it rejects, or one it refuses —
+    // should cost the picture, not the whole reply. Asked again without them,
+    // and told so, so he says he could not look instead of guessing. A spent
+    // budget or a timeout would only fail the same way twice.
+    if (!images.length || isBudgetError(err) || /timed? ?out/i.test(err.message || '')) throw err;
+    console.warn(`[Vision] Grok would not take ${images.length} image(s), asking without them:`, err.message);
+    images = [];
+    lookup = false;
+    messages[messages.length - 1] = { role: 'user', content: lead + UNOPENED + text };
+    assistantReply = await askOnce();
+  }
 
   // Said it already? Ask once more, with that fact in front of him.
   //
@@ -340,8 +413,13 @@ async function respond(turn, surface) {
 
   // Only his own words go into history — not the machine's footnotes about
   // them, which would otherwise come back as something he said.
+  //
+  // The pictures themselves are not kept — re-sending them on every later turn
+  // would bill them again each time. A line saying there were some is, so "and
+  // what about the one I showed you?" still has something to stand on, along
+  // with whatever he said about it.
   history.push(
-    { role: 'user', content: text },
+    { role: 'user', content: images.length ? `${text}\n[showed you ${images.length} picture(s)]` : text },
     { role: 'assistant', content: reply },
   );
   // Twice the depth he is handed, so the window can slide without the oldest
@@ -354,7 +432,7 @@ async function respond(turn, surface) {
   // Background memory extraction — fire-and-forget, no blocking. A second
   // billed request on every message, which is why a surface can turn it off:
   // #help did, and a stream chat almost certainly should.
-  if (surface.remember !== false) {
+  if (surface.remember !== false && text.trim()) {
     extractMemoryFromMessage(username, text).then(fact => {
       if (fact) {
         addMemory(spaceId, userId, fact);

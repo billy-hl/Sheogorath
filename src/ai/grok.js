@@ -99,12 +99,23 @@ async function getAIResponse(prompt, { systemPrompt, maxTokens, rawSystemPrompt,
  * why the tag scrubbing has to handle truncated tags at all. Room to finish the
  * thought costs nothing when he doesn't use it.
  *
- * @param {Array<{role: string, content: string}>} messages - Conversation history
+ * A turn's content may be an array of parts rather than a string, in the chat
+ * completions shape — text, and `image_url` for a picture he is being shown.
+ *
+ * With `search`, the same conversation goes to the Responses API instead, with
+ * web search switched on: that is how he traces a picture to where it came
+ * from. Same persona, same history, same reply shape; only the endpoint and the
+ * part names differ.
+ *
+ * @param {Array<{role: string, content: string|Array}>} messages - Conversation history
  * @param {number} [maxTokens=500] - Max response tokens
  * @returns {Promise<string>} AI response
  */
-async function getAIResponseWithHistory(messages, maxTokens = 500, { systemSuffix = '', systemBase = null, guildId = null } = {}) {
+async function getAIResponseWithHistory(messages, maxTokens = 500, { systemSuffix = '', systemBase = null, guildId = null, search = false } = {}) {
   const makeRequest = async (msgs, timeout) => {
+    if (search) {
+      return searchWithHistory(buildSystemPrompt(systemBase, systemSuffix, guildId), msgs, timeout);
+    }
     const response = await httpsPost(
       GROK_API_URL,
       {
@@ -264,6 +275,60 @@ async function getAIResponseWithSearch(prompt, { rawSystemPrompt, maxTokens = 60
     .map((part) => part.text)
     .join('\n');
   return text.replace(/\s*\[\[\d+\]\]\([^)\s]*\)/g, '').trim();
+}
+
+/** A chat-completions content part, renamed for the Responses API. */
+function toResponsesPart(part) {
+  if (part.type === 'image_url') {
+    return { type: 'input_image', image_url: part.image_url.url, detail: part.image_url.detail || 'high' };
+  }
+  return { type: 'input_text', text: part.text };
+}
+
+/**
+ * A whole conversation through the Responses API with web search on.
+ *
+ * Kept separate from getAIResponseWithSearch, which answers a lone prompt: this
+ * one carries history and pictures, and its cap is raised to the same 6000 for
+ * the same reason — reasoning and searching are spent from it before he says a
+ * word.
+ */
+async function searchWithHistory(system, messages, timeoutMs = 180000) {
+  const input = [
+    { role: 'system', content: system },
+    ...messages.map((m) => (
+      Array.isArray(m.content) && m.role === 'user'
+        ? { role: 'user', content: m.content.map(toResponsesPart) }
+        : m
+    )),
+  ];
+  const response = await httpsPost(
+    'https://api.x.ai/v1/responses',
+    {
+      model: 'grok-4.3',
+      input,
+      tools: [{ type: 'web_search' }],
+      max_output_tokens: 6000,
+      store: false,
+    },
+    { Authorization: `Bearer ${process.env.GROK_API_KEY}` },
+    Math.max(timeoutMs, 180000),
+  );
+  if (response.status !== 200) throw new Error(`Grok API Error: ${response.status} - ${JSON.stringify(response.data).slice(0, 300)}`);
+  const text = (response.data.output || [])
+    .filter((item) => item.type === 'message')
+    .flatMap((item) => item.content || [])
+    .filter((part) => part.type === 'output_text')
+    .map((part) => part.text)
+    .join('\n');
+  // Inline citations dropped for the same reason as above. The links he chose
+  // to write are the point of a lookup, so those stay — wrapped in <> so
+  // Discord shows them as links rather than unfurling each into a preview.
+  return text
+    .replace(/\s*\[\[\d+\]\]\([^)\s]*\)/g, '')
+    .replace(/\]\((https?:\/\/[^)\s]+)\)/g, '](<$1>)')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<>()]*[^\s<>().,!?;:'"])/g, '$1<$2>')
+    .trim();
 }
 
 function httpsGetBuffer(url, timeoutMs = 60000) {
